@@ -33,8 +33,8 @@ export const Facts = Schema.Struct({
   mergeable: Mergeability,
   reviewDecision: ReviewDecision,
   checks: ChecksState,
-  /** Whether the flaky classifier excuses a red CI. */
-  ciFlaky: Schema.Boolean,
+  /** Why the flaky classifier excuses this red CI, or null where it does not. */
+  ciFlaky: Schema.NullOr(Schema.String),
   /** The newest comment from a person who is not me, bots excluded. */
   newestHumanCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   myLastCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -74,7 +74,7 @@ const needsMe = (facts: Facts): string | null => {
   if (facts.mergeable === "conflicting") {
     return "merge conflict"
   }
-  if (facts.checks === "red" && !facts.ciFlaky) {
+  if (facts.checks === "red" && facts.ciFlaky === null) {
     return "CI is red"
   }
   if (facts.reviewDecision === "changes-requested") {
@@ -95,6 +95,9 @@ const needsMe = (facts: Facts): string | null => {
  * Ready is reached by having no reason not to be, so the reason says only what
  * holds: a repository that requires no reviewer produces no approval, and a
  * pull request with no CI at all is not green.
+ *
+ * A red CI the classifier excused is said out loud, because GitHub does not
+ * excuse it: the merge button is mine to press and that check is still red.
  */
 const readyReason = (facts: Facts): string => {
   const held = [
@@ -102,7 +105,10 @@ const readyReason = (facts: Facts): string => {
     facts.checks === "green" ? "green" : null,
     facts.mergeable === "mergeable" ? "mergeable" : null
   ].filter((it) => it !== null)
-  return held.length === 0 ? "nothing left to wait on" : held.join(", ")
+  const standing = held.length === 0 ? "nothing left to wait on" : held.join(", ")
+  return facts.checks === "red" && facts.ciFlaky !== null
+    ? `${standing} (red CI called flaky: ${facts.ciFlaky})`
+    : standing
 }
 
 /**

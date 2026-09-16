@@ -17,7 +17,7 @@ const clean: Facts = {
   mergeable: "mergeable",
   reviewDecision: "none",
   checks: "green",
-  ciFlaky: false,
+  ciFlaky: null,
   newestHumanCommentAt: null,
   myLastCommentAt: null,
   myLastCommitAt: at("2026-09-16T10:05:57Z"),
@@ -41,7 +41,17 @@ describe("place", () => {
     })
 
     it("leaves a red CI the classifier calls flaky alone", () => {
-      assert.strictEqual(place(facts({ checks: "red", ciFlaky: true })).bucket, "ready")
+      assert.strictEqual(
+        place(facts({ checks: "red", ciFlaky: "Quality gate is red on the default branch too" })).bucket,
+        "ready"
+      )
+    })
+
+    it("says so when the only thing between a PR and Ready is a red CI it excused", () => {
+      assert.strictEqual(
+        place(facts({ checks: "red", ciFlaky: 'the log matches "ETIMEDOUT"' })).reason,
+        'mergeable (red CI called flaky: the log matches "ETIMEDOUT")'
+      )
     })
 
     it("claims a PR a reviewer asked for changes on", () => {

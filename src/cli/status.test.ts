@@ -35,12 +35,12 @@ const commit = (login: string, at: string) => ({
 })
 
 /** One check run, in the shape `statusCheckRollup` answers with. */
-const check = (name: string, conclusion: string, status = "COMPLETED") => ({
+const check = (name: string, conclusion: string, status = "COMPLETED", workflowName = "Quality gate") => ({
   __typename: "CheckRun",
   name,
   status,
   conclusion,
-  workflowName: "Quality gate"
+  workflowName
 })
 
 /** What `gh` says on stderr instead of answering about a repository. */
@@ -60,6 +60,10 @@ interface Fixture {
   readonly onDiff?: ReadonlyArray<ReturnType<typeof comment>>
   readonly reviews?: ReadonlyArray<ReturnType<typeof review>>
   readonly commits?: ReadonlyArray<ReturnType<typeof commit>>
+  /** The paths `gh pr view --json files` answers with. */
+  readonly files?: ReadonlyArray<string>
+  /** What the failing jobs of this PR printed. */
+  readonly log?: string
   /** What `gh` says on stderr instead of answering about this PR. */
   readonly refuses?: string
 }
@@ -72,7 +76,12 @@ const view = (repo: string, pr: Fixture) => ({
   headRefOid: pr.headRefOid ?? "31268022360852f71815404b6bbdd6bd797cfb4c",
   mergeable: pr.mergeable ?? "MERGEABLE",
   reviewDecision: pr.reviewDecision ?? "",
-  statusCheckRollup: pr.rollup ?? [check("Check", "SUCCESS")]
+  // Every check of a PR reports at the same job, whose id is the PR's number,
+  // so a stubbed log is found from the URL the classifier follows.
+  statusCheckRollup: (pr.rollup ?? [check("Check", "SUCCESS")]).map((entry) => ({
+    ...entry,
+    detailsUrl: `https://github.com/${repo}/actions/runs/1/job/${pr.number}`
+  }))
 })
 
 /**
@@ -82,6 +91,8 @@ const view = (repo: string, pr: Fixture) => ({
 const github = (options: {
   readonly repos: Record<string, ReadonlyArray<Fixture> | Refusal>
   readonly spawned?: Array<string> | undefined
+  /** The workflows that are failing on the default branch as well. */
+  readonly redOnDefaultBranch?: ReadonlyArray<string> | undefined
 }) =>
   layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -124,7 +135,31 @@ const github = (options: {
       if (pr.refuses !== undefined) {
         return refuse(pr.refuses)
       }
-      return fields === "commits" ? json({ commits: pr.commits ?? [] }) : json(view(repo, pr))
+      if (fields === "commits") {
+        return json({ commits: pr.commits ?? [] })
+      }
+      if (fields === "files") {
+        return json({ files: (pr.files ?? []).map((path) => ({ path })) })
+      }
+      return json(view(repo, pr))
+    }
+
+    const defaultBranchRef = /^repo view (\S+) --json defaultBranchRef$/.exec(argv)
+    if (defaultBranchRef !== null) {
+      return json({ defaultBranchRef: { name: "main" } })
+    }
+
+    const runs = /^run list --repo \S+ --branch main --workflow (.+) --limit 5 --json conclusion$/.exec(argv)
+    if (runs !== null) {
+      const workflow = runs[1] ?? ""
+      const red = options.redOnDefaultBranch?.includes(workflow) ?? false
+      return json([{ conclusion: red ? "failure" : "success" }])
+    }
+
+    const logs = /^api repos\/(\S+?)\/actions\/jobs\/(\d+)\/logs --allow-escape-sequences$/.exec(argv)
+    if (logs !== null) {
+      const [, repo = "", job = ""] = logs
+      return Effect.succeed(fakeHandle({ stdout: found(repo, job)?.log ?? "" }))
     }
 
     const reviews = /^api repos\/(\S+?)\/pulls\/(\d+)\/reviews\?per_page=100$/.exec(argv)
@@ -552,6 +587,187 @@ describe("dw-mc sweep", () => {
         "Could not load",
         "  dominikwozniak/gone  gh search prs failed: could not resolve to a Repository"
       ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+})
+
+describe("a red CI, classified", () => {
+  const repo = "dominikwozniak/dw-mc"
+  const red = [check("Check", "FAILURE")]
+
+  /** The reason column of every row, which is where a verdict shows up. */
+  const reasons = (printed: ReadonlyArray<string>) =>
+    printed.filter((line) => line.startsWith("  ")).map((line) => line.split(/ {2,}/).at(-1))
+
+  it.effect("keeps a PR out of Needs me when the same workflow is red on the default branch", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: { [repo]: [{ number: 1, title: "feat: flaky", rollup: red, reviewDecision: "APPROVED" }] },
+      redOnDefaultBranch: ["Quality gate"]
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs review run")
+      assert.strictEqual(
+        Option.getOrThrow(yield* storeFor("prs", Facts).pipe(Effect.flatMap((store) => store.get(`${repo}#1`))))
+          .ciFlaky,
+        "Quality gate is red on the default branch too"
+      )
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("keeps a PR out of Needs me when the log matches a known flaky pattern", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: { [repo]: [{ number: 1, rollup: red, log: "Error: connect ETIMEDOUT 140.82.121.4:443" }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs review run")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("hands the PR back to me when the failing log names a file it changes", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: {
+        [repo]: [
+          {
+            number: 1,
+            rollup: red,
+            files: ["src/domain/flaky.ts"],
+            log: "connect ETIMEDOUT\nFAIL src/domain/flaky.ts:12:3\n"
+          }
+        ]
+      },
+      redOnDefaultBranch: ["Quality gate"]
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs me")
+      assert.deepStrictEqual(reasons(printed), ["CI is red"])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("hands the PR back to me when nothing explains the failure", () => {
+    const printed: Array<string> = []
+    const spawner = github({ repos: { [repo]: [{ number: 1, rollup: red, log: "Error: expected 3 to be 4" }] } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs me")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("honours a flaky pattern I added to the repository's configuration", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: { [repo]: [{ number: 1, rollup: red, log: "Error: Chromium revision is not downloaded" }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* write({ repos: { [repo]: { ci: { flaky_patterns: ["Chromium revision is not downloaded"] } } } })
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs review run")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("never classifies a check ci.ignore says does not count", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({
+      repos: { [repo]: [{ number: 1, rollup: [check("Check", "SUCCESS"), check("codecov", "FAILURE")] }] },
+      spawned
+    })
+
+    return Effect.gen(function* () {
+      yield* write({ repos: { [repo]: { ci: { ignore: ["codecov"] } } } })
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs review run")
+      assert.isFalse(spawned.some((argv) => argv.includes("/logs")))
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("says a red CI it excused out loud rather than calling the PR clean", () => {
+    const printed: Array<string> = []
+    const head = "31268022360852f71815404b6bbdd6bd797cfb4c"
+    const spawner = github({
+      repos: { [repo]: [{ number: 1, rollup: red, reviewDecision: "APPROVED" }] },
+      redOnDefaultBranch: ["Quality gate"]
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("sweep")
+
+      const store = yield* storeFor("prs", Facts)
+      const key = `${repo}#1`
+      yield* store.set(key, { ...Option.getOrThrow(yield* store.get(key)), reviewRunHead: head })
+      printed.length = 0
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Ready")
+      assert.deepStrictEqual(reasons(printed), [
+        "approved, mergeable (red CI called flaky: Quality gate is red on the default branch too)"
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("classifies once and stands by it while the PR sits still", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({
+      repos: { [repo]: [{ number: 1, rollup: red, log: "connect ETIMEDOUT" }] },
+      spawned
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("sweep")
+      const first = spawned.filter((argv) => argv.includes("/logs")).length
+      yield* run("sweep")
+
+      assert.strictEqual(first, 1)
+      assert.strictEqual(spawned.filter((argv) => argv.includes("/logs")).length, first)
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("reports a legitimate failure and never tries to fix it", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({
+      repos: { [repo]: [{ number: 1, rollup: red, files: ["src/cli/sweep.ts"], log: "FAIL src/cli/sweep.ts:1:1" }] },
+      spawned
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs me")
+      // Every read a sweep makes, and not one write: no re-run, no comment, no merge.
+      assert.deepStrictEqual(
+        spawned.filter((argv) => !argv.startsWith("gh api repos/") && !argv.startsWith("gh pr view")),
+        [
+          "gh api user",
+          `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`,
+          `gh repo view ${repo} --json defaultBranchRef`,
+          `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`
+        ]
+      )
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })
