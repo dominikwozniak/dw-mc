@@ -6,12 +6,12 @@ import * as Layer_ from "effect/Layer"
 import { Command } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 import type { ChildProcessSpawner } from "effect/unstable/process"
+import type { ConfigFile } from "../adapters/config.ts"
+import { ConfigStore, read, settingsFor, write } from "../adapters/config.ts"
+import { key, layerScripted } from "../adapters/picker.ts"
+import { fakeHandle, layerFake } from "../adapters/spawner.ts"
+import * as Store from "../adapters/store.ts"
 import { dwMc, version } from "./cli.ts"
-import type { ConfigFile } from "./config.ts"
-import { ConfigStore, read, settingsFor, write } from "./config.ts"
-import { key, layerScripted } from "./picker.ts"
-import { fakeHandle, layerFake } from "./spawner.ts"
-import * as Store from "./store.ts"
 
 /** What the real `gh` says, captured from `gh` itself. */
 const said = {

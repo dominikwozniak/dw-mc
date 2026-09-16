@@ -1,9 +1,9 @@
 import { Console, Effect, Option } from "effect"
 import { CliError, Command, Flag, Prompt } from "effect/unstable/cli"
-import type { ConfigFile, Runner, SettingsPatch } from "./config.ts"
-import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, write } from "./config.ts"
-import { currentRepo, requireAuth } from "./gh.ts"
-import { stateDirectory } from "./store.ts"
+import type { ConfigFile, Runner, SettingsPatch } from "../adapters/config.ts"
+import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, write } from "../adapters/config.ts"
+import { currentRepo, requireAuth } from "../adapters/gh.ts"
+import { stateDirectory } from "../adapters/store.ts"
 
 const runnerFlag = Flag.Literals("runner", ["builtin", "prompt"]).pipe(
   Flag.withDescription("Which runner review runs execute on, on this machine"),
