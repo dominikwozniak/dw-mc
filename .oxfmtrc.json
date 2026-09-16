@@ -17,8 +17,9 @@
   // Disabled by default. The groups are oxfmt's own; `subpath` is the slot this repo's
   // `#`-prefixed module names land in, under the packages and above the relative imports.
   "sortImports": true,
-  // `.gitignore` is read by default and already covers `dist` and `node_modules`. These two
-  // are tracked and are still not this repo's source: a read-only checkout of the Effect
-  // monorepo, and skills vendored from upstream. Both are formatted by whoever publishes them.
-  "ignorePatterns": ["repos", ".claude"]
+  // `.gitignore` is read by default and already covers `dist` and `node_modules`. These
+  // three are tracked and are still not this repo's source: a read-only checkout of the
+  // Effect monorepo, skills vendored from upstream, and the vendored `anti-slop` rules.
+  // All three are formatted by whoever publishes them.
+  "ignorePatterns": ["repos", ".claude", "tools/oxlint/anti-slop"]
 }

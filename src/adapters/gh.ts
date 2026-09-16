@@ -1,5 +1,5 @@
 import type { DateTime } from "effect"
-import { Effect, PlatformError, Schema } from "effect"
+import { Effect, Match, PlatformError, Schema } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process"
 
 import { capture } from "#adapters/spawner.ts"
@@ -325,22 +325,34 @@ export const prCommits = Effect.fnUntraced(function* (repo: string, number: numb
   }))
 })
 
+type Mergeability = "mergeable" | "conflicting" | "unknown"
+
 /**
  * What `gh` says about merging, in our words. Anything else is `unknown`:
  * GitHub answers that too, for a PR whose mergeability it is still computing.
+ *
+ * `Match.withReturnType` comes first in the pipeline or the return type is not
+ * enforced: a handler's literal widens to `string` on its own.
  */
-export const mergeabilityOf = (raw: string): "mergeable" | "conflicting" | "unknown" =>
-  raw === "MERGEABLE" ? "mergeable" : raw === "CONFLICTING" ? "conflicting" : "unknown"
+export const mergeabilityOf = (raw: string): Mergeability =>
+  Match.value(raw).pipe(
+    Match.withReturnType<Mergeability>(),
+    Match.when("MERGEABLE", () => "mergeable"),
+    Match.when("CONFLICTING", () => "conflicting"),
+    Match.orElse(() => "unknown")
+  )
+
+type ReviewDecision = "approved" | "changes-requested" | "review-required" | "none"
 
 /**
  * What `gh` says the reviewers decided, in our words. A repository that requires
  * no reviewer reports an empty string, which is `none` rather than pending.
  */
-export const reviewDecisionOf = (raw: string): "approved" | "changes-requested" | "review-required" | "none" =>
-  raw === "APPROVED"
-    ? "approved"
-    : raw === "CHANGES_REQUESTED"
-      ? "changes-requested"
-      : raw === "REVIEW_REQUIRED"
-        ? "review-required"
-        : "none"
+export const reviewDecisionOf = (raw: string): ReviewDecision =>
+  Match.value(raw).pipe(
+    Match.withReturnType<ReviewDecision>(),
+    Match.when("APPROVED", () => "approved"),
+    Match.when("CHANGES_REQUESTED", () => "changes-requested"),
+    Match.when("REVIEW_REQUIRED", () => "review-required"),
+    Match.orElse(() => "none")
+  )
