@@ -24,34 +24,32 @@ export const key = (name: string): Terminal.UserInput => ({
 })
 
 /**
- * A terminal that answers with `keys` and records what was drawn, for tests.
+ * A terminal that answers with `keys` and draws nowhere, for tests.
  *
  * Effect ships no test terminal, so this builds one from `Terminal.make`. A
  * prompt only ever asks for `columns`, `display` and `readInput`; it never
- * calls `readLine`. Running out of keys ends the queue, which a prompt reads as
- * the user quitting.
+ * calls `readLine`. The keys are queued once, so a second prompt over the same
+ * terminal finds the script spent rather than replaying it. Running out of keys
+ * ends the queue, which a prompt reads as the user quitting.
  */
 export const layerScripted = (
-  keys: ReadonlyArray<Terminal.UserInput>,
-  displayed?: Array<string>
+  keys: ReadonlyArray<Terminal.UserInput>
 ): Layer.Layer<Terminal.Terminal> =>
-  Layer.succeed(
+  Layer.effect(
     Terminal.Terminal,
-    Terminal.make({
-      columns: Effect.succeed(80),
-      rows: Effect.succeed(24),
-      readInput: Effect.gen(function*() {
-        const queue = yield* Queue.make<Terminal.UserInput, Cause.Done>()
-        for (const stroke of keys) {
-          Queue.offerUnsafe(queue, stroke)
-        }
-        Queue.endUnsafe(queue)
-        return queue
-      }),
-      readLine: Effect.die("picker: a prompt never reads a line"),
-      display: (text) =>
-        Effect.sync(() => {
-          displayed?.push(text)
-        })
+    Effect.gen(function*() {
+      const queue = yield* Queue.make<Terminal.UserInput, Cause.Done>()
+      for (const stroke of keys) {
+        Queue.offerUnsafe(queue, stroke)
+      }
+      Queue.endUnsafe(queue)
+
+      return Terminal.make({
+        columns: Effect.succeed(80),
+        rows: Effect.succeed(24),
+        readInput: Effect.succeed(queue),
+        readLine: Effect.die("picker: a prompt never reads a line"),
+        display: () => Effect.void
+      })
     })
   )

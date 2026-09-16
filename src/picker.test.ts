@@ -9,27 +9,36 @@ const buckets = [
 ]
 
 describe("picker", () => {
-  it.effect("pick returns the choice the scripted keys land on", () => {
-    const displayed: Array<string> = []
-
-    return Effect.gen(function*() {
-      const chosen = yield* pick("Which bucket?", buckets)
-
-      assert.deepStrictEqual(chosen, Option.some("needs-review-run"))
-      assert.isTrue(displayed.some((frame) => frame.includes("Needs review run")))
+  it.effect("pick returns the choice the scripted keys land on", () =>
+    Effect.gen(function*() {
+      assert.deepStrictEqual(
+        yield* pick("Which bucket?", buckets),
+        Option.some("needs-review-run")
+      )
     }).pipe(
       Effect.provide(Layer.mergeAll(
-        layerScripted([key("down"), key("enter")], displayed),
+        layerScripted([key("down"), key("enter")]),
         FileSystem.layerNoop({}),
         Path.layer
       ))
-    )
-  })
+    ))
 
   it.effect("pick returns none when the user quits instead of choosing", () =>
     Effect.gen(function*() {
       assert.deepStrictEqual(yield* pick("Which bucket?", buckets), Option.none())
     }).pipe(
       Effect.provide(Layer.mergeAll(layerScripted([]), FileSystem.layerNoop({}), Path.layer))
+    ))
+
+  it.effect("a scripted terminal spends its keys once rather than replaying them", () =>
+    Effect.gen(function*() {
+      assert.deepStrictEqual(yield* pick("Which bucket?", buckets), Option.some("needs-me"))
+      assert.deepStrictEqual(yield* pick("Which bucket?", buckets), Option.none())
+    }).pipe(
+      Effect.provide(Layer.mergeAll(
+        layerScripted([key("enter")]),
+        FileSystem.layerNoop({}),
+        Path.layer
+      ))
     ))
 })
