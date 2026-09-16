@@ -15,9 +15,8 @@ does not cover, read the sources: `node_modules/effect/src` and `node_modules/@e
 
 ## Source layout
 
-`src/` is three layers — `cli` → `domain` → `adapters` — and imports cross them in that direction only. A
-test sits beside its module and a module exports its own fake. A directory is created when there is code
-for it, never ahead of it. See [ADR 0006](docs/adr/0006-source-layout.md).
+Where a module goes, which way an import may cross a layer, and where its test and its fake live are
+decided in [ADR 0006](docs/adr/0006-source-layout.md). Read it before adding a file to `src/`.
 
 ## Tooling
 
