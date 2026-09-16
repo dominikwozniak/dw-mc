@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Effect, Option, Path, Schema } from "effect"
+import { ConfigProvider, Effect, Layer, Option, Path, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 import { layerTest, stateDirectory, storeFor } from "./store.ts"
 
@@ -39,15 +39,17 @@ describe("store", () => {
     }).pipe(Effect.provide(layerTest)))
 
   const env = (record: Record<string, string | undefined>) =>
-    Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnvRecord(record)))
+    Effect.provide(
+      Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnvRecord(record)), Path.layer)
+    )
 
   it.effect("the state directory sits under XDG_STATE_HOME when it is set", () =>
     Effect.gen(function*() {
       assert.strictEqual(yield* stateDirectory(), "/var/state/dw-mc")
-    }).pipe(env({ XDG_STATE_HOME: "/var/state", HOME: "/home/dw" }), Effect.provide(Path.layer)))
+    }).pipe(env({ XDG_STATE_HOME: "/var/state", HOME: "/home/dw" })))
 
   it.effect("the state directory falls back to the XDG default under HOME", () =>
     Effect.gen(function*() {
       assert.strictEqual(yield* stateDirectory(), "/home/dw/.local/state/dw-mc")
-    }).pipe(env({ HOME: "/home/dw" }), Effect.provide(Path.layer)))
+    }).pipe(env({ HOME: "/home/dw" })))
 })
