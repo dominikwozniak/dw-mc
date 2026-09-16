@@ -29,12 +29,17 @@
       // too, while a package path is not - `effect/unstable/cli` is an adapter's import.
       "files": ["src/adapters/**"],
       "rules": {
-        "no-restricted-imports": ["error", {
-          "patterns": [{
-            "regex": "^\\.{1,2}/(.*/)?(cli|domain)/",
-            "message": "An adapter owns a boundary and knows nothing above it: import the other way (ADR 0006)."
-          }]
-        }]
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.{1,2}/(.*/)?(cli|domain)/",
+                "message": "An adapter owns a boundary and knows nothing above it: import the other way (ADR 0006)."
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -43,12 +48,17 @@
       // that gets it wrong.
       "files": ["src/domain/**"],
       "rules": {
-        "no-restricted-imports": ["error", {
-          "patterns": [{
-            "regex": "^\\.{1,2}/(.*/)?cli/",
-            "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
-          }]
-        }]
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.{1,2}/(.*/)?cli/",
+                "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
+              }
+            ]
+          }
+        ]
       }
     },
     {

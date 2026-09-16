@@ -1,13 +1,7 @@
 import { Predicate } from "effect"
 
 /** A value this writer can put on paper: what `Yaml.parse` gives back. */
-export type Value =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<Value>
-  | { readonly [key: string]: Value }
+export type Value = null | boolean | number | string | ReadonlyArray<Value> | { readonly [key: string]: Value }
 
 /**
  * A word YAML reads as itself. Anything else - a glob, an empty string, a
@@ -73,11 +67,7 @@ const writeEntry = (prefix: string, value: Value, depth: number, out: Array<stri
   out.push(`${prefix} ${scalar(value)}`)
 }
 
-const writeMapping = (
-  entries: ReadonlyArray<readonly [string, Value]>,
-  depth: number,
-  out: Array<string>
-): void => {
+const writeMapping = (entries: ReadonlyArray<readonly [string, Value]>, depth: number, out: Array<string>): void => {
   for (const [key, value] of entries) {
     writeEntry(`${pad(depth)}${scalar(key)}:`, value, depth + 1, out)
   }

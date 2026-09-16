@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Yaml } from "effect/unstable/encoding"
+
 import type { Value } from "./yaml.ts"
 import { encodeYaml } from "./yaml.ts"
 
@@ -48,9 +49,9 @@ describe("encodeYaml", () => {
       encodeYaml(value),
       "path_instructions:\n" +
         `  - path: "src/**"\n` +
-        "    instructions: \"Prefer Effect.gen\"\n" +
+        '    instructions: "Prefer Effect.gen"\n' +
         `  - path: "docs/**"\n` +
-        "    instructions: \"Present tense\"\n"
+        '    instructions: "Present tense"\n'
     )
     assert.deepStrictEqual(roundTrip(value), value)
   })

@@ -1,13 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, PlatformError } from "effect"
+
 import { currentRepo, requireAuth } from "./gh.ts"
 import { fakeHandle, layerFake } from "./spawner.ts"
 
 /** A spawner that answers every program the same way, and records the argv. */
-const answering = (
-  spawned: Array<ReadonlyArray<string>>,
-  handle: Parameters<typeof fakeHandle>[0]
-) =>
+const answering = (spawned: Array<ReadonlyArray<string>>, handle: Parameters<typeof fakeHandle>[0]) =>
   layerFake((command) => {
     if (command._tag !== "StandardCommand") {
       return Effect.die("gh.test: the fake was handed a piped command")
@@ -23,7 +21,7 @@ describe("requireAuth", () => {
       stdout: "github.com\n  ✓ Logged in to github.com account dominikwozniak (keyring)\n"
     })
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       yield* requireAuth
 
       assert.deepStrictEqual(spawned, [["gh", "auth", "status"]])
@@ -42,7 +40,7 @@ describe("requireAuth", () => {
       )
     )
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(requireAuth)
 
       assert.strictEqual(error._tag, "GhUnavailable")
@@ -57,7 +55,7 @@ describe("requireAuth", () => {
       stderr: "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
     })
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(requireAuth)
 
       assert.strictEqual(error._tag, "GhUnauthenticated")
@@ -72,7 +70,7 @@ describe("currentRepo", () => {
     const spawned: Array<ReadonlyArray<string>> = []
     const inRepo = answering(spawned, { stdout: `{"nameWithOwner":"dominikwozniak/dw-mc"}` })
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       assert.strictEqual(yield* currentRepo, "dominikwozniak/dw-mc")
       assert.deepStrictEqual(spawned, [["gh", "repo", "view", "--json", "nameWithOwner"]])
     }).pipe(Effect.provide(inRepo))
@@ -84,7 +82,7 @@ describe("currentRepo", () => {
       stderr: "failed to run git: fatal: not a git repository (or any of the parent directories): .git\n"
     })
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(currentRepo)
 
       assert.strictEqual(error._tag, "NoRepository")
@@ -95,7 +93,7 @@ describe("currentRepo", () => {
   it.effect("refuses to guess when gh answers with something else", () => {
     const changed = answering([], { stdout: `{"name":"dw-mc"}` })
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(currentRepo)
 
       assert.strictEqual(error._tag, "GhUnreadable")
