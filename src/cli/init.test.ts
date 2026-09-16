@@ -6,12 +6,13 @@ import * as Layer_ from "effect/Layer"
 import { Command } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 import type { ChildProcessSpawner } from "effect/unstable/process"
-import type { ConfigFile } from "../adapters/config.ts"
-import { ConfigStore, read, settingsFor, write } from "../adapters/config.ts"
-import { key, layerScripted } from "../adapters/picker.ts"
-import { fakeHandle, layerFake } from "../adapters/spawner.ts"
-import * as Store from "../adapters/store.ts"
-import { dwMc, version } from "./cli.ts"
+
+import type { ConfigFile } from "#adapters/config.ts"
+import { ConfigStore, read, settingsFor, write } from "#adapters/config.ts"
+import { key, layerScripted } from "#adapters/picker.ts"
+import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import * as Store from "#adapters/store.ts"
+import { dwMc, version } from "#cli/cli.ts"
 
 /** What the real `gh` says, captured from `gh` itself. */
 const said = {
@@ -106,7 +107,7 @@ describe("dw-mc init", () => {
   it.effect("sets the machine up, registers the repository and says what it did", () => {
     const printed: Array<string> = []
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       yield* init()
 
       assert.deepStrictEqual(printed, [
@@ -133,15 +134,13 @@ describe("dw-mc init", () => {
         repos: { "dominikwozniak/dw-mc": {} }
       })
     }).pipe(
-      Effect.provide(
-        machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }), keys: [key("enter")] })
-      ),
+      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }), keys: [key("enter")] })),
       recording(printed)
     )
   })
 
   it.effect("writes the defaults out as YAML I can read and edit", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* init("--runner", "prompt")
 
       const config = yield* ConfigStore
@@ -170,46 +169,43 @@ describe("dw-mc init", () => {
           "repos:\n" +
           "  dominikwozniak/dw-mc: {}\n"
       )
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("takes the runner from a flag rather than asking for it", () => {
     const printed: Array<string> = []
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       yield* init("--runner", "prompt")
 
       const file = Option.getOrThrow(yield* read)
       assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["prompt"])
       assert.strictEqual(printed[0], "runner      prompt")
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording(printed)
-    )
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
   })
 
   it.effect("stops with somewhere to get gh when gh is not installed", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const error = yield* Effect.flip(init())
 
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "https://cli.github.com")
       assert.deepStrictEqual(yield* read, Option.none())
-    }).pipe(Effect.provide(machine({ spawner: ghMissing })), recording([])))
+    }).pipe(Effect.provide(machine({ spawner: ghMissing })), recording([]))
+  )
 
   it.effect("stops with what to run when gh is logged out", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const error = yield* Effect.flip(init())
 
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "gh auth login")
       assert.deepStrictEqual(yield* read, Option.none())
-    }).pipe(Effect.provide(machine({ spawner: gh({ repo: said.repo }) })), recording([])))
+    }).pipe(Effect.provide(machine({ spawner: gh({ repo: said.repo }) })), recording([]))
+  )
 
   it.effect("stops on a configuration file that is there and is wrong", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const config = yield* ConfigStore
       yield* config.store.set("config.yaml", "defaults:\n  review:\n    runner: builtin\n")
 
@@ -218,44 +214,34 @@ describe("dw-mc init", () => {
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
       assert.include(error.message, "runner")
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("says what to pass when there is no terminal to answer the prompt", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const error = yield* Effect.flip(init())
 
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "--runner builtin")
       assert.deepStrictEqual(yield* read, Option.none())
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("sets the machine up outside a repository and registers nothing", () => {
     const printed: Array<string> = []
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       yield* init()
 
-      assert.strictEqual(
-        printed[3],
-        "repository  none here - run dw-mc init inside a repository to register it"
-      )
+      assert.strictEqual(printed[3], "repository  none here - run dw-mc init inside a repository to register it")
       assert.isUndefined(Option.getOrThrow(yield* read).repos)
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }), keys: [key("enter")] })),
-      recording(printed)
-    )
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }), keys: [key("enter")] })), recording(printed))
   })
 
   it.effect("leaves the state directory behind on the first run", () => {
     const printed: Array<string> = []
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const xdg = yield* fs.makeTempDirectoryScoped()
@@ -293,7 +279,7 @@ describe("dw-mc init, run again", () => {
   it.effect("changes the settings it was given and keeps every other one", () => {
     const printed: Array<string> = []
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       yield* write(registered)
 
       yield* init("--effort", "high")
@@ -306,14 +292,11 @@ describe("dw-mc init, run again", () => {
       assert.deepStrictEqual(settings.ci.ignore, ["advisory"])
       assert.deepStrictEqual(file.defaults, registered.defaults)
       assert.strictEqual(printed[3], "repository  dominikwozniak/dw-mc (already registered)")
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording(printed)
-    )
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
   })
 
   it.effect("leaves the file alone when nothing was decided differently", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write(registered)
       const config = yield* ConfigStore
       const byHand = `# my own note\n${yield* config.store.get("config.yaml")}`
@@ -322,13 +305,11 @@ describe("dw-mc init, run again", () => {
       yield* init()
 
       assert.strictEqual(yield* config.store.get("config.yaml"), byHand)
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("rewrites the file when a flag decides something differently", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write(registered)
       const config = yield* ConfigStore
       yield* config.store.set("config.yaml", `# my own note\n${yield* config.store.get("config.yaml")}`)
@@ -336,13 +317,11 @@ describe("dw-mc init, run again", () => {
       yield* init("--effort", "high")
 
       assert.notInclude(yield* config.store.get("config.yaml") ?? "", "my own note")
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("spells the defaults out over a file that only set some of them", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write({ defaults: { review: { effort: "high" }, rebase: { enabled: true } } })
 
       yield* init("--runner", "prompt")
@@ -352,26 +331,22 @@ describe("dw-mc init, run again", () => {
       assert.strictEqual(defaults?.rebase?.enabled, true)
       assert.deepStrictEqual(defaults?.review?.runners, ["prompt"])
       assert.deepStrictEqual(defaults?.stamp, { blocks_on: "error" })
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("does not ask for the runner a second time", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write(registered)
 
       yield* init()
 
       const file = Option.getOrThrow(yield* read)
       assert.deepStrictEqual(file.defaults?.review?.runners, ["builtin"])
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("sends a new runner to the global defaults, not to the repository", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write(registered)
 
       yield* init("--runner", "prompt")
@@ -379,13 +354,11 @@ describe("dw-mc init, run again", () => {
       const file = Option.getOrThrow(yield* read)
       assert.deepStrictEqual(file.defaults?.review?.runners, ["prompt"])
       assert.isUndefined(file.repos?.["dominikwozniak/dw-mc"]?.review?.runners)
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("sends the base branch to the repository it was run in", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write(registered)
 
       yield* init("--base", "main")
@@ -393,21 +366,17 @@ describe("dw-mc init, run again", () => {
       const file = Option.getOrThrow(yield* read)
       assert.strictEqual(file.repos?.["dominikwozniak/dw-mc"]?.base, "main")
       assert.isUndefined(file.defaults?.base)
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+  )
 
   it.effect("sends the base branch to the defaults when there is no repository here", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write(registered)
 
       yield* init("--base", "main")
 
       const file = Option.getOrThrow(yield* read)
       assert.strictEqual(file.defaults?.base, "main")
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }) })),
-      recording([])
-    ))
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }) })), recording([]))
+  )
 })

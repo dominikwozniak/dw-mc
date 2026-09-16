@@ -32,12 +32,10 @@ export const key = (name: string): Terminal.UserInput => ({
  * terminal finds the script spent rather than replaying it. Running out of keys
  * ends the queue, which a prompt reads as the user quitting.
  */
-export const layerScripted = (
-  keys: ReadonlyArray<Terminal.UserInput>
-): Layer.Layer<Terminal.Terminal> =>
+export const layerScripted = (keys: ReadonlyArray<Terminal.UserInput>): Layer.Layer<Terminal.Terminal> =>
   Layer.effect(
     Terminal.Terminal,
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const queue = yield* Queue.make<Terminal.UserInput, Cause.Done>()
       for (const stroke of keys) {
         Queue.offerUnsafe(queue, stroke)

@@ -1,7 +1,8 @@
 import type { Config, Path } from "effect"
 import { Effect, Layer, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
-import { xdgDirectory } from "./xdg.ts"
+
+import { xdgDirectory } from "#adapters/xdg.ts"
 
 /**
  * Where the tool keeps its state: `$XDG_STATE_HOME/dw-mc`, or
@@ -20,7 +21,7 @@ export const stateDirectory: Effect.Effect<string, Config.ConfigError, Path.Path
  * what keeps them apart. Note that `clear`, `size` and `isEmpty` are not
  * namespaced - they still see the whole store.
  */
-export const storeFor = Effect.fn("store.storeFor")(function*<S extends Schema.Constraint>(
+export const storeFor = Effect.fn("store.storeFor")(function* <S extends Schema.Constraint>(
   namespace: string,
   schema: S
 ) {
@@ -29,9 +30,7 @@ export const storeFor = Effect.fn("store.storeFor")(function*<S extends Schema.C
 })
 
 /** The state directory on disk. */
-export const layer = Layer.unwrap(
-  Effect.map(stateDirectory, (directory) => KeyValueStore.layerFileSystem(directory))
-)
+export const layer = Layer.unwrap(Effect.map(stateDirectory, (directory) => KeyValueStore.layerFileSystem(directory)))
 
 /** A store that lives only as long as the test that builds it. */
 export const layerTest: Layer.Layer<KeyValueStore.KeyValueStore> = KeyValueStore.layerMemory

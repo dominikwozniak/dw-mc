@@ -1,7 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, PlatformError } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import { capture, fakeHandle, layerFake } from "./spawner.ts"
+
+import { capture, fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 describe("spawner", () => {
   it.effect("capture hands the argv to the spawner and trims its stdout", () => {
@@ -14,7 +15,7 @@ describe("spawner", () => {
       return Effect.succeed(fakeHandle({ stdout: "gh version 0.0.0-fake\n" }))
     })
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const version = yield* capture("gh", ["--version"])
 
       assert.strictEqual(version, "gh version 0.0.0-fake")
@@ -34,7 +35,7 @@ describe("spawner", () => {
       )
     )
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(capture("nope", []))
 
       if (error._tag !== "PlatformError") {
@@ -47,7 +48,7 @@ describe("spawner", () => {
   it.effect("the fake's combined output carries stderr as well as stdout", () => {
     const noisy = layerFake(() => Effect.succeed(fakeHandle({ stdout: "out", stderr: "err" })))
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const both = yield* spawner.string(ChildProcess.make("noisy", []), { includeStderr: true })
 
@@ -61,7 +62,7 @@ describe("spawner", () => {
       Effect.succeed(fakeHandle({ exitCode: 1, stderr: "could not resolve to a PullRequest\n" }))
     )
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const error = yield* Effect.flip(capture("gh", ["pr", "view", "999"]))
 
       if (error._tag !== "CommandFailed") {

@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, Option, Path } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
-import type { ConfigFile, Settings, SettingsPatch } from "./config.ts"
-import { builtIn, configPath, ConfigStore, merge, read, settingsFor, write } from "./config.ts"
+
+import type { ConfigFile, Settings, SettingsPatch } from "#adapters/config.ts"
+import { builtIn, configPath, ConfigStore, merge, read, settingsFor, write } from "#adapters/config.ts"
 
 const home = (record: Record<string, string | undefined> = { HOME: "/home/dw" }) =>
   Effect.provide(
@@ -13,29 +14,32 @@ const home = (record: Record<string, string | undefined> = { HOME: "/home/dw" })
   )
 
 const put = (yaml: string) =>
-  Effect.gen(function*() {
+  Effect.gen(function* () {
     const config = yield* ConfigStore
     yield* config.store.set("config.yaml", yaml)
   })
 
 describe("config file", () => {
   it.effect("sits under XDG_CONFIG_HOME when it is set", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       assert.strictEqual(yield* configPath, "/etc/xdg/dw-mc/config.yaml")
-    }).pipe(home({ XDG_CONFIG_HOME: "/etc/xdg", HOME: "/home/dw" })))
+    }).pipe(home({ XDG_CONFIG_HOME: "/etc/xdg", HOME: "/home/dw" }))
+  )
 
   it.effect("falls back to the XDG default under HOME", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       assert.strictEqual(yield* configPath, "/home/dw/.config/dw-mc/config.yaml")
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("reads as missing until something is written", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       assert.deepStrictEqual(yield* read, Option.none())
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("round-trips what was written", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const file: ConfigFile = {
         defaults: { review: { runners: ["prompt"], effort: "high" } },
         repos: { "dominikwozniak/dw-mc": { rebase: { enabled: true } } }
@@ -44,10 +48,11 @@ describe("config file", () => {
       yield* write(file)
 
       assert.deepStrictEqual(yield* read, Option.some(file))
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("keeps every key the schema has through a write and a read", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       const everything: SettingsPatch = {
         base: "develop",
         review: {
@@ -67,10 +72,11 @@ describe("config file", () => {
       yield* write(file)
 
       assert.deepStrictEqual(yield* read, Option.some(file))
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("is written in the order of the schema, so the file reads top down", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write({
         repos: { "dominikwozniak/dw-mc": {} },
         defaults: { stamp: { blocks_on: "warning" }, base: null }
@@ -87,10 +93,11 @@ describe("config file", () => {
           "repos:\n" +
           "  dominikwozniak/dw-mc: {}\n"
       )
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("rejects a file that is not YAML, naming the file and the reason", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* put("defaults:\n\tbase: main\n")
 
       const error = yield* Effect.flip(read)
@@ -99,61 +106,68 @@ describe("config file", () => {
       assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
       assert.include(error.message, "Tabs cannot be used for YAML indentation")
       assert.include(error.message, "dw-mc init")
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("rejects a value of the wrong type", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* put("defaults:\n  rebase:\n    enabled: yesterday\n")
 
       const error = yield* Effect.flip(read)
 
       assert.strictEqual(error._tag, "ConfigMalformed")
       assert.include(error.message, "enabled")
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("rejects a runner it does not have", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* put("defaults:\n  review:\n    runners:\n      - gemini\n")
 
       const error = yield* Effect.flip(read)
 
       assert.strictEqual(error._tag, "ConfigMalformed")
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("rejects a repository key that is not owner/name", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* put("repos:\n  dw-mc:\n    rebase:\n      enabled: true\n")
 
       const error = yield* Effect.flip(read)
 
       assert.strictEqual(error._tag, "ConfigMalformed")
       assert.include(error.message, `at ["repos"]["dw-mc"]`)
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("rejects a misspelled key rather than ignoring it", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* put("defaults:\n  review:\n    runner: builtin\n")
 
       const error = yield* Effect.flip(read)
 
       assert.strictEqual(error._tag, "ConfigMalformed")
       assert.include(error.message, "runner")
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("reads an empty document as an empty configuration", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* put("# nothing decided yet\n")
 
       assert.deepStrictEqual(yield* read, Option.some({}))
-    }).pipe(home()))
+    }).pipe(home())
+  )
 
   it.effect("keeps the store to itself, so state and configuration never collide", () =>
-    Effect.gen(function*() {
+    Effect.gen(function* () {
       yield* write({})
 
       const state = yield* KeyValueStore.KeyValueStore
       assert.strictEqual(yield* state.get("config.yaml"), undefined)
-    }).pipe(Effect.provide(KeyValueStore.layerMemory), home()))
+    }).pipe(Effect.provide(KeyValueStore.layerMemory), home())
+  )
 })
 
 describe("settingsFor", () => {

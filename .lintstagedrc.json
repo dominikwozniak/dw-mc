@@ -1,7 +1,4 @@
 {
-  "*.ts": [
-    "oxlint --disable-nested-config --fix",
-    "dprint fmt --allow-no-files"
-  ],
-  "*.{json,md}": "dprint fmt --allow-no-files"
+  "*.ts": ["oxlint --disable-nested-config --fix", "oxfmt --disable-nested-config --no-error-on-unmatched-pattern"],
+  "*.{json,jsonc,md,yaml,yml}": "oxfmt --disable-nested-config --no-error-on-unmatched-pattern"
 }

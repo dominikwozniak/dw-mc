@@ -9,24 +9,27 @@
     "type": "git",
     "url": "git+https://github.com/dominikwozniak/dw-mc.git"
   },
-  "type": "module",
   "bin": {
     "dw-mc": "./dist/cli/bin.js"
   },
   "files": [
     "dist"
   ],
-  "engines": {
-    "node": ">=24"
+  "type": "module",
+  "imports": {
+    "#*.ts": {
+      "types": "./src/*.ts",
+      "development": "./src/*.ts",
+      "default": "./dist/*.js"
+    }
   },
-  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.check.json",
     "lint": "oxlint . --disable-nested-config",
     "lint:fix": "oxlint . --disable-nested-config --fix",
-    "format": "dprint check",
-    "format:fix": "dprint fmt",
+    "format": "oxfmt --check --disable-nested-config .",
+    "format:fix": "oxfmt --disable-nested-config .",
     "test": "vitest run",
     "check": "pnpm lint && pnpm format && pnpm typecheck && pnpm test && pnpm build",
     "prepare": "effect-tsgo patch --oxlint && husky"
@@ -38,12 +41,16 @@
   "devDependencies": {
     "@effect/tsgo": "0.45.0",
     "@effect/vitest": "4.0.0-rc.115",
-    "dprint": "0.57.4",
     "husky": "9.1.7",
     "lint-staged": "17.5.0",
+    "oxfmt": "0.67.0",
     "oxlint": "1.82.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
-  }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.21.0"
 }

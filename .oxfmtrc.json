@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  // Only what departs from oxfmt's defaults. Double quotes, a two-space indent, LF, a final
+  // newline, parentheses around a sole arrow parameter and `sortPackageJson` are already
+  // what this repo wants, so they are not repeated here.
+  //
+  // These three are the Effect style, copied from `repos/effect`: a wider line than the
+  // default 100, no statement semicolons, and no trailing comma. They are what `src/` is
+  // written in, and the only part of that style oxfmt can still be asked for.
+  "printWidth": 120,
+  "semi": false,
+  "trailingComma": "none",
+  // Markdown only. On the default `"auto"` oxfmt reaches inside fenced code blocks, which
+  // reflows the annotated YAML sample in `docs/v1-design.md` and strips the comment
+  // alignment that carries its meaning. Off, every Markdown file here formats to no change.
+  "embeddedLanguageFormatting": "off",
+  // Disabled by default. The groups are oxfmt's own; `subpath` is the slot this repo's
+  // `#`-prefixed module names land in, under the packages and above the relative imports.
+  "sortImports": true,
+  // `.gitignore` is read by default and already covers `dist` and `node_modules`. These two
+  // are tracked and are still not this repo's source: a read-only checkout of the Effect
+  // monorepo, and skills vendored from upstream. Both are formatted by whoever publishes them.
+  "ignorePatterns": ["repos", ".claude"]
+}

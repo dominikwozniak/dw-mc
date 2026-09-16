@@ -1,22 +1,21 @@
 import { Effect, PlatformError, Schema } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process"
-import { capture } from "./spawner.ts"
+
+import { capture } from "#adapters/spawner.ts"
 
 /** `gh` is on the machine but would not run. */
 export class GhUnavailable extends Schema.TaggedError<GhUnavailable>()("GhUnavailable", {
   detail: Schema.String
 }) {
   override get message(): string {
-    return `gh could not be run: ${this.detail}\n` +
-      `Install it from https://cli.github.com, then run 'gh auth login'.`
+    return `gh could not be run: ${this.detail}\nInstall it from https://cli.github.com, then run 'gh auth login'.`
   }
 }
 
 /** `gh` runs but is not logged in, so every read of GitHub would fail. */
-export class GhUnauthenticated extends Schema.TaggedError<GhUnauthenticated>()(
-  "GhUnauthenticated",
-  { detail: Schema.String }
-) {
+export class GhUnauthenticated extends Schema.TaggedError<GhUnauthenticated>()("GhUnauthenticated", {
+  detail: Schema.String
+}) {
   override get message(): string {
     return `gh is not authenticated. Run 'gh auth login'.\n${this.detail}`
   }
@@ -72,7 +71,7 @@ export const currentRepo: Effect.Effect<
   string,
   GhUnavailable | NoRepository | GhUnreadable,
   ChildProcessSpawner.ChildProcessSpawner
-> = Effect.gen(function*() {
+> = Effect.gen(function* () {
   const json = yield* capture("gh", ["repo", "view", "--json", "nameWithOwner"]).pipe(
     Effect.catchTags({
       PlatformError: (error) => Effect.fail(unavailable(error)),

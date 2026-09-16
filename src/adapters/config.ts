@@ -2,9 +2,10 @@ import type { Config, Types } from "effect"
 import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Schema } from "effect"
 import { Yaml } from "effect/unstable/encoding"
 import { KeyValueStore } from "effect/unstable/persistence"
-import { xdgDirectory } from "./xdg.ts"
-import type { Value } from "./yaml.ts"
-import { encodeYaml } from "./yaml.ts"
+
+import { xdgDirectory } from "#adapters/xdg.ts"
+import type { Value } from "#adapters/yaml.ts"
+import { encodeYaml } from "#adapters/yaml.ts"
 
 /** A local agent CLI a review run executes on. */
 export const Runner = Schema.Literals(["builtin", "prompt"])
@@ -30,32 +31,38 @@ const PathInstruction = Schema.Struct({
  */
 const SettingsPatch = Schema.Struct({
   base: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  review: Schema.optionalKey(Schema.Struct({
-    runners: Schema.optionalKey(Schema.Array(Runner)),
-    effort: Schema.optionalKey(Effort),
-    model: Schema.optionalKey(Schema.NullOr(Schema.String)),
-    skill: Schema.optionalKey(Schema.NullOr(Schema.String)),
-    docs_only: Schema.optionalKey(Schema.Array(Schema.String)),
-    path_instructions: Schema.optionalKey(Schema.Array(PathInstruction))
-  })),
-  ci: Schema.optionalKey(Schema.Struct({
-    ignore: Schema.optionalKey(Schema.Array(Schema.String)),
-    flaky_patterns: Schema.optionalKey(Schema.Array(Schema.String))
-  })),
-  rebase: Schema.optionalKey(Schema.Struct({
-    enabled: Schema.optionalKey(Schema.Boolean)
-  })),
-  stamp: Schema.optionalKey(Schema.Struct({
-    blocks_on: Schema.optionalKey(Severity)
-  }))
+  review: Schema.optionalKey(
+    Schema.Struct({
+      runners: Schema.optionalKey(Schema.Array(Runner)),
+      effort: Schema.optionalKey(Effort),
+      model: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      skill: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      docs_only: Schema.optionalKey(Schema.Array(Schema.String)),
+      path_instructions: Schema.optionalKey(Schema.Array(PathInstruction))
+    })
+  ),
+  ci: Schema.optionalKey(
+    Schema.Struct({
+      ignore: Schema.optionalKey(Schema.Array(Schema.String)),
+      flaky_patterns: Schema.optionalKey(Schema.Array(Schema.String))
+    })
+  ),
+  rebase: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean)
+    })
+  ),
+  stamp: Schema.optionalKey(
+    Schema.Struct({
+      blocks_on: Schema.optionalKey(Severity)
+    })
+  )
 })
 export type SettingsPatch = typeof SettingsPatch.Type
 
 /** A repository, as `gh` spells it: `owner/name`. */
 export const Repo = Schema.String.pipe(
-  Schema.check(
-    Schema.isPattern(/^[^\s/]+\/[^\s/]+$/, { message: "Expected a repository as owner/name" })
-  )
+  Schema.check(Schema.isPattern(/^[^\s/]+\/[^\s/]+$/, { message: "Expected a repository as owner/name" }))
 )
 
 /** The whole configuration file: global defaults and per-repository overrides. */
@@ -97,26 +104,28 @@ export const builtIn: Settings = {
  * file spells out counts even when it says `null`, which is how a repository
  * resets a global default.
  */
-const over = <A>(patch: A | undefined, inherited: A): A => patch === undefined ? inherited : patch
+const over = <A>(patch: A | undefined, inherited: A): A => (patch === undefined ? inherited : patch)
 
 const apply = (settings: Settings, patch: SettingsPatch | undefined): Settings =>
-  patch === undefined ? settings : {
-    base: over(patch.base, settings.base),
-    review: {
-      runners: over(patch.review?.runners, settings.review.runners),
-      effort: over(patch.review?.effort, settings.review.effort),
-      model: over(patch.review?.model, settings.review.model),
-      skill: over(patch.review?.skill, settings.review.skill),
-      docs_only: over(patch.review?.docs_only, settings.review.docs_only),
-      path_instructions: over(patch.review?.path_instructions, settings.review.path_instructions)
-    },
-    ci: {
-      ignore: over(patch.ci?.ignore, settings.ci.ignore),
-      flaky_patterns: over(patch.ci?.flaky_patterns, settings.ci.flaky_patterns)
-    },
-    rebase: { enabled: over(patch.rebase?.enabled, settings.rebase.enabled) },
-    stamp: { blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on) }
-  }
+  patch === undefined
+    ? settings
+    : {
+        base: over(patch.base, settings.base),
+        review: {
+          runners: over(patch.review?.runners, settings.review.runners),
+          effort: over(patch.review?.effort, settings.review.effort),
+          model: over(patch.review?.model, settings.review.model),
+          skill: over(patch.review?.skill, settings.review.skill),
+          docs_only: over(patch.review?.docs_only, settings.review.docs_only),
+          path_instructions: over(patch.review?.path_instructions, settings.review.path_instructions)
+        },
+        ci: {
+          ignore: over(patch.ci?.ignore, settings.ci.ignore),
+          flaky_patterns: over(patch.ci?.flaky_patterns, settings.ci.flaky_patterns)
+        },
+        rebase: { enabled: over(patch.rebase?.enabled, settings.rebase.enabled) },
+        stamp: { blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on) }
+      }
 
 /**
  * `delta` over `patch`, keeping every key `delta` does not mention.
@@ -173,23 +182,19 @@ export const configDirectory: Effect.Effect<string, Config.ConfigError, Path.Pat
 const fileName = "config.yaml"
 
 /** The one file, in the one place, that I can read, edit and keep in my dotfiles. */
-export const configPath: Effect.Effect<string, Config.ConfigError, Path.Path> = Effect.gen(
-  function*() {
-    const path = yield* Path.Path
-    const directory = yield* configDirectory
-    return path.join(directory, fileName)
-  }
-).pipe(Effect.withSpan("config.configPath"))
+export const configPath: Effect.Effect<string, Config.ConfigError, Path.Path> = Effect.gen(function* () {
+  const path = yield* Path.Path
+  const directory = yield* configDirectory
+  return path.join(directory, fileName)
+}).pipe(Effect.withSpan("config.configPath"))
 
-const service = Effect.gen(function*() {
+const service = Effect.gen(function* () {
   const store = yield* KeyValueStore.KeyValueStore
   const path = yield* configPath
   return { path, store }
 })
 
-const onDisk = Layer.unwrap(
-  Effect.map(configDirectory, (directory) => KeyValueStore.layerFileSystem(directory))
-)
+const onDisk = Layer.unwrap(Effect.map(configDirectory, (directory) => KeyValueStore.layerFileSystem(directory)))
 
 /**
  * The configuration file, behind the key/value seam.
@@ -198,10 +203,13 @@ const onDisk = Layer.unwrap(
  * the path the design promises, so the seam costs the file nothing. Its store is
  * built fresh, so it is never the one the state directory is using.
  */
-export class ConfigStore extends Context.Service<ConfigStore, {
-  readonly path: string
-  readonly store: KeyValueStore.KeyValueStore
-}>()("dw-mc/config/ConfigStore") {
+export class ConfigStore extends Context.Service<
+  ConfigStore,
+  {
+    readonly path: string
+    readonly store: KeyValueStore.KeyValueStore
+  }
+>()("dw-mc/config/ConfigStore") {
   /** The configuration file on disk. */
   static readonly layer: Layer.Layer<
     ConfigStore,
@@ -210,9 +218,10 @@ export class ConfigStore extends Context.Service<ConfigStore, {
   > = Layer.effect(ConfigStore, service).pipe(Layer.provide(Layer.fresh(onDisk)))
 
   /** A configuration file that lives only as long as the test that builds it. */
-  static readonly layerTest: Layer.Layer<ConfigStore, Config.ConfigError, Path.Path> = Layer
-    .effect(ConfigStore, service)
-    .pipe(Layer.provide(Layer.fresh(KeyValueStore.layerMemory)))
+  static readonly layerTest: Layer.Layer<ConfigStore, Config.ConfigError, Path.Path> = Layer.effect(
+    ConfigStore,
+    service
+  ).pipe(Layer.provide(Layer.fresh(KeyValueStore.layerMemory)))
 }
 
 /** A configuration file that is there but is not configuration. */
@@ -221,12 +230,14 @@ export class ConfigMalformed extends Schema.TaggedError<ConfigMalformed>()("Conf
   reason: Schema.String
 }) {
   override get message(): string {
-    return `${this.path} is not valid dw-mc configuration: ${this.reason}\n` +
+    return (
+      `${this.path} is not valid dw-mc configuration: ${this.reason}\n` +
       `Fix the file, or delete it and run 'dw-mc init' again.`
+    )
   }
 }
 
-const reasonOf = (cause: unknown): string => cause instanceof Error ? cause.message : String(cause)
+const reasonOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause))
 
 /**
  * The configuration file, or `None` when this machine has none yet.
@@ -235,7 +246,7 @@ const reasonOf = (cause: unknown): string => cause instanceof Error ? cause.mess
  * value of the wrong type and a misspelled key all fail here rather than
  * turning into a default that quietly means something else.
  */
-export const read = Effect.gen(function*() {
+export const read = Effect.gen(function* () {
   const config = yield* ConfigStore
   const raw = yield* config.store.get(fileName)
   if (raw === undefined) {
@@ -258,9 +269,7 @@ export const read = Effect.gen(function*() {
   )
 }).pipe(Effect.withSpan("config.read"))
 
-const mapping = (
-  entries: ReadonlyArray<readonly [string, Value | undefined]>
-): { readonly [key: string]: Value } => {
+const mapping = (entries: ReadonlyArray<readonly [string, Value | undefined]>): { readonly [key: string]: Value } => {
   const out: Record<string, Value> = {}
   for (const [key, value] of entries) {
     if (value !== undefined) {
@@ -275,21 +284,25 @@ const settingsDocument = (patch: SettingsPatch): Value =>
     ["base", patch.base],
     [
       "review",
-      patch.review === undefined ? undefined : mapping([
-        ["runners", patch.review.runners],
-        ["effort", patch.review.effort],
-        ["model", patch.review.model],
-        ["skill", patch.review.skill],
-        ["docs_only", patch.review.docs_only],
-        ["path_instructions", patch.review.path_instructions]
-      ])
+      patch.review === undefined
+        ? undefined
+        : mapping([
+            ["runners", patch.review.runners],
+            ["effort", patch.review.effort],
+            ["model", patch.review.model],
+            ["skill", patch.review.skill],
+            ["docs_only", patch.review.docs_only],
+            ["path_instructions", patch.review.path_instructions]
+          ])
     ],
     [
       "ci",
-      patch.ci === undefined ? undefined : mapping([
-        ["ignore", patch.ci.ignore],
-        ["flaky_patterns", patch.ci.flaky_patterns]
-      ])
+      patch.ci === undefined
+        ? undefined
+        : mapping([
+            ["ignore", patch.ci.ignore],
+            ["flaky_patterns", patch.ci.flaky_patterns]
+          ])
     ],
     ["rebase", patch.rebase === undefined ? undefined : mapping([["enabled", patch.rebase.enabled]])],
     ["stamp", patch.stamp === undefined ? undefined : mapping([["blocks_on", patch.stamp.blocks_on]])]
@@ -306,9 +319,9 @@ const fileDocument = (file: ConfigFile): Value =>
     ["defaults", file.defaults === undefined ? undefined : settingsDocument(file.defaults)],
     [
       "repos",
-      file.repos === undefined ? undefined : mapping(
-        Object.entries(file.repos).map(([name, patch]) => [name, settingsDocument(patch)] as const)
-      )
+      file.repos === undefined
+        ? undefined
+        : mapping(Object.entries(file.repos).map(([name, patch]) => [name, settingsDocument(patch)] as const))
     ]
   ])
 
@@ -323,7 +336,7 @@ const header = "# dw-mc configuration. 'dw-mc init' rewrites this file and keeps
 export const encode = (file: ConfigFile): string => `${header}\n${encodeYaml(fileDocument(file))}`
 
 /** Writes the whole file, replacing what was there. */
-export const write = Effect.fn("config.write")(function*(file: ConfigFile) {
+export const write = Effect.fn("config.write")(function* (file: ConfigFile) {
   const config = yield* ConfigStore
   yield* config.store.set(fileName, encode(file))
 })

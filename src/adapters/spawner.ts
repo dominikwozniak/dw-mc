@@ -24,27 +24,21 @@ export class CommandFailed extends Schema.TaggedError<CommandFailed>()("CommandF
  * said on stderr. The two output streams drain together, because draining one
  * to the end first can block a program that is still writing to the other.
  */
-export const capture = Effect.fn("spawner.capture")(
-  function*(command: string, args: ReadonlyArray<string>) {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const handle = yield* spawner.spawn(ChildProcess.make(command, args))
+export const capture = Effect.fn("spawner.capture")(function* (command: string, args: ReadonlyArray<string>) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const handle = yield* spawner.spawn(ChildProcess.make(command, args))
 
-    const [stdout, stderr] = yield* Effect.all(
-      [
-        Stream.mkString(Stream.decodeText(handle.stdout)),
-        Stream.mkString(Stream.decodeText(handle.stderr))
-      ],
-      { concurrency: 2 }
-    )
-    const exitCode = yield* handle.exitCode
+  const [stdout, stderr] = yield* Effect.all(
+    [Stream.mkString(Stream.decodeText(handle.stdout)), Stream.mkString(Stream.decodeText(handle.stderr))],
+    { concurrency: 2 }
+  )
+  const exitCode = yield* handle.exitCode
 
-    if (exitCode !== 0) {
-      return yield* new CommandFailed({ command, args, exitCode, stderr: stderr.trim() })
-    }
-    return stdout.trim()
-  },
-  Effect.scoped
-)
+  if (exitCode !== 0) {
+    return yield* new CommandFailed({ command, args, exitCode, stderr: stderr.trim() })
+  }
+  return stdout.trim()
+}, Effect.scoped)
 
 /**
  * A `ChildProcessSpawner` built from a fake spawn function, for tests.

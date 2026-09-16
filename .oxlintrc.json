@@ -24,17 +24,23 @@
     {
       // ADR 0006: imports cross the layers in one direction only, `cli` -> `domain` ->
       // `adapters`. An import pointing back up is invisible in a diff that only adds a
-      // line, so the direction is held here. The patterns match a relative specifier
-      // landing anywhere in the layer, so a detour through `../../src/cli/` is caught
-      // too, while a package path is not - `effect/unstable/cli` is an adapter's import.
+      // line, so the direction is held here. The patterns match both spellings a module
+      // has: the `#layer/` subpath name, and a relative specifier landing anywhere in the
+      // layer, so a detour through `../../src/cli/` is caught too. A package path is not -
+      // `effect/unstable/cli` is an adapter's import.
       "files": ["src/adapters/**"],
       "rules": {
-        "no-restricted-imports": ["error", {
-          "patterns": [{
-            "regex": "^\\.{1,2}/(.*/)?(cli|domain)/",
-            "message": "An adapter owns a boundary and knows nothing above it: import the other way (ADR 0006)."
-          }]
-        }]
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^(#|\\.{1,2}/(.*/)?)(cli|domain)/",
+                "message": "An adapter owns a boundary and knows nothing above it: import the other way (ADR 0006)."
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -43,12 +49,17 @@
       // that gets it wrong.
       "files": ["src/domain/**"],
       "rules": {
-        "no-restricted-imports": ["error", {
-          "patterns": [{
-            "regex": "^\\.{1,2}/(.*/)?cli/",
-            "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
-          }]
-        }]
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^(#|\\.{1,2}/(.*/)?)cli/",
+                "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
+              }
+            ]
+          }
+        ]
       }
     },
     {

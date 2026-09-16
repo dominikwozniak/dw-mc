@@ -25,7 +25,7 @@ one-off tool with `pnpm dlx`, as in `pnpm dlx skills@latest add mattpocock/skill
 
 `pnpm check` is the whole gate — `lint`, `format`, `typecheck`, `test`, `build` — and it is what CI runs.
 The links are also single commands: `pnpm lint` / `pnpm lint:fix` (oxlint on the Effect engine, which is
-where Effect diagnostics are reported), `pnpm format` / `pnpm format:fix` (dprint), `pnpm typecheck`,
+where Effect diagnostics are reported), `pnpm format` / `pnpm format:fix` (oxfmt), `pnpm typecheck`,
 `pnpm test`, `pnpm build`. See [ADR 0005](docs/adr/0005-quality-toolchain.md).
 
 ## Git conventions
