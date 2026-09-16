@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.tsbuildinfo
 .claude/worktree/
+
+# husky writes the wrappers git runs; the hooks themselves are tracked.
+.husky/_/

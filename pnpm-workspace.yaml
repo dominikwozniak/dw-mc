@@ -1,4 +1,56 @@
+# pnpm settings. Under v11 this file — not `.npmrc`, not `package.json#pnpm` — is where
+# configuration lives: only auth and registry settings are read from `.npmrc`.
+# No `packages:` key on purpose; omitting it means the root package is the whole workspace.
+
+# Which dependencies may run install scripts. Everything unlisted is denied, and under
+# `strictDepBuilds` a denied build fails the install rather than warning. `dprint` is the
+# one package here that ships a postinstall, and it costs nothing to deny: the binary
+# arrives through the `@dprint/darwin-arm64` optional dependency, and `bin.cjs` falls back
+# to the same resolution at runtime, so nothing is downloaded and nothing is skipped.
+allowBuilds:
+  dprint: false
+
+# Release cooldown, in minutes: refuse a package version published less than 3 days ago.
+# The v11 default is 1440. A week would be stronger and is not affordable here: `effect`
+# ships a release candidate every few days and vitest 5 pulls the rolldown/vite toolchain,
+# which ships weekly — at 10080 this tree rejects 33 of its 187 lockfile entries and the
+# exclude list below turns into a churn list. Three days is the most this tree carries
+# while each exclusion stays a decision someone made once.
+minimumReleaseAge: 4320
+# `true` = fail resolution outright when no version satisfies the cooldown, instead of
+# silently falling back to an older one. Defaults to `true` once `minimumReleaseAge` is
+# set; written out because the fallback is the failure mode worth being explicit about.
+minimumReleaseAgeStrict: true
+# Versions exempted from the cooldown. Each entry is a deliberate, dated decision.
 minimumReleaseAgeExclude:
+  # 2026-09-16 — the version the test seam is written against, younger than the cooldown.
   - '@vitest/mocker@5.0.1'
   - '@vitest/spy@5.0.1'
   - vitest@5.0.1
+  # 2026-09-16 — pulled in by vitest 5.0.1 above, so it is the same decision.
+  - magic-string@1.4.1
+
+# Refuse a package whose trust evidence has regressed since its previous release. Default
+# is `off`. A package *losing* provenance is exactly the signal worth failing on; the cost
+# is a blocked upgrade when a maintainer drops provenance for an unrelated reason.
+trustPolicy: no-downgrade
+# Versions exempted from the trust check, for the same reason the cooldown has exemptions.
+trustPolicyExclude:
+  # 2026-09-16 — flagged as a downgrade, and is not one: 6.21.0 shipped in 2024-11, before
+  # the package started publishing with provenance, so every later release looks stronger
+  # than this one by construction. `@types/node@22.20.2` pins it; it moves when that moves.
+  - undici-types@6.21.0
+
+# Only direct dependencies may come from git or a tarball URL; a transitive one must
+# resolve from the registry. Restates the v11 default so a downgrade cannot silently
+# relax it. Costs nothing: this tree has no exotic dependency.
+blockExoticSubdeps: true
+
+# A dependency whose install script is denied fails the install instead of warning.
+# Restates the v11 default. Cost: every new package with a lifecycle script needs a
+# decision in `allowBuilds` — which is the point.
+strictDepBuilds: true
+
+# The severity at which `pnpm audit` fails, so CI does not restate it as a flag.
+audit:
+  level: high

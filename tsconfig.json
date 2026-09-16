@@ -20,6 +20,6 @@
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "dist",
-    "plugins": [{ "name": "@effect/language-service" }]
+    "plugins": [{ "name": "@effect/language-service", "diagnostics": false }]
   }
 }
