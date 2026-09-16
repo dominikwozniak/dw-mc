@@ -1,7 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Effect, Layer, Option, Path, Schema } from "effect"
+import { NodeServices } from "@effect/platform-node"
+import { ConfigProvider, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
-import { layerTest, stateDirectory, storeFor } from "./store.ts"
+import { layer, layerTest, stateDirectory, storeFor } from "./store.ts"
 
 class ReviewRun extends Schema.Class<ReviewRun>("dw-mc/test/ReviewRun")({
   pr: Schema.Int,
@@ -52,4 +53,59 @@ describe("store", () => {
     Effect.gen(function*() {
       assert.strictEqual(yield* stateDirectory(), "/home/dw/.local/state/dw-mc")
     }).pipe(env({ HOME: "/home/dw" })))
+
+  it.effect("the filesystem layer keeps a value across two stores over one directory", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const home = yield* fs.makeTempDirectoryScoped()
+      const run = new ReviewRun({ pr: 7, head: "cafe1234", verdict: "clean" })
+
+      const onDisk = Effect.provide(
+        Layer.provideMerge(
+          layer,
+          Layer.mergeAll(
+            NodeServices.layer,
+            ConfigProvider.layer(ConfigProvider.fromEnvRecord({ XDG_STATE_HOME: home }))
+          )
+        )
+      )
+
+      yield* Effect.gen(function*() {
+        const runs = yield* storeFor("review-run", ReviewRun)
+        yield* runs.set("7", run)
+      }).pipe(onDisk)
+
+      const reread = yield* Effect.gen(function*() {
+        const runs = yield* storeFor("review-run", ReviewRun)
+        return yield* runs.get("7")
+      }).pipe(onDisk)
+
+      assert.deepStrictEqual(reread, Option.some(run))
+      assert.deepStrictEqual(
+        yield* fs.readDirectory(path.join(home, "dw-mc")),
+        ["review-run%2F7"]
+      )
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("providing the filesystem layer creates the state directory even unused", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const home = yield* fs.makeTempDirectoryScoped()
+
+      yield* Effect.void.pipe(
+        Effect.provide(
+          Layer.provideMerge(
+            layer,
+            Layer.mergeAll(
+              NodeServices.layer,
+              ConfigProvider.layer(ConfigProvider.fromEnvRecord({ XDG_STATE_HOME: home }))
+            )
+          )
+        )
+      )
+
+      assert.isTrue(yield* fs.exists(path.join(home, "dw-mc")))
+    }).pipe(Effect.provide(NodeServices.layer)))
 })
