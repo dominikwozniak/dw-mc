@@ -17,7 +17,7 @@ import {
   searchPrs,
   viewer
 } from "#adapters/gh.ts"
-import { storeFor } from "#adapters/store.ts"
+import { prKey, storeFor } from "#adapters/store.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
@@ -74,7 +74,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
   const checks = rollupState(view.statusCheckRollup, settings.ci.ignore)
   const newestHumanCommentAt = newest(byHumansOtherThan(comments, me))
 
-  const key = `${found.repo}#${found.number}`
+  const key = prKey(found.repo, found.number)
   // State this version cannot read is state from another version of these
   // facts, and these facts are a cache of GitHub: reading them again costs a
   // sweep some calls, where failing here would cost the PR its row for good.
@@ -132,7 +132,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
     reviewRunHead: reported === null ? null : view.headRefOid,
-    blockingFindings: reported === null ? 0 : blocking(reported.findings).length
+    blockingFindings: reported === null ? 0 : blocking(reported.findings, settings.stamp.blocks_on).length
   }
 
   yield* store.set(key, facts)

@@ -79,6 +79,15 @@ export const jsonSchema: string = JSON.stringify(
   SchemaRepresentation.toJsonSchemaDocument(SchemaRepresentation.toRepresentation(Findings.ast)).schema
 )
 
-/** The findings that withhold the stamp: an error is a blocking finding. */
-export const blocking = (findings: ReadonlyArray<Finding>): ReadonlyArray<Finding> =>
-  findings.filter((finding) => finding.severity === "error")
+/** Where each severity sits against the others, so the bar can be compared with it. */
+const rank: Record<Severity, number> = { info: 0, warning: 1, error: 2 }
+
+/**
+ * The findings that withhold the stamp: everything at `blocksOn` or above it.
+ *
+ * `stamp.blocks_on` is my bar rather than a constant, so a repository whose
+ * warnings I do not want to merge past is configured rather than coded. An
+ * error blocks wherever the bar is, because nothing weighs more than one.
+ */
+export const blocking = (findings: ReadonlyArray<Finding>, blocksOn: Severity): ReadonlyArray<Finding> =>
+  findings.filter((finding) => rank[finding.severity] >= rank[blocksOn])

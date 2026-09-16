@@ -174,7 +174,7 @@ export const review = Command.make(
         yield* Console.log("")
         const found = reportedBy(run)
         if (found !== null) {
-          yield* Console.log(summary(found))
+          yield* Console.log(summary(found, settings.stamp.blocks_on))
           for (const line of lines(found)) {
             yield* Console.log(`  ${line}`)
           }

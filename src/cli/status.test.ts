@@ -10,7 +10,9 @@ import * as Store from "#adapters/store.ts"
 import { storeFor } from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
 import { Facts } from "#domain/bucket.ts"
+import type { Finding } from "#domain/findings.ts"
 import { ReviewRun, runKey } from "#domain/review.ts"
+import { withdraw } from "#domain/stamp.ts"
 
 const me = "dominikwozniak"
 
@@ -216,7 +218,7 @@ const registered = (...repos: ReadonlyArray<string>) =>
 const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /** What `dw-mc review` leaves behind: a review run against one head. */
-const reviewed = (repo: string, number: number, head: string) =>
+const reviewed = (repo: string, number: number, head: string, findings: ReadonlyArray<Finding> = []) =>
   Effect.flatMap(storeFor("runs", ReviewRun), (runs) =>
     runs.set(runKey(repo, number, head), {
       repo,
@@ -225,7 +227,7 @@ const reviewed = (repo: string, number: number, head: string) =>
       runner: "builtin",
       effort: "low",
       sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
-      outcome: { _tag: "reported", verdict: "clean", findings: [] },
+      outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings },
       ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z")
     })
   )
@@ -784,6 +786,78 @@ describe("a red CI, classified", () => {
         `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`,
         `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`
       ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+})
+
+describe("the stamp in the table", () => {
+  const repo = "dominikwozniak/dw-mc"
+  const head = "31268022360852f71815404b6bbdd6bd797cfb4c"
+  const warning: Finding = { file: "src/cli/status.ts", line: 20, severity: "warning", summary: "A long row." }
+
+  it.effect("marks the PR that passed my bar, and leaves the rest unmarked", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: {
+        [repo]: [
+          { number: 1, title: "feat: stamped" },
+          { number: 2, title: "feat: unreviewed" }
+        ]
+      }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* reviewed(repo, 1, head)
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, [
+        "Needs review run",
+        `  ${repo}#2    feat: unreviewed  no review run on this head`,
+        "",
+        "Ready",
+        `  ${repo}#1 ✓  feat: stamped     green, mergeable`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("drops the mark from a stamp I withdrew by hand", () => {
+    const printed: Array<string> = []
+    const spawner = github({ repos: { [repo]: [{ number: 1, title: "feat: stamped" }] } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* reviewed(repo, 1, head)
+      yield* withdraw(repo, 1, head)
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1  feat: stamped  green, mergeable`])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("withholds it where stamp.blocks_on says a warning blocks", () => {
+    const printed: Array<string> = []
+    const spawner = github({ repos: { [repo]: [{ number: 1, title: "feat: one warning" }] } })
+
+    return Effect.gen(function* () {
+      yield* write({ repos: { [repo]: { stamp: { blocks_on: "warning" } } } })
+      yield* reviewed(repo, 1, head, [warning])
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, ["Needs me", `  ${repo}#1  feat: one warning  1 blocking finding`])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("keeps it where the bar is the error it is by default", () => {
+    const printed: Array<string> = []
+    const spawner = github({ repos: { [repo]: [{ number: 1, title: "feat: one warning" }] } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* reviewed(repo, 1, head, [warning])
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1 ✓  feat: one warning  green, mergeable`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })

@@ -18,7 +18,7 @@ One pass over every tracked PR that refreshes what mission control knows about i
 _Avoid_: poll, refresh, sync
 
 **Stamp**:
-My local mark that a tracked PR has passed my own bar. Computed from review runs and CI, and I can withdraw it by hand. It lives only on this machine and is never a GitHub approval, label, comment or status.
+My local mark that a tracked PR has passed my own bar. Computed from review runs and CI, and I can withdraw it by hand, at the head I read, until that head changes. It lives only on this machine and is never a GitHub approval, label, comment or status.
 _Avoid_: approval, label, status
 
 ### Buckets
@@ -60,7 +60,7 @@ A local agent CLI that a review run executes on. Claude Code is the primary runn
 _Avoid_: reviewer, provider, model
 
 **Finding**:
-One problem a review run reports, at a file and line, with a severity of error, warning or info. An error is a blocking finding: it withholds the stamp until the head changes.
+One problem a review run reports, at a file and line, with a severity of error, warning or info. A finding at or above `stamp.blocks_on`, an error unless I configure otherwise, is a blocking finding: it withholds the stamp until the head changes.
 _Avoid_: issue, comment, violation
 
 **Outcome**:

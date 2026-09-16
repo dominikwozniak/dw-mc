@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
 
+import type { Severity } from "#adapters/config.ts"
 import { blocking, jsonSchema, Reported } from "#domain/findings.ts"
 
 const read = Schema.decodeUnknownEffect(Reported)
@@ -113,7 +114,7 @@ describe("the findings a review run reports", () => {
     })
   })
 
-  it("counts an error as a blocking finding and nothing else", () => {
+  describe("the findings that withhold the stamp", () => {
     const findings = [
       { file: "a.ts", line: 1, severity: "error", summary: "one" },
       { file: "b.ts", line: 2, severity: "warning", summary: "two" },
@@ -121,9 +122,18 @@ describe("the findings a review run reports", () => {
       { file: "d.ts", line: 4, severity: "error", summary: "four" }
     ] as const
 
-    assert.deepStrictEqual(
-      blocking(findings).map((finding) => finding.file),
-      ["a.ts", "d.ts"]
-    )
+    const filesOf = (blocksOn: Severity) => blocking(findings, blocksOn).map((finding) => finding.file)
+
+    it("counts an error and nothing else, which is the bar I keep", () => {
+      assert.deepStrictEqual(filesOf("error"), ["a.ts", "d.ts"])
+    })
+
+    it("counts a warning as well where the bar says warnings block", () => {
+      assert.deepStrictEqual(filesOf("warning"), ["a.ts", "b.ts", "d.ts"])
+    })
+
+    it("counts every finding where the bar is as tight as it goes", () => {
+      assert.deepStrictEqual(filesOf("info"), ["a.ts", "b.ts", "c.ts", "d.ts"])
+    })
   })
 })
