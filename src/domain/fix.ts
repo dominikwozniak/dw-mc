@@ -34,18 +34,21 @@ const asJson = Schema.encodeEffect(Schema.fromJsonString(Selection))
  * finding it is on: the finding is what a runner thought, the note is what I
  * think, and I am the one who picked it.
  *
- * Committing and pushing stay mine. The tool reports and never fixes, and a
- * session that commits on my behalf turns a report into a change I did not
- * read.
+ * Pushing is mine either way, and `commits` says whether committing is too.
+ * The tool itself never commits and never pushes; what the session may do
+ * inside the worktree is my call, made once in `fix.commits` or for one session
+ * with the flag.
  */
-export const promptFor = (selection: Selection): Effect.Effect<string, Schema.SchemaError> =>
+export const promptFor = (selection: Selection, commits: boolean): Effect.Effect<string, Schema.SchemaError> =>
   Effect.map(asJson(selection), (json) =>
     [
       `These are the findings I picked from a dw-mc review run on ${selection.repo}#${selection.number}, ` +
         `at ${short(selection.head)}, which is the commit this worktree stands on.`,
       `Work through them one at a time. Where a finding carries a note, the note is mine and outranks the ` +
         `finding's own summary; where it carries none, the summary is the whole brief.`,
-      `Do not commit and do not push: I do both myself when I have read what you changed.`,
+      commits
+        ? `Commit what you change, one logical change to a commit. Do not push: I read the commits and push them myself.`
+        : `Do not commit and do not push: I do both myself when I have read what you changed.`,
       json
     ].join("\n\n")
   )

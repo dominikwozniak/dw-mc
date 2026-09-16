@@ -109,6 +109,9 @@ const recording = (printed: Array<string>) => {
 const registered = (...repos: ReadonlyArray<string>) =>
   write({ repos: Object.fromEntries(repos.map((name) => [name, {}])) } satisfies ConfigFile)
 
+/** A repository whose settings let a fix session commit what it changes. */
+const committing = write({ repos: { [repo]: { fix: { commits: true } } } } satisfies ConfigFile)
+
 const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /** The review run `dw-mc review` would have left behind. */
@@ -241,6 +244,53 @@ describe("dw-mc fix", () => {
       assert.include(screen, "src/cli/review.ts:88")
       assert.include(screen, "docs/v1-design.md:3")
     }).pipe(Effect.provide(machine({ spawned, keys, drawn })), recording(printed))
+  })
+
+  it.effect("keeps committing mine unless I say otherwise", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const printed: Array<string> = []
+    const keys = [...first, key("enter"), key("enter")]
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* ran(found)
+
+      yield* run("fix", "28")
+
+      assert.include(opened(spawned)?.args[0], "Do not commit and do not push")
+      assert.include(printed.join("\n"), "not committing")
+    }).pipe(Effect.provide(machine({ spawned, keys })), recording(printed))
+  })
+
+  it.effect("lets the session commit where the flag says so", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const printed: Array<string> = []
+    const keys = [...first, key("enter"), key("enter")]
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* ran(found)
+
+      yield* run("fix", "28", "--commit")
+
+      assert.include(opened(spawned)?.args[0], "Commit what you change")
+    }).pipe(Effect.provide(machine({ spawned, keys })), recording(printed))
+  })
+
+  it.effect("lets the session commit where the repository is configured for it", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const printed: Array<string> = []
+    const keys = [...first, key("enter"), key("enter")]
+
+    return Effect.gen(function* () {
+      yield* committing
+      yield* ran(found)
+
+      yield* run("fix", "28")
+
+      assert.include(opened(spawned)?.args[0], "Commit what you change")
+      assert.include(printed.join("\n"), ", committing")
+    }).pipe(Effect.provide(machine({ spawned, keys })), recording(printed))
   })
 
   it.effect("opens no session where I picked nothing", () => {

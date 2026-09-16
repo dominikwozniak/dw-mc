@@ -29,7 +29,7 @@ const carried = (prompt: string): unknown => {
 describe("promptFor", () => {
   it.effect("carries the selected findings as the JSON the schema defines", () =>
     Effect.gen(function* () {
-      assert.deepStrictEqual(carried(yield* promptFor(selected)), {
+      assert.deepStrictEqual(carried(yield* promptFor(selected, false)), {
         repo: "dominikwozniak/dw-mc",
         number: 28,
         head: "284d599022a55d4dcae74b31b9a49a0f50061014",
@@ -54,7 +54,7 @@ describe("promptFor", () => {
 
   it.effect("says whose findings they are and that committing is mine", () =>
     Effect.gen(function* () {
-      const prompt = yield* promptFor(selected)
+      const prompt = yield* promptFor(selected, false)
 
       assert.include(prompt, "dominikwozniak/dw-mc#28")
       assert.include(prompt, "284d599")
@@ -75,4 +75,23 @@ describe("staleAt", () => {
     assert.include(said, "9f2b0c1")
     assert.include(said, "dw-mc review 28")
   })
+})
+
+describe("what the session may do in the worktree", () => {
+  it.effect("keeps committing mine where the repository says so", () =>
+    Effect.gen(function* () {
+      const prompt = yield* promptFor(selected, false)
+
+      assert.include(prompt, "Do not commit and do not push")
+    })
+  )
+
+  it.effect("lets the session commit where I asked for it, and pushing stays mine", () =>
+    Effect.gen(function* () {
+      const prompt = yield* promptFor(selected, true)
+
+      assert.include(prompt, "Commit what you change")
+      assert.include(prompt, "Do not push")
+    })
+  )
 })

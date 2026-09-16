@@ -47,6 +47,11 @@ const SettingsPatch = Schema.Struct({
       flaky_patterns: Schema.optionalKey(Schema.Array(Schema.String))
     })
   ),
+  fix: Schema.optionalKey(
+    Schema.Struct({
+      commits: Schema.optionalKey(Schema.Boolean)
+    })
+  ),
   rebase: Schema.optionalKey(
     Schema.Struct({
       enabled: Schema.optionalKey(Schema.Boolean)
@@ -79,6 +84,7 @@ export interface Settings {
   readonly base: string | null
   readonly review: Section<"review">
   readonly ci: Section<"ci">
+  readonly fix: Section<"fix">
   readonly rebase: Section<"rebase">
   readonly stamp: Section<"stamp">
 }
@@ -95,6 +101,7 @@ export const builtIn: Settings = {
     path_instructions: []
   },
   ci: { ignore: [], flaky_patterns: [] },
+  fix: { commits: false },
   rebase: { enabled: false },
   stamp: { blocks_on: "error" }
 }
@@ -123,6 +130,7 @@ const apply = (settings: Settings, patch: SettingsPatch | undefined): Settings =
           ignore: over(patch.ci?.ignore, settings.ci.ignore),
           flaky_patterns: over(patch.ci?.flaky_patterns, settings.ci.flaky_patterns)
         },
+        fix: { commits: over(patch.fix?.commits, settings.fix.commits) },
         rebase: { enabled: over(patch.rebase?.enabled, settings.rebase.enabled) },
         stamp: { blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on) }
       }
@@ -140,6 +148,9 @@ export const merge = (patch: SettingsPatch, delta: SettingsPatch): SettingsPatch
   }
   if (patch.ci !== undefined && delta.ci !== undefined) {
     merged.ci = { ...patch.ci, ...delta.ci }
+  }
+  if (patch.fix !== undefined && delta.fix !== undefined) {
+    merged.fix = { ...patch.fix, ...delta.fix }
   }
   if (patch.rebase !== undefined && delta.rebase !== undefined) {
     merged.rebase = { ...patch.rebase, ...delta.rebase }
@@ -304,6 +315,7 @@ const settingsDocument = (patch: SettingsPatch): Value =>
             ["flaky_patterns", patch.ci.flaky_patterns]
           ])
     ],
+    ["fix", patch.fix === undefined ? undefined : mapping([["commits", patch.fix.commits]])],
     ["rebase", patch.rebase === undefined ? undefined : mapping([["enabled", patch.rebase.enabled]])],
     ["stamp", patch.stamp === undefined ? undefined : mapping([["blocks_on", patch.stamp.blocks_on]])]
   ])

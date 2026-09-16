@@ -128,6 +128,7 @@ describe("dw-mc init", () => {
             path_instructions: []
           },
           ci: { ignore: [], flaky_patterns: [] },
+          fix: { commits: false },
           rebase: { enabled: false },
           stamp: { blocks_on: "error" }
         },
@@ -162,6 +163,8 @@ describe("dw-mc init", () => {
           "  ci:\n" +
           "    ignore: []\n" +
           "    flaky_patterns: []\n" +
+          "  fix:\n" +
+          "    commits: false\n" +
           "  rebase:\n" +
           "    enabled: false\n" +
           "  stamp:\n" +
