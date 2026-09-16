@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Duration, Effect, Fiber } from "effect"
+import { TestClock } from "effect/testing"
 import type { ChildProcess } from "effect/unstable/process"
 
-import { builtinReview } from "#adapters/runner.ts"
+import { builtinFindings, builtinReview } from "#adapters/runner.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const session = "befb6186-5471-4b26-b680-e8ca49df25ac"
@@ -176,4 +177,131 @@ describe("the built-in runner", () => {
       assert.include(error.message, "error_max_turns")
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(gaveUp) })))
   })
+})
+
+describe("the built-in runner's second turn", () => {
+  const schema = `{"type":"object","properties":{"verdict":{"type":"string"}}}`
+  const found = {
+    verdict: "findings",
+    findings: [{ file: "src/cli/review.ts", line: 88, severity: "error", summary: "The run is never recorded." }]
+  }
+
+  /** What `claude --output-format json --json-schema` really prints: one result object. */
+  const answer = (fields: Record<string, unknown>) =>
+    JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: session,
+      result: JSON.stringify(found),
+      num_turns: 2,
+      ...fields
+    })
+
+  const reporting = (spawned: Array<ChildProcess.StandardCommand>) =>
+    builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema }).pipe(
+      Effect.provide(claude({ spawned, stdout: answer({ structured_output: found }) }))
+    )
+
+  it.effect("resumes the first turn's session and brings back what the runner validated", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const output = yield* reporting(spawned)
+
+      assert.deepStrictEqual(output, found)
+      assert.deepStrictEqual(spawned[0]?.args.slice(0, 3), ["-p", "--resume", session])
+      assert.deepStrictEqual(spawned[0]?.args.slice(-4), ["--output-format", "json", "--json-schema", schema])
+    })
+  })
+
+  it.effect("asks for the findings of the review it just gave", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      yield* reporting(spawned)
+
+      assert.include(spawned[0]?.args[3] ?? "", "structured output")
+    })
+  })
+
+  it.effect("reports in the worktree the review ran in", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      yield* reporting(spawned)
+
+      assert.strictEqual(spawned[0]?.options.cwd, "/worktree")
+    })
+  })
+
+  it.effect("a turn that exits non-zero is a failure", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+      )
+
+      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.include(error.message, "No conversation found")
+    }).pipe(Effect.provide(claude({ spawned, stderr: "No conversation found\n", exitCode: 1 })))
+  })
+
+  it.effect("a turn that validated nothing is a failure, never a clean verdict", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+      )
+
+      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.include(error.message, "no structured output")
+    }).pipe(Effect.provide(claude({ spawned, stdout: answer({}) })))
+  })
+
+  it.effect("a turn that answered with something this cannot read is a failure", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+      )
+
+      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.include(error.message, "no result")
+    }).pipe(Effect.provide(claude({ spawned, stdout: "Command completed" })))
+  })
+
+  it.effect("a turn the runner itself calls an error is a failure", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+      )
+
+      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.include(error.message, "error_during_execution")
+    }).pipe(
+      Effect.provide(
+        claude({ spawned, stdout: answer({ subtype: "error_during_execution", is_error: true, result: "gave up" }) })
+      )
+    )
+  })
+
+  it.effect("a turn that never comes back is a failure rather than a command that hangs", () =>
+    Effect.gen(function* () {
+      const turn = yield* Effect.forkChild(
+        Effect.flip(builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema }))
+      )
+
+      yield* TestClock.adjust(Duration.minutes(6))
+
+      const error = yield* Fiber.join(turn)
+      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.include(error.message, "did not come back")
+    }).pipe(Effect.provide(layerFake(() => Effect.never)))
+  )
 })

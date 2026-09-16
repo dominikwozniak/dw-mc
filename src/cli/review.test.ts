@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
+import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
@@ -9,11 +9,13 @@ import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
 import { storeFor, textStoreFor } from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
-import { reportKey, ReviewRun, runKey } from "#domain/review.ts"
+import type { Outcome } from "#domain/review.ts"
+import { LastReviewed, latestKey, reportKey, ReviewRun, runKey } from "#domain/review.ts"
 
 const me = "dominikwozniak"
 const repo = "dominikwozniak/dw-mc"
 const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
+const before = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
 const session = "befb6186-5471-4b26-b680-e8ca49df25ac"
 const title = "build(lint): hold the ADR invariants"
 const report = "## Standards\n\n1. The write boundary fails open on an unreadable flag."
@@ -42,6 +44,40 @@ const finished = transcript({
   num_turns: 7
 })
 
+/** What the second turn validated, one finding graded in the persona's own word. */
+const structured = {
+  verdict: "findings",
+  findings: [
+    { file: "src/cli/review.ts", line: 88, severity: "error", summary: "The run is never recorded." },
+    { file: "docs/v1-design.md", line: 3, severity: "Nit", summary: "The build order is out of date." }
+  ]
+}
+
+/** The findings as they are kept once a persona's word has been weighed in ours. */
+const weighed = [
+  { file: "src/cli/review.ts", line: 88, severity: "error", summary: "The run is never recorded." },
+  { file: "docs/v1-design.md", line: 3, severity: "info", summary: "The build order is out of date." }
+]
+
+/** The one object `claude --output-format json --json-schema` prints. */
+const reported = (fields: Record<string, unknown>) =>
+  JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    session_id: session,
+    result: JSON.stringify(structured),
+    num_turns: 2,
+    ...fields
+  })
+
+/** What one turn of `claude` prints, and what it exits with. */
+interface Turn {
+  readonly stdout?: string
+  readonly stderr?: string
+  readonly exitCode?: number
+}
+
 /**
  * Every program a review run spawns, from fixtures, and a death for anything
  * else - which is what keeps the run's reach over my machine honest.
@@ -49,10 +85,14 @@ const finished = transcript({
 const machine = (options: {
   readonly spawned: Array<string>
   readonly drawn?: Array<string> | undefined
-  /** What `claude` prints, and what it exits with. */
-  readonly runner?: { readonly stdout?: string; readonly stderr?: string; readonly exitCode?: number } | undefined
+  /** The first turn of a review run, which writes the report. */
+  readonly runner?: Turn | undefined
+  /** The second turn, which reports the findings. */
+  readonly findings?: Turn | undefined
   /** The pull requests `gh` knows about, by repository. */
   readonly repos?: Record<string, ReadonlyArray<number>> | undefined
+  /** What GitHub says changed since the head a previous run was recorded against. */
+  readonly changed?: ReadonlyArray<string> | undefined
 }) => {
   const spawner = layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -61,15 +101,19 @@ const machine = (options: {
     const argv = command.args.join(" ")
     options.spawned.push(`${command.command} ${argv}`)
     const json = (value: unknown) => Effect.succeed(fakeHandle({ stdout: JSON.stringify(value) }))
-
-    if (command.command === "claude") {
-      return Effect.succeed(
+    const turn = (fixture: Turn | undefined, stdout: string) =>
+      Effect.succeed(
         fakeHandle({
-          stdout: options.runner?.stdout ?? finished,
-          stderr: options.runner?.stderr,
-          exitCode: options.runner?.exitCode
+          stdout: fixture?.stdout ?? stdout,
+          stderr: fixture?.stderr,
+          exitCode: fixture?.exitCode
         })
       )
+
+    if (command.command === "claude") {
+      return command.args.includes("--resume")
+        ? turn(options.findings, reported({ structured_output: structured }))
+        : turn(options.runner, finished)
     }
     if (command.command === "osascript") {
       return Effect.succeed(fakeHandle({}))
@@ -109,6 +153,11 @@ const machine = (options: {
         statusCheckRollup: [{ name: "Check", status: "COMPLETED", conclusion: "SUCCESS" }]
       })
     }
+    if (/^api repos\/\S+\/compare\/\S+$/.test(argv)) {
+      return options.changed === undefined
+        ? Effect.succeed(fakeHandle({ exitCode: 1, stderr: "gh: No commit found for SHA\n" }))
+        : json({ files: options.changed.map((filename) => ({ filename })) })
+    }
     if (/^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)\?per_page=100$/.test(argv)) {
       return json([])
     }
@@ -145,8 +194,31 @@ const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version 
 const runOf = (head_: string) =>
   Effect.flatMap(storeFor("runs", ReviewRun), (runs) => runs.get(runKey(repo, 28, head_)))
 
+/** A review run this head has already had, as a previous command would have left it. */
+const already = (at: string, outcome: Outcome) =>
+  Effect.gen(function* () {
+    const runs = yield* storeFor("runs", ReviewRun)
+    const latest = yield* storeFor("runs", LastReviewed)
+    yield* runs.set(runKey(repo, 28, at), {
+      repo,
+      number: 28,
+      head: at,
+      runner: "builtin",
+      effort: "low",
+      sessionId: session,
+      ranAt: DateTime.makeUnsafe("2026-09-15T10:00:00Z"),
+      outcome
+    })
+    yield* latest.set(latestKey(repo, 28), { head: at })
+  })
+
+const clean: Outcome = { _tag: "reported", verdict: "clean", findings: [] }
+
+const reviewed = (spawned: ReadonlyArray<string>) =>
+  spawned.some((vector) => vector.startsWith("claude -p /code-review"))
+
 describe("dw-mc review", () => {
-  it.effect("reviews the head in a throwaway worktree and keeps what it found", () => {
+  it.effect("reviews the head in a throwaway worktree and keeps what both turns found", () => {
     const printed: Array<string> = []
     const spawned: Array<string> = []
 
@@ -165,7 +237,8 @@ describe("dw-mc review", () => {
           runner: "builtin",
           effort: "low",
           sessionId: session,
-          ranAt: undefined
+          ranAt: undefined,
+          outcome: { _tag: "reported", verdict: "findings", findings: weighed }
         }
       )
 
@@ -183,18 +256,21 @@ describe("dw-mc review", () => {
         "",
         report,
         "",
+        "2 findings, 1 blocking",
+        "  src/cli/review.ts:88  error  The run is never recorded.",
+        "  docs/v1-design.md:3   info   The build order is out of date.",
         `Recorded against 284d599 in ${state}`
       ])
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
   })
 
-  it.effect("runs the review in the worktree and nowhere near my own checkout", () => {
+  it.effect("runs both turns in the worktree and nowhere near my own checkout", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
       yield* registered(repo)
 
-      yield* run("review", "28")
+      yield* Effect.ignore(run("review", "28"))
 
       assert.deepStrictEqual(spawned, [
         `gh pr view 28 --repo ${repo} --json number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup`,
@@ -204,9 +280,30 @@ describe("dw-mc review", () => {
         `git -C ${clone} worktree remove --force ${worktree}`,
         `git -C ${clone} worktree add --detach ${worktree} ${head}`,
         `claude -p /code-review low --output-format stream-json --verbose`,
+        spawned[7] ?? "",
         `git -C ${clone} worktree remove --force ${worktree}`,
         `osascript -e display notification "${repo}#28 reviewed" with title "dw-mc review"`
       ])
+      assert.include(spawned[7] ?? "", `claude -p --resume ${session}`)
+      assert.include(spawned[7] ?? "", "--output-format json --json-schema")
+    }).pipe(Effect.provide(machine({ spawned })), recording([]))
+  })
+
+  it.effect("holds the second turn to the schema the findings are kept under", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+
+      yield* Effect.ignore(run("review", "28"))
+
+      const handed = /--json-schema (.+)$/.exec(spawned[7] ?? "")?.[1] ?? ""
+
+      // The document itself is `#domain/findings.ts`'s to get right, and its own
+      // test holds it. What this holds is that the document reaching the runner
+      // is that one: the severities the tool will accept, asked for by name.
+      assert.include(handed, `"severity":{"type":"string","enum":["error","warning","info"]}`)
+      assert.include(handed, `"required":["verdict","findings"]`)
     }).pipe(Effect.provide(machine({ spawned })), recording([]))
   })
 
@@ -216,7 +313,7 @@ describe("dw-mc review", () => {
     return Effect.gen(function* () {
       yield* write({ repos: { [repo]: { review: { effort: "medium" } } } })
 
-      yield* run("review", "28", "--effort", "high")
+      yield* Effect.ignore(run("review", "28", "--effort", "high"))
 
       assert.include(spawned, "claude -p /code-review high --output-format stream-json --verbose")
     }).pipe(Effect.provide(machine({ spawned })), recording([]))
@@ -228,7 +325,7 @@ describe("dw-mc review", () => {
     return Effect.gen(function* () {
       yield* write({ repos: { [repo]: { review: { effort: "medium" } } } })
 
-      yield* run("review", "28")
+      yield* Effect.ignore(run("review", "28"))
 
       assert.include(spawned, "claude -p /code-review medium --output-format stream-json --verbose")
     }).pipe(Effect.provide(machine({ spawned })), recording([]))
@@ -241,9 +338,9 @@ describe("dw-mc review", () => {
     return Effect.gen(function* () {
       yield* registered(repo)
 
-      yield* run("review", "28")
+      yield* Effect.ignore(run("review", "28"))
 
-      assert.include(drawn, "\u0007")
+      assert.include(drawn, "")
       assert.isTrue(spawned.some((vector) => vector.startsWith("osascript ")))
     }).pipe(Effect.provide(machine({ spawned, drawn })), recording([]))
   })
@@ -262,7 +359,7 @@ describe("dw-mc review", () => {
       assert.include(spawned, `git -C ${clone} worktree remove --force ${worktree}`)
       assert.deepStrictEqual(yield* runOf(head), Option.none())
       // The run I walked away from is the one I most need to hear give up.
-      assert.include(drawn, "\u0007")
+      assert.include(drawn, "")
       assert.include(spawned.at(-1) ?? "", `${repo}#28 could not be reviewed`)
     }).pipe(
       Effect.provide(machine({ spawned, drawn, runner: { stderr: "Invalid API key · Run /login\n", exitCode: 1 } })),
@@ -281,12 +378,40 @@ describe("dw-mc review", () => {
       assert.strictEqual(printed[0], "Needs review run")
 
       printed.length = 0
+      yield* Effect.ignore(run("review", "28"))
+
+      printed.length = 0
+      yield* run("status")
+      // The run reported a blocking finding, which is the next thing the pull
+      // request waits on me for.
+      assert.strictEqual(printed[0], "Needs me")
+      assert.include(printed[1] ?? "", "1 blocking finding")
+    }).pipe(Effect.provide(machine({ spawned, repos: { [repo]: [28] } })), recording(printed))
+  })
+
+  it.effect("leaves a pull request whose findings are all advisory out of Needs me", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const advisory = { verdict: "findings", findings: [structured.findings[1]] }
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+
       yield* run("review", "28")
 
       printed.length = 0
       yield* run("status")
       assert.strictEqual(printed[0], "Ready")
-    }).pipe(Effect.provide(machine({ spawned, repos: { [repo]: [28] } })), recording(printed))
+    }).pipe(
+      Effect.provide(
+        machine({
+          spawned,
+          repos: { [repo]: [28] },
+          findings: { stdout: reported({ structured_output: advisory, result: JSON.stringify(advisory) }) }
+        })
+      ),
+      recording(printed)
+    )
   })
 
   it.effect("asks which repository when a number alone cannot say", () => {
@@ -336,9 +461,168 @@ describe("dw-mc review", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* run("review", "someone/else#3")
+      yield* Effect.ignore(run("review", "someone/else#3"))
 
       assert.include(spawned, "claude -p /code-review low --output-format stream-json --verbose")
     }).pipe(Effect.provide(machine({ spawned })), recording([]))
+  })
+})
+
+describe("dw-mc review, and what a run costs twice", () => {
+  it.effect("skips a run where only documentation changed since the last one", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* already(before, clean)
+
+      yield* run("review", "28")
+
+      assert.isFalse(reviewed(spawned))
+      assert.include(printed.at(-1) ?? "", "Only documentation changed since 1a2b3c4")
+      assert.include(spawned, `gh api repos/${repo}/compare/${before}...${head}`)
+    }).pipe(
+      Effect.provide(machine({ spawned, changed: ["README.md", "docs/adr/0006-source-layout.md"] })),
+      recording(printed)
+    )
+  })
+
+  it.effect("runs where anything outside those globs changed", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* already(before, clean)
+
+      yield* Effect.ignore(run("review", "28"))
+
+      assert.isTrue(reviewed(spawned))
+    }).pipe(Effect.provide(machine({ spawned, changed: ["README.md", "src/cli/review.ts"] })), recording([]))
+  })
+
+  it.effect("runs regardless when I force it", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* already(before, clean)
+
+      yield* Effect.ignore(run("review", "28", "--force"))
+
+      assert.isTrue(reviewed(spawned))
+      assert.isFalse(spawned.some((vector) => vector.includes("/compare/")))
+    }).pipe(Effect.provide(machine({ spawned, changed: ["README.md"] })), recording([]))
+  })
+
+  it.effect("skips a second run against a head that has already had one", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* already(head, clean)
+
+      yield* run("review", "28")
+
+      assert.isFalse(reviewed(spawned))
+      // Nothing changed, so nothing is asked of GitHub either.
+      assert.isFalse(spawned.some((vector) => vector.includes("/compare/")))
+    }).pipe(Effect.provide(machine({ spawned })), recording(printed))
+  })
+
+  it.effect("never skips over a run that reported nothing", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* already(before, { _tag: "failed", detail: "the findings turn came back with no structured output" })
+
+      yield* Effect.ignore(run("review", "28"))
+
+      assert.isTrue(reviewed(spawned))
+    }).pipe(Effect.provide(machine({ spawned, changed: ["README.md"] })), recording([]))
+  })
+
+  it.effect("never skips a run GitHub could not say anything about", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* already(before, clean)
+
+      yield* Effect.ignore(run("review", "28"))
+
+      assert.isTrue(reviewed(spawned))
+    }).pipe(Effect.provide(machine({ spawned })), recording([]))
+  })
+})
+
+describe("dw-mc review, and a second turn that does not report", () => {
+  const failing = (findings: Turn) =>
+    Effect.gen(function* () {
+      yield* registered(repo)
+
+      const error = yield* Effect.flip(run("review", "28"))
+      assert.strictEqual(error._tag, "UserError")
+
+      return Option.getOrThrow(yield* runOf(head)).outcome
+    }).pipe(Effect.provide(machine({ spawned: [], findings })), recording([]))
+
+  it.effect("records a turn that exited non-zero as a failure", () =>
+    Effect.gen(function* () {
+      const outcome = yield* failing({ stderr: "No conversation found\n", exitCode: 1 })
+
+      assert.strictEqual(outcome._tag, "failed")
+      assert.include(outcome._tag === "failed" ? outcome.detail : "", "No conversation found")
+    })
+  )
+
+  it.effect("records a turn that validated nothing as a failure", () =>
+    Effect.gen(function* () {
+      const outcome = yield* failing({ stdout: reported({}) })
+
+      assert.strictEqual(outcome._tag, "failed")
+      assert.include(outcome._tag === "failed" ? outcome.detail : "", "no structured output")
+    })
+  )
+
+  it.effect("records findings that do not validate as a failure", () =>
+    Effect.gen(function* () {
+      const outcome = yield* failing({
+        stdout: reported({
+          structured_output: {
+            verdict: "findings",
+            findings: [{ file: "a.ts", line: 1, severity: "blocker", summary: "Nothing weighs this." }]
+          }
+        })
+      })
+
+      assert.strictEqual(outcome._tag, "failed")
+      assert.include(outcome._tag === "failed" ? outcome.detail : "", "severity")
+    })
+  )
+
+  it.effect("keeps the report of a run whose findings failed, and still needs a review run", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+
+      yield* Effect.ignore(run("review", "28"))
+
+      const reports = yield* textStoreFor("runs")
+      assert.include((yield* reports.get(reportKey(repo, 28, head))) ?? "", report)
+
+      printed.length = 0
+      yield* run("status")
+      assert.strictEqual(printed[0], "Needs review run")
+    }).pipe(
+      Effect.provide(
+        machine({ spawned, repos: { [repo]: [28] }, findings: { stderr: "No conversation found\n", exitCode: 1 } })
+      ),
+      recording(printed)
+    )
   })
 })

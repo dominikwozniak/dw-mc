@@ -18,3 +18,6 @@ export const table = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray
 /** `text` at most `width` wide, with an ellipsis where it was cut. */
 export const truncate = (text: string, width: number): string =>
   text.length <= width ? text : `${text.slice(0, width - 1).trimEnd()}…`
+
+/** `n` of something, pluralised the one way English usually is. */
+export const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`
