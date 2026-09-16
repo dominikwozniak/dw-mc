@@ -44,6 +44,17 @@ describe("store", () => {
       Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnvRecord(record)), Path.layer)
     )
 
+  const onDisk = (home: string) =>
+    Effect.provide(
+      Layer.provideMerge(
+        layer,
+        Layer.mergeAll(
+          NodeServices.layer,
+          ConfigProvider.layer(ConfigProvider.fromEnvRecord({ XDG_STATE_HOME: home }))
+        )
+      )
+    )
+
   it.effect("the state directory sits under XDG_STATE_HOME when it is set", () =>
     Effect.gen(function*() {
       assert.strictEqual(yield* stateDirectory(), "/var/state/dw-mc")
@@ -61,25 +72,15 @@ describe("store", () => {
       const home = yield* fs.makeTempDirectoryScoped()
       const run = new ReviewRun({ pr: 7, head: "cafe1234", verdict: "clean" })
 
-      const onDisk = Effect.provide(
-        Layer.provideMerge(
-          layer,
-          Layer.mergeAll(
-            NodeServices.layer,
-            ConfigProvider.layer(ConfigProvider.fromEnvRecord({ XDG_STATE_HOME: home }))
-          )
-        )
-      )
-
       yield* Effect.gen(function*() {
         const runs = yield* storeFor("review-run", ReviewRun)
         yield* runs.set("7", run)
-      }).pipe(onDisk)
+      }).pipe(onDisk(home))
 
       const reread = yield* Effect.gen(function*() {
         const runs = yield* storeFor("review-run", ReviewRun)
         return yield* runs.get("7")
-      }).pipe(onDisk)
+      }).pipe(onDisk(home))
 
       assert.deepStrictEqual(reread, Option.some(run))
       assert.deepStrictEqual(
@@ -94,17 +95,7 @@ describe("store", () => {
       const path = yield* Path.Path
       const home = yield* fs.makeTempDirectoryScoped()
 
-      yield* Effect.void.pipe(
-        Effect.provide(
-          Layer.provideMerge(
-            layer,
-            Layer.mergeAll(
-              NodeServices.layer,
-              ConfigProvider.layer(ConfigProvider.fromEnvRecord({ XDG_STATE_HOME: home }))
-            )
-          )
-        )
-      )
+      yield* Effect.void.pipe(onDisk(home))
 
       assert.isTrue(yield* fs.exists(path.join(home, "dw-mc")))
     }).pipe(Effect.provide(NodeServices.layer)))
