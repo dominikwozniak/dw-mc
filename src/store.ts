@@ -1,21 +1,17 @@
-import { Config, Effect, Layer, Option, Path, Schema } from "effect"
+import type { Config, Path } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
+import { xdgDirectory } from "./xdg.ts"
 
 /**
  * Where the tool keeps its state: `$XDG_STATE_HOME/dw-mc`, or
  * `$HOME/.local/state/dw-mc` when XDG says nothing.
  */
-export const stateDirectory: Effect.Effect<string, Config.ConfigError, Path.Path> = Effect.gen(
-  function*() {
-    const path = yield* Path.Path
-    const xdg = yield* Config.String("XDG_STATE_HOME").pipe(Config.option)
-    if (Option.isSome(xdg)) {
-      return path.join(xdg.value, "dw-mc")
-    }
-    const home = yield* Config.String("HOME")
-    return path.join(home, ".local", "state", "dw-mc")
-  }
-).pipe(Effect.withSpan("store.stateDirectory"))
+export const stateDirectory: Effect.Effect<string, Config.ConfigError, Path.Path> = xdgDirectory(
+  "XDG_STATE_HOME",
+  ".local",
+  "state"
+)
 
 /**
  * A schema-typed view of the store, with every key under `namespace`.
