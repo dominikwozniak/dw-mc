@@ -13,6 +13,11 @@ does not cover, read the sources: `node_modules/effect/src` and `node_modules/@e
 `repos/effect/` is a read-only checkout of the Effect monorepo for the few things npm leaves out; see
 `repos/AGENTS.md`. Never import from it.
 
+## Source layout
+
+Where a module goes, which way an import may cross a layer, and where its test and its fake live are
+decided in [ADR 0006](docs/adr/0006-source-layout.md). Read it before adding a file to `src/`.
+
 ## Tooling
 
 `pnpm` is the package manager, pinned in `package.json`. Never `npm`, `npx`, `yarn` or `bun`; run a
