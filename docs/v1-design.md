@@ -9,7 +9,7 @@ Vocabulary is in [`CONTEXT.md`](../CONTEXT.md). Boundaries are in [`docs/adr/`](
 | area | decision |
 | --- | --- |
 | who orchestrates | The tool. Facts, buckets, stamp and rebase are deterministic code. A model runs only inside a review run. A thin `/dw-mc` skill calls the CLI. |
-| state | JSON files validated with `Schema` on read, one directory of state outside any repo (`~/.local/state/dw-mc/`). Review-run reports are Markdown next to them. SQLite only when a query the files cannot answer appears. |
+| state | JSON files validated with `Schema` on read, one directory of state outside any repo (`$XDG_STATE_HOME/dw-mc`, or `~/.local/state/dw-mc` when XDG says nothing). Review-run reports are Markdown next to them. SQLite only when a query the files cannot answer appears. |
 | git | Every run works in a throwaway worktree cut from the tool's own bare clone of the repo, kept in the state directory. My checkout is never touched. |
 | GitHub, reads | `gh` as me: `gh search prs --author=@me --repo <tracked>` for the sweep, `gh pr view --json` per PR, `gh api` for reviews, comments and check runs. |
 | GitHub, writes | Only pushes to branches I author and edits to my PR bodies (unused in v1). Never a comment, reply, thread resolve, label, review, approval, status or merge. Comment-triggered reviewers a repo already has (CodeRabbit, a `@claude-review` workflow) are observed by author login and head SHA, never triggered. |
