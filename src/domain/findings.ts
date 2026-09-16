@@ -79,8 +79,8 @@ export const jsonSchema: string = JSON.stringify(
   SchemaRepresentation.toJsonSchemaDocument(SchemaRepresentation.toRepresentation(Findings.ast)).schema
 )
 
-/** What each severity weighs against the bar, so the three of them can be compared. */
-const weight: Record<Severity, number> = { info: 0, warning: 1, error: 2 }
+/** Where each severity sits against the others, so the bar can be compared with it. */
+const rank: Record<Severity, number> = { info: 0, warning: 1, error: 2 }
 
 /**
  * The findings that withhold the stamp: everything at `blocksOn` or above it.
@@ -90,4 +90,4 @@ const weight: Record<Severity, number> = { info: 0, warning: 1, error: 2 }
  * error blocks wherever the bar is, because nothing weighs more than one.
  */
 export const blocking = (findings: ReadonlyArray<Finding>, blocksOn: Severity): ReadonlyArray<Finding> =>
-  findings.filter((finding) => weight[finding.severity] >= weight[blocksOn])
+  findings.filter((finding) => rank[finding.severity] >= rank[blocksOn])

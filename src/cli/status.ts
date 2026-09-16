@@ -1,10 +1,11 @@
 import { Console, Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
+import { prKey } from "#adapters/store.ts"
 import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
 import { table, truncate } from "#cli/table.ts"
 import type { Bucket, Grouped, Placed } from "#domain/bucket.ts"
-import { factsKey, group } from "#domain/bucket.ts"
+import { group } from "#domain/bucket.ts"
 import { stampedAmong } from "#domain/stamp.ts"
 
 /** The glossary's name for each bucket, which is what the heading says. */
@@ -40,7 +41,7 @@ const cells = (placed: Placed, stamped: boolean): ReadonlyArray<string> => [
 const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>): ReadonlyArray<string> => {
   const rows = table(
     grouped.flatMap((it) =>
-      it.placed.map((placed) => cells(placed, stamped.has(factsKey(placed.facts.repo, placed.facts.number))))
+      it.placed.map((placed) => cells(placed, stamped.has(prKey(placed.facts.repo, placed.facts.number))))
     )
   )
   let taken = 0

@@ -3,11 +3,10 @@ import { Command, Flag } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig } from "#adapters/config.ts"
-import { prView } from "#adapters/gh.ts"
-import { storeFor } from "#adapters/store.ts"
+import { prKey, storeFor } from "#adapters/store.ts"
 import { named, prArgument } from "#cli/pr.ts"
-import { asUserError, userFacing } from "#cli/sweep.ts"
-import { Facts, factsKey } from "#domain/bucket.ts"
+import { asUserError } from "#cli/sweep.ts"
+import { Facts } from "#domain/bucket.ts"
 import { stampOf, withdraw } from "#domain/stamp.ts"
 
 const withdrawFlag = Flag.Boolean("withdraw").pipe(
@@ -28,7 +27,7 @@ const withdrawFlag = Flag.Boolean("withdraw").pipe(
  */
 const sweptFacts = Effect.fn("stamp.sweptFacts")(function* (repo: string, number: number) {
   const store = yield* storeFor("prs", Facts)
-  const facts = yield* Effect.orElseSucceed(store.get(factsKey(repo, number)), () => Option.none<Facts>())
+  const facts = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Facts>())
   if (Option.isNone(facts)) {
     return yield* asUserError(`Nothing is known about ${repo}#${number} yet. Run dw-mc sweep first.`)
   }
@@ -42,13 +41,15 @@ const sweptFacts = Effect.fn("stamp.sweptFacts")(function* (repo: string, number
  * so what is worth reading is the reason, which is either what it rests on or
  * the first thing that withholds it.
  *
- * `--withdraw` is where I overrule the computation, on a head I have read, and
- * it asks GitHub for the head rather than trusting the last sweep's: a
- * withdrawal outlives nothing but the code it was made against, so pinning it
- * to a head the pull request has already moved off would withdraw nothing.
+ * `--withdraw` is where I overrule the computation, and it takes the stamp off
+ * the head the facts are about rather than whatever GitHub has moved on to
+ * since: the stamp I am withdrawing is the one the table showed me, on code I
+ * have read, so the withdrawal is pinned to exactly that head. A head that has
+ * moved is a stamp the next sweep computes again anyway.
  *
- * Neither path writes a thing to GitHub. The stamp is mine, it lives on this
- * machine, and nobody else ever sees it (ADR 0001, ADR 0002).
+ * Neither path reaches past this machine at all: the stamp is mine, it is
+ * computed from what a sweep already wrote down, and nobody else ever sees it
+ * (ADR 0001, ADR 0002).
  */
 export const stampCommand = Command.make(
   "stamp",
@@ -58,19 +59,18 @@ export const stampCommand = Command.make(
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
 
+      const facts = yield* sweptFacts(repo, number)
+      const where = `${repo}#${number}  ${facts.head.slice(0, 7)}`
+
       if (byHand) {
-        const view = yield* prView(repo, number)
-        yield* withdraw(repo, number, view.headRefOid)
-        yield* Console.log(`${repo}#${number}  ${view.headRefOid.slice(0, 7)}  stamp withdrawn, until the head changes`)
+        yield* withdraw(repo, number, facts.head)
+        yield* Console.log(`${where}  stamp withdrawn, until the head changes`)
         return
       }
 
-      const facts = yield* sweptFacts(repo, number)
       const stamp = yield* stampOf(facts)
-      yield* Console.log(
-        `${repo}#${number}  ${facts.head.slice(0, 7)}  ${stamp.stamped ? "stamped" : `not stamped: ${stamp.reason}`}`
-      )
+      yield* Console.log(`${where}  ${stamp.stamped ? "stamped" : `not stamped: ${stamp.reason}`}`)
     },
-    Effect.catchTag(userFacing, asUserError)
+    Effect.catchTag(["ConfigMalformed"], asUserError)
   )
 ).pipe(Command.withDescription("Print my stamp on one pull request, or withdraw it by hand"))

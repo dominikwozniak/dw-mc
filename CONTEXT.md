@@ -18,7 +18,7 @@ One pass over every tracked PR that refreshes what mission control knows about i
 _Avoid_: poll, refresh, sync
 
 **Stamp**:
-My local mark that a tracked PR has passed my own bar. Computed from review runs and CI, and I can withdraw it by hand. It lives only on this machine and is never a GitHub approval, label, comment or status.
+My local mark that a tracked PR has passed my own bar. Computed from review runs and CI, and I can withdraw it by hand, at the head I read, until that head changes. It lives only on this machine and is never a GitHub approval, label, comment or status.
 _Avoid_: approval, label, status
 
 ### Buckets

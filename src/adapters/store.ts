@@ -15,6 +15,15 @@ export const stateDirectory: Effect.Effect<string, Config.ConfigError, Path.Path
 )
 
 /**
+ * How the state directory names one pull request, whichever namespace it is in.
+ *
+ * The facts a sweep wrote and the stamp I withdrew are the same pull request
+ * under two namespaces, so the key format is spelled once here rather than in
+ * each of them.
+ */
+export const prKey = (repo: string, number: number): string => `${repo}#${number}`
+
+/**
  * A schema-typed view of the store, with every key under `namespace`.
  *
  * Tracked PRs, review runs and stamps share one directory, so the namespace is

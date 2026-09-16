@@ -1,8 +1,7 @@
 import { Effect, Option, Schema } from "effect"
 
-import { storeFor } from "#adapters/store.ts"
+import { prKey, storeFor } from "#adapters/store.ts"
 import type { Facts } from "#domain/bucket.ts"
-import { factsKey } from "#domain/bucket.ts"
 
 /** My local mark that a tracked PR has passed my bar, and what it rests on. */
 export interface Stamp {
@@ -20,9 +19,6 @@ export interface Stamp {
  */
 export const Withdrawal = Schema.Struct({ head: Schema.String })
 export type Withdrawal = typeof Withdrawal.Type
-
-/** Where a withdrawal is kept: one per pull request, because only the last one counts. */
-export const withdrawalKey = (repo: string, number: number): string => `${repo}#${number}`
 
 /** The stamp a pull request has not earned, and the first reason it has not. */
 const withheld = (reason: string): Stamp => ({ stamped: false, reason })
@@ -88,16 +84,14 @@ export const stampFor = (facts: Facts, withdrawnAt: string | null): Stamp => {
  */
 export const withdrawnAt = Effect.fn("stamp.withdrawnAt")(function* (repo: string, number: number) {
   const store = yield* storeFor("stamps", Withdrawal)
-  const withdrawal = yield* Effect.orElseSucceed(store.get(withdrawalKey(repo, number)), () =>
-    Option.none<Withdrawal>()
-  )
+  const withdrawal = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Withdrawal>())
   return Option.match(withdrawal, { onNone: () => null, onSome: (it) => it.head })
 })
 
-/** Takes the stamp off a pull request at `head`, until its head changes. */
+/** Takes the stamp off a pull request at `head`, which is the only head it stays off. */
 export const withdraw = Effect.fn("stamp.withdraw")(function* (repo: string, number: number, head: string) {
   const store = yield* storeFor("stamps", Withdrawal)
-  yield* store.set(withdrawalKey(repo, number), { head })
+  yield* store.set(prKey(repo, number), { head })
 })
 
 /** The stamp of one tracked PR, with the withdrawal this machine holds against it. */
@@ -113,7 +107,7 @@ export const stampOf = Effect.fn("stamp.stampOf")(function* (facts: Facts) {
  */
 export const stampedAmong = Effect.fn("stamp.stampedAmong")(function* (facts: ReadonlyArray<Facts>) {
   const marks = yield* Effect.forEach(facts, (it) =>
-    Effect.map(stampOf(it), (stamp) => ({ key: factsKey(it.repo, it.number), stamped: stamp.stamped }))
+    Effect.map(stampOf(it), (stamp) => ({ key: prKey(it.repo, it.number), stamped: stamp.stamped }))
   )
   return new Set(marks.filter((mark) => mark.stamped).map((mark) => mark.key))
 })

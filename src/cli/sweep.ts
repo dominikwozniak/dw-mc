@@ -17,10 +17,10 @@ import {
   searchPrs,
   viewer
 } from "#adapters/gh.ts"
-import { storeFor } from "#adapters/store.ts"
+import { prKey, storeFor } from "#adapters/store.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
-import { Facts as FactsSchema, factsKey } from "#domain/bucket.ts"
+import { Facts as FactsSchema } from "#domain/bucket.ts"
 import { blocking } from "#domain/findings.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
@@ -74,7 +74,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
   const checks = rollupState(view.statusCheckRollup, settings.ci.ignore)
   const newestHumanCommentAt = newest(byHumansOtherThan(comments, me))
 
-  const key = factsKey(found.repo, found.number)
+  const key = prKey(found.repo, found.number)
   // State this version cannot read is state from another version of these
   // facts, and these facts are a cache of GitHub: reading them again costs a
   // sweep some calls, where failing here would cost the PR its row for good.

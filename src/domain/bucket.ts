@@ -46,9 +46,6 @@ export const Facts = Schema.Struct({
 })
 export type Facts = typeof Facts.Type
 
-/** Where a sweep keeps what it learned about one tracked PR: one key per PR. */
-export const factsKey = (repo: string, number: number): string => `${repo}#${number}`
-
 /** The one place a tracked PR sits at a time, named for what it waits on. */
 export const Bucket = Schema.Literals(["needs-me", "needs-review-run", "waiting-on-others", "ready"])
 export type Bucket = typeof Bucket.Type
