@@ -41,7 +41,7 @@ export const lines = (found: Findings): ReadonlyArray<string> =>
  * one I run inside a fix session, where another round trip to GitHub buys
  * nothing the run it is about to fix does not already say.
  */
-const currentRun = Effect.fn("findings.currentRun")(function* (repo: string, number: number) {
+export const currentRun = Effect.fn("findings.currentRun")(function* (repo: string, number: number) {
   const run = yield* lastRun(repo, number)
   if (Option.isNone(run)) {
     return yield* asUserError(`No review run on ${repo}#${number}. Run dw-mc review ${number} first.`)
@@ -55,7 +55,7 @@ const currentRun = Effect.fn("findings.currentRun")(function* (repo: string, num
  * A run that failed is not a clean one: a pipe must never be handed "no
  * findings" when what happened is that nothing could be read.
  */
-const whatItFound = (run: ReviewRun): Effect.Effect<Findings, CliError.UserError> => {
+export const whatItFound = (run: ReviewRun): Effect.Effect<Findings, CliError.UserError> => {
   const found = reportedBy(run)
   return found === null
     ? Effect.fail(

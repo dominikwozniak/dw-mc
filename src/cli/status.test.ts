@@ -77,6 +77,7 @@ const view = (repo: string, pr: Fixture) => ({
   url: `https://github.com/${repo}/pull/${pr.number}`,
   isDraft: pr.isDraft ?? false,
   headRefOid: pr.headRefOid ?? "31268022360852f71815404b6bbdd6bd797cfb4c",
+  headRefName: `feat/${pr.number}-a-branch`,
   mergeable: pr.mergeable ?? "MERGEABLE",
   reviewDecision: pr.reviewDecision ?? "",
   // Every check of a PR reports at the same job, whose id is the PR's number,
@@ -781,7 +782,7 @@ describe("a red CI, classified", () => {
         "gh api user",
         `gh pr view 1 --repo ${repo} --json commits`,
         `gh pr view 1 --repo ${repo} --json files`,
-        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup`,
+        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,mergeable,reviewDecision,statusCheckRollup`,
         `gh repo view ${repo} --json defaultBranchRef`,
         `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`,
         `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`

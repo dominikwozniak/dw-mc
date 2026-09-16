@@ -148,6 +148,7 @@ const machine = (options: {
         url: `https://github.com/${named}/pull/${number}`,
         isDraft: false,
         headRefOid: head,
+        headRefName: "feat/28-a-branch",
         mergeable: "MERGEABLE",
         reviewDecision: "APPROVED",
         statusCheckRollup: [{ name: "Check", status: "COMPLETED", conclusion: "SUCCESS" }]
@@ -273,7 +274,7 @@ describe("dw-mc review", () => {
       yield* Effect.ignore(run("review", "28"))
 
       assert.deepStrictEqual(spawned, [
-        `gh pr view 28 --repo ${repo} --json number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup`,
+        `gh pr view 28 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,mergeable,reviewDecision,statusCheckRollup`,
         `git -C ${clone} rev-parse --is-bare-repository`,
         `git -C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`,
         `git -C ${clone} rev-parse refs/dw-mc/pr/28`,

@@ -189,6 +189,7 @@ const PrView = Schema.fromJsonString(
     url: Schema.String,
     isDraft: Schema.Boolean,
     headRefOid: Schema.String,
+    headRefName: Schema.String,
     mergeable: Schema.String,
     reviewDecision: Schema.String,
     statusCheckRollup: Schema.NullOr(Schema.Array(CheckEntry))
@@ -196,7 +197,7 @@ const PrView = Schema.fromJsonString(
 )
 export type PrView = typeof PrView.Type
 
-const viewFields = "number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup"
+const viewFields = "number,title,url,isDraft,headRefOid,headRefName,mergeable,reviewDecision,statusCheckRollup"
 
 /**
  * Everything about one pull request that arrives without paging through it:

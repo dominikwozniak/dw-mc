@@ -17,11 +17,51 @@ export const pick = <A>(
     Effect.catchTag("QuitError", () => Effect.succeedNone)
   )
 
+/**
+ * Asks which of `choices` to act on, as many as I like.
+ *
+ * Nothing is selected to begin with, so what reaches the caller is what I
+ * picked rather than what I failed to unpick. Quitting is an answer here too:
+ * it gives `None`, which is not the same as picking nothing.
+ */
+export const choose = <A>(
+  message: string,
+  choices: ReadonlyArray<Prompt.SelectChoice<A>>
+): Effect.Effect<Option.Option<ReadonlyArray<A>>, never, Prompt.Environment> =>
+  Prompt.MultiSelect({ message, choices }).pipe(
+    Effect.asSome,
+    Effect.catchTag("QuitError", () => Effect.succeedNone)
+  )
+
+/**
+ * Asks for a line of prose, where having nothing to say is the ordinary answer.
+ *
+ * An empty line and a quit are the same thing: no note. Neither is a failure,
+ * because the prompt is optional by design.
+ */
+export const note = (message: string): Effect.Effect<Option.Option<string>, never, Prompt.Environment> =>
+  Prompt.String({ message }).pipe(
+    Effect.map((text) => (text.trim() === "" ? Option.none() : Option.some(text.trim()))),
+    Effect.catchTag("QuitError", () => Effect.succeedNone)
+  )
+
 /** One keypress for a scripted terminal. */
 export const key = (name: string): Terminal.UserInput => ({
   input: Option.none(),
   key: { name, ctrl: false, meta: false, shift: false }
 })
+
+/**
+ * A line of typing for a scripted terminal, one keypress to the character.
+ *
+ * A keypress carries one code unit, which is what a terminal really delivers,
+ * so the text is split the way a keyboard produces it rather than by grapheme.
+ */
+export const typed = (text: string): ReadonlyArray<Terminal.UserInput> =>
+  text.split("").map((character) => ({
+    input: Option.some(character),
+    key: { name: character, ctrl: false, meta: false, shift: false }
+  }))
 
 /**
  * A terminal that answers with `keys` and draws into `drawn`, for tests.

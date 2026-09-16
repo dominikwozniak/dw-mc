@@ -1,9 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Duration, Effect, Fiber } from "effect"
+import { Duration, Effect, Fiber, PlatformError } from "effect"
 import { TestClock } from "effect/testing"
 import type { ChildProcess } from "effect/unstable/process"
 
-import { builtinFindings, builtinReview } from "#adapters/runner.ts"
+import { builtinFindings, builtinReview, fixSession } from "#adapters/runner.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const session = "befb6186-5471-4b26-b680-e8ca49df25ac"
@@ -303,5 +303,58 @@ describe("the built-in runner's second turn", () => {
       assert.strictEqual(error._tag, "RunnerFailed")
       assert.include(error.message, "did not come back")
     }).pipe(Effect.provide(layerFake(() => Effect.never)))
+  )
+})
+
+describe("fixSession", () => {
+  it.effect("opens claude in the worktree, on the prompt, with my terminal handed to it", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const ended = yield* fixSession({ directory: "/fixes/28", prompt: "Work through these findings" })
+
+      assert.strictEqual(ended, 0)
+      const [command] = spawned
+      assert.strictEqual(command?.command, "claude")
+      assert.deepStrictEqual(command?.args, ["Work through these findings"])
+      assert.strictEqual(command?.options.cwd, "/fixes/28")
+      assert.deepStrictEqual(
+        [command?.options.stdin, command?.options.stdout, command?.options.stderr],
+        ["inherit", "inherit", "inherit"]
+      )
+      // A detached child sits outside the terminal's foreground process group,
+      // where nothing I type reaches it.
+      assert.strictEqual(command?.options.detached, false)
+    }).pipe(Effect.provide(claude({ spawned })))
+  })
+
+  it.effect("hands back the code the session ended on rather than reading anything it printed", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      assert.strictEqual(yield* fixSession({ directory: "/fixes/28", prompt: "Work through these" }), 130)
+    }).pipe(Effect.provide(claude({ spawned, exitCode: 130 })))
+  })
+
+  it.effect("a claude that will not start is a failure in our words", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(fixSession({ directory: "/fixes/28", prompt: "Work through these" }))
+
+      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.include(error.message, "no claude on this machine")
+    }).pipe(
+      Effect.provide(
+        layerFake(() =>
+          Effect.fail(
+            PlatformError.systemError({
+              _tag: "NotFound",
+              module: "ChildProcess",
+              method: "spawn",
+              description: "no claude on this machine"
+            })
+          )
+        )
+      )
+    )
   )
 })
