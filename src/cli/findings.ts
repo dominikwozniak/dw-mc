@@ -32,9 +32,15 @@ export const summary = (found: Findings, blocksOn: Severity): string => {
 export const header = (run: ReviewRun, found: Findings, blocksOn: Severity): string =>
   `${run.repo}#${run.number}  ${short(run.head)}  ${summary(found, blocksOn)}`
 
-/** The findings one to a line, in the order the runner reported them. */
+/**
+ * The findings one to a line, in the order the runner reported them, ruled so
+ * the three columns read apart.
+ */
 export const lines = (found: Findings): ReadonlyArray<string> =>
-  table(found.findings.map((finding) => [`${finding.file}:${finding.line}`, finding.severity, finding.summary]))
+  table(
+    found.findings.map((finding) => [`${finding.file}:${finding.line}`, finding.severity, finding.summary]),
+    " │ "
+  )
 
 /**
  * The review run whose findings are the current ones, or the sentence saying

@@ -293,6 +293,27 @@ describe("dw-mc fix", () => {
     }).pipe(Effect.provide(machine({ spawned, keys })), recording(printed))
   })
 
+  it.effect("prints the prompt and opens nothing where I am already in a session", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const printed: Array<string> = []
+    const keys = [...first, key("enter"), key("enter")]
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* ran(found)
+
+      yield* run("fix", "28", "--print")
+
+      assert.isUndefined(opened(spawned))
+      assert.isFalse(spawned.some((command) => command.command === "git"))
+      const prompt = printed.at(-1) ?? ""
+      assert.include(prompt, "These are the findings I picked")
+      assert.deepStrictEqual(carried(prompt).findings, [
+        { file: "src/cli/review.ts", line: 88, summary: "The run is never recorded.", severity: "error" }
+      ])
+    }).pipe(Effect.provide(machine({ spawned, keys })), recording(printed))
+  })
+
   it.effect("opens no session where I picked nothing", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
     const printed: Array<string> = []
@@ -306,6 +327,22 @@ describe("dw-mc fix", () => {
       assert.isUndefined(opened(spawned))
       assert.include(printed.join("\n"), "Nothing picked")
     }).pipe(Effect.provide(machine({ spawned, keys: [key("enter")] })), recording(printed))
+  })
+
+  it.effect("opens no session where I quit part way through the notes", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* ran(found)
+
+      // The keys run out at the note prompt, which is what a Ctrl-C there is.
+      yield* run("fix", "28")
+
+      assert.isUndefined(opened(spawned))
+      assert.include(printed.join("\n"), "Nothing picked")
+    }).pipe(Effect.provide(machine({ spawned, keys: [...first, key("enter")] })), recording(printed))
   })
 
   it.effect("opens no session where I quit the picker", () => {

@@ -69,6 +69,14 @@ describe("picker", () => {
     }).pipe(Effect.provide(Layer.mergeAll(layerScripted([key("enter")]), FileSystem.layerNoop({}), Path.layer)))
   )
 
+  it.effect("note hands a quit on to its caller, so Ctrl-C can end the whole command", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(note("Note?"))
+
+      assert.strictEqual(error._tag, "QuitError")
+    }).pipe(Effect.provide(Layer.mergeAll(layerScripted([]), FileSystem.layerNoop({}), Path.layer)))
+  )
+
   it.effect("a scripted terminal spends its keys once rather than replaying them", () =>
     Effect.gen(function* () {
       assert.deepStrictEqual(yield* pick("Which bucket?", buckets), Option.some("needs-me"))

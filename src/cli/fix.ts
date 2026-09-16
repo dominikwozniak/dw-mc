@@ -5,27 +5,41 @@ import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { prView } from "#adapters/gh.ts"
 import { fixWorktree } from "#adapters/git.ts"
-import { choose, note } from "#adapters/picker.ts"
+import { choose, note, width } from "#adapters/picker.ts"
 import { fixSession } from "#adapters/runner.ts"
-import { currentRun, header, whatItFound } from "#cli/findings.ts"
+import { currentRun, header, lines, whatItFound } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
-import { table } from "#cli/table.ts"
-import type { Finding } from "#domain/findings.ts"
+import { truncate } from "#cli/table.ts"
+import type { Finding, Findings } from "#domain/findings.ts"
 import type { Chosen } from "#domain/fix.ts"
 import { promptFor, staleAt } from "#domain/fix.ts"
+
+const printFlag = Flag.Boolean("print").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Print the prompt a session would open on, and open none")
+)
 
 const commitFlag = Flag.Boolean("commit").pipe(
   Flag.withDescription("Let this session commit what it changes, over what the repository configured"),
   Flag.optional
 )
 
-/** The findings to pick from, each on the line the report gives it. */
-const choicesOf = (findings: ReadonlyArray<Finding>) => {
-  const titles = table(
-    findings.map((finding) => [`${finding.file}:${finding.line}`, finding.severity, finding.summary])
-  )
-  return findings.map((finding, index) => ({ title: titles[index] ?? finding.summary, value: finding }))
+/**
+ * The findings to pick from, each on the line `dw-mc findings` gives it.
+ *
+ * The rows come from there rather than being built again here, so the list I
+ * pick from and the list I read are the same list. A row that does not fit the
+ * screen is cut: a prompt draws its own frame around the row, and a row that
+ * wraps takes the whole list's alignment with it.
+ */
+const choicesOf = (found: Findings, screen: number) => {
+  const rows = lines(found)
+  const room = screen === 0 ? Number.POSITIVE_INFINITY : screen - 6
+  return found.findings.map((finding, index) => ({
+    title: truncate(rows[index] ?? finding.summary, room),
+    value: finding
+  }))
 }
 
 /**
@@ -67,9 +81,9 @@ const fixable = (number: number, run: string, now: string) => {
  */
 export const fix = Command.make(
   "fix",
-  { pr: prArgument, commit: commitFlag },
+  { pr: prArgument, commit: commitFlag, print: printFlag },
   Effect.fn("fix")(
-    function* ({ commit, pr }) {
+    function* ({ commit, pr, print }) {
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
@@ -84,14 +98,24 @@ export const fix = Command.make(
       const view = yield* prView(repo, number)
       yield* fixable(number, run.head, view.headRefOid)
 
-      const picked = yield* choose("Which findings does the session carry?", choicesOf(found.findings))
-      const chosen = yield* noted(Option.getOrElse(picked, () => []))
+      const picked = yield* choose("Which findings does the session carry?", choicesOf(found, yield* width))
+      const chosen = yield* Effect.catchTag(noted(Option.getOrElse(picked, () => [])), "QuitError", () =>
+        Effect.succeed<ReadonlyArray<Chosen>>([])
+      )
       if (chosen.length === 0) {
         yield* Console.log("Nothing picked, so no session was opened.")
         return
       }
 
       const commits = Option.getOrElse(commit, () => settings.fix.commits)
+      // The prompt on its own, for the session I already have open. Nothing is
+      // cut and nothing is spawned: the session this is pasted into is one I am
+      // steering already, in whatever checkout I am steering it from.
+      if (print) {
+        yield* Console.log(yield* promptFor({ repo, number, head: run.head, findings: chosen }, commits))
+        return
+      }
+
       const worktree = yield* fixWorktree(repo, number, view.headRefName)
       yield* Console.log(
         `  ${chosen.length} of ${found.findings.length} findings, ${commits ? "committing" : "not committing"}`

@@ -160,10 +160,13 @@ describe("the worktree a fix session opens in", () => {
         `git ${fetched}`,
         `git -C ${clone} rev-parse refs/dw-mc/pr/28`,
         `git -C ${clone} worktree list --porcelain`,
+        `git -C ${clone} config extensions.worktreeConfig true`,
+        `git -C ${clone} config --worktree core.bare true`,
+        `git -C ${clone} config --unset core.bare`,
         `git -C ${clone} worktree add -B dw-mc/fix/28 ${fix} ${head}`,
         `git -C ${clone} config branch.dw-mc/fix/28.remote origin`,
         `git -C ${clone} config branch.dw-mc/fix/28.merge refs/heads/feat/28-a-branch`,
-        `git -C ${clone} config push.default upstream`
+        `git -C ${fix} config --worktree push.default upstream`
       ])
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
   })
@@ -179,6 +182,17 @@ describe("the worktree a fix session opens in", () => {
       const cut = spawned.find((vector) => vector.includes("worktree add"))
       assert.include(cut, "-B dw-mc/fix/28")
       assert.notInclude(cut, "feat/28-a-branch")
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("keeps how a push behaves to the fix worktree, out of the clone every run shares", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+
+      assert.include(spawned, `git -C ${fix} config --worktree push.default upstream`)
+      assert.isFalse(spawned.some((vector) => vector === `git -C ${clone} config push.default upstream`))
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
   })
 

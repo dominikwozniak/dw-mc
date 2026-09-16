@@ -101,8 +101,8 @@ describe("dw-mc findings", () => {
 
       assert.deepStrictEqual(printed, [
         `${repo}#28  284d599  2 findings, 1 blocking`,
-        "  src/cli/review.ts:88  error  The run is never recorded.",
-        "  docs/v1-design.md:3   info   The build order is out of date."
+        "  src/cli/review.ts:88 │ error │ The run is never recorded.",
+        "  docs/v1-design.md:3  │ info  │ The build order is out of date."
       ])
     }).pipe(Effect.provide(machine), recording(printed))
   })

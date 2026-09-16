@@ -43,7 +43,7 @@ export const promptFor = (selection: Selection, commits: boolean): Effect.Effect
   Effect.map(asJson(selection), (json) =>
     [
       `These are the findings I picked from a dw-mc review run on ${selection.repo}#${selection.number}, ` +
-        `at ${short(selection.head)}, which is the commit this worktree stands on.`,
+        `at ${short(selection.head)}, the commit their lines are counted from.`,
       `Work through them one at a time. Where a finding carries a note, the note is mine and outranks the ` +
         `finding's own summary; where it carries none, the summary is the whole brief.`,
       commits

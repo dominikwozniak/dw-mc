@@ -6,6 +6,7 @@ import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
 import { announce } from "#adapters/notify.ts"
+import { spinning } from "#adapters/progress.ts"
 import { builtinFindings, builtinReview } from "#adapters/runner.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
 import { lines, summary } from "#cli/findings.ts"
@@ -129,11 +130,9 @@ export const review = Command.make(
         const ran = yield* withWorktree(repo, number, (worktree) =>
           Effect.gen(function* () {
             yield* Console.log(`  head ${worktree.head.slice(0, 7)}  ${runner}, effort ${spend}`)
-            const turn = yield* builtinReview({
-              directory: worktree.directory,
-              effort: spend,
-              onTool: (tool) => Console.log(`  · ${tool}`)
-            })
+            const turn = yield* spinning("reviewing", (onTool) =>
+              builtinReview({ directory: worktree.directory, effort: spend, onTool })
+            )
             // Whatever the second turn comes to is a value and not a failure:
             // the prose is already worth keeping, and a turn that could not
             // report is recorded as the failure it is rather than lost with it.

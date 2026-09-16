@@ -3,47 +3,58 @@ import { Effect, Layer, Option, Queue, Terminal } from "effect"
 import { Prompt } from "effect/unstable/cli"
 
 /**
- * Asks which one of `choices` to act on.
+ * Turns quitting into an answer rather than a failure.
  *
- * Quitting is an answer, not a failure: bailing out of the picker gives `None`
- * rather than an error the caller has to catch.
+ * Bailing out of a prompt gives `None`, so no caller has to catch an error to
+ * learn that I walked away. The prompt itself decides what a `Some` carries.
  */
+const orNone = <A, R>(
+  prompt: Effect.Effect<Option.Option<A>, Terminal.QuitError, R>
+): Effect.Effect<Option.Option<A>, never, R> => Effect.catchTag(prompt, "QuitError", () => Effect.succeedNone)
+
+/** Asks which one of `choices` to act on. */
 export const pick = <A>(
   message: string,
   choices: ReadonlyArray<Prompt.SelectChoice<A>>
 ): Effect.Effect<Option.Option<A>, never, Prompt.Environment> =>
-  Prompt.Select({ message, choices }).pipe(
-    Effect.asSome,
-    Effect.catchTag("QuitError", () => Effect.succeedNone)
-  )
+  orNone(Effect.asSome(Prompt.Select({ message, choices })))
 
 /**
  * Asks which of `choices` to act on, as many as I like.
  *
  * Nothing is selected to begin with, so what reaches the caller is what I
- * picked rather than what I failed to unpick. Quitting is an answer here too:
- * it gives `None`, which is not the same as picking nothing.
+ * picked rather than what I failed to unpick. Quitting is not the same as
+ * picking nothing: it gives `None`.
  */
 export const choose = <A>(
   message: string,
   choices: ReadonlyArray<Prompt.SelectChoice<A>>
 ): Effect.Effect<Option.Option<ReadonlyArray<A>>, never, Prompt.Environment> =>
-  Prompt.MultiSelect({ message, choices }).pipe(
-    Effect.asSome,
-    Effect.catchTag("QuitError", () => Effect.succeedNone)
-  )
+  orNone(Effect.asSome(Prompt.MultiSelect({ message, choices })))
 
 /**
  * Asks for a line of prose, where having nothing to say is the ordinary answer.
  *
- * An empty line and a quit are the same thing: no note. Neither is a failure,
- * because the prompt is optional by design.
+ * An empty line is no note, and that is not a failure: the prompt is optional
+ * by design. Quitting is the one thing it does not swallow. Ctrl-C part way
+ * through a list of notes means I want out of the whole command, and a prompt
+ * that turned it into "no note" would walk me through the rest of the list and
+ * then act on findings I was no longer sure about.
  */
-export const note = (message: string): Effect.Effect<Option.Option<string>, never, Prompt.Environment> =>
-  Prompt.String({ message }).pipe(
-    Effect.map((text) => (text.trim() === "" ? Option.none() : Option.some(text.trim()))),
-    Effect.catchTag("QuitError", () => Effect.succeedNone)
-  )
+export const note = (message: string): Effect.Effect<Option.Option<string>, Terminal.QuitError, Prompt.Environment> =>
+  Effect.map(Prompt.String({ message }), (text) => (text.trim() === "" ? Option.none() : Option.some(text.trim())))
+
+/**
+ * How wide the screen is, or zero where there is no screen to measure.
+ *
+ * A prompt has to fit its row on one line: a row that wraps takes the list's
+ * alignment with it. Nothing is piping into a prompt, so zero means the writing
+ * is going somewhere that does not wrap either.
+ */
+export const width: Effect.Effect<number, never, Terminal.Terminal> = Effect.gen(function* () {
+  const terminal = yield* Terminal.Terminal
+  return yield* terminal.columns
+})
 
 /** One keypress for a scripted terminal. */
 export const key = (name: string): Terminal.UserInput => ({
@@ -78,7 +89,8 @@ export const typed = (text: string): ReadonlyArray<Terminal.UserInput> =>
  */
 export const layerScripted = (
   keys: ReadonlyArray<Terminal.UserInput>,
-  drawn?: Array<string>
+  drawn?: Array<string>,
+  columns: number = 80
 ): Layer.Layer<Terminal.Terminal> =>
   Layer.effect(
     Terminal.Terminal,
@@ -90,7 +102,7 @@ export const layerScripted = (
       Queue.endUnsafe(queue)
 
       return Terminal.make({
-        columns: Effect.succeed(80),
+        columns: Effect.succeed(columns),
         rows: Effect.succeed(24),
         readInput: Effect.succeed(queue),
         readLine: Effect.die("picker: a prompt never reads a line"),

@@ -56,7 +56,7 @@ export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHe
  * The head comes from the pull request's ref rather than from what a sweep last
  * saw, so what is cut is the commit the run really reads.
  */
-const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: number, under: string) {
+const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: number, under: "worktrees" | "fixes") {
   const path = yield* Path.Path
   const state = yield* stateDirectory
   const clone = path.join(state, "repos", `${repo}.git`)
@@ -142,6 +142,21 @@ const aheadOf = Effect.fn("git.aheadOf")(function* (clone: string, branch: strin
  * changes I have not committed, and a branch that has gone past the head stops
  * this in its own words rather than losing commits I have not pushed.
  */
+/**
+ * The clone, ready to keep a setting per worktree rather than for all of them.
+ *
+ * Verified by running it: turning `extensions.worktreeConfig` on in a bare
+ * repository makes its linked worktrees read `core.bare` too, and every one of
+ * them then refuses to work as a checkout. Git's own answer is to move
+ * `core.bare` into the main worktree's config, which is what these three lines
+ * do. `--unset` on a key already moved is not a failure, it is the second run.
+ */
+const perWorktreeConfig = Effect.fn("git.perWorktreeConfig")(function* (clone: string) {
+  yield* git(["-C", clone, "config", "extensions.worktreeConfig", "true"])
+  yield* git(["-C", clone, "config", "--worktree", "core.bare", "true"])
+  yield* Effect.ignore(git(["-C", clone, "config", "--unset", "core.bare"]))
+})
+
 export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string, number: number, prBranch: string) {
   const { clone, directory, head } = yield* whereToCut(repo, number, "fixes")
   const branch = `dw-mc/fix/${number}`
@@ -158,14 +173,17 @@ export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string,
     }
     yield* git(["-C", clone, "worktree", "remove", directory])
   }
+  yield* perWorktreeConfig(clone)
   yield* git(["-C", clone, "worktree", "add", "-B", branch, directory, head])
 
   // What makes `git push` inside the session land on the pull request: the
   // branch tracks the pull request's, and a push follows the upstream's name
-  // rather than the branch's own.
+  // rather than the branch's own. Where the branch is tracked is the clone's
+  // business, but how a push behaves is this worktree's alone: a review run's
+  // worktree must not inherit it.
   yield* git(["-C", clone, "config", `branch.${branch}.remote`, "origin"])
   yield* git(["-C", clone, "config", `branch.${branch}.merge`, `refs/heads/${prBranch}`])
-  yield* git(["-C", clone, "config", "push.default", "upstream"])
+  yield* git(["-C", directory, "config", "--worktree", "push.default", "upstream"])
 
   return { directory, head } satisfies Worktree
 })
