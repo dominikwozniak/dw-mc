@@ -1,0 +1,39 @@
+{
+  "name": "dw-mc",
+  "version": "0.0.0",
+  "description": "A local CLI that keeps the state of my open pull requests on disk, reads GitHub through gh, runs code reviews through local agent CLIs, and shows what every PR waits on.",
+  "license": "MIT",
+  "author": "Dominik Wo\u017aniak",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dominikwozniak/dw-mc.git"
+  },
+  "type": "module",
+  "bin": {
+    "dw-mc": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.check.json",
+    "diagnostics": "effect-tsgo diagnostics --project tsconfig.check.json",
+    "test": "vitest run",
+    "prepare": "effect-tsgo patch"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.115",
+    "effect": "4.0.0-rc.115"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "0.45.0",
+    "@effect/vitest": "4.0.0-rc.115",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}
