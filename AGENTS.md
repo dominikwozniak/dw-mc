@@ -13,6 +13,11 @@ does not cover, read the sources: `node_modules/effect/src` and `node_modules/@e
 `repos/effect/` is a read-only checkout of the Effect monorepo for the few things npm leaves out; see
 `repos/AGENTS.md`. Never import from it.
 
+## Tooling
+
+`pnpm` is the package manager, pinned in `package.json`. Never `npm`, `npx`, `yarn` or `bun`; run a
+one-off tool with `pnpm dlx`, as in `pnpm dlx skills@latest add mattpocock/skills`.
+
 Commands: `pnpm typecheck`, `pnpm diagnostics` (Effect diagnostics through `@effect/tsgo`), `pnpm test`,
 `pnpm build`.
 
