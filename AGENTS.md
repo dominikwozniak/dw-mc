@@ -16,6 +16,11 @@ does not cover, read the sources: `node_modules/effect/src` and `node_modules/@e
 Commands: `pnpm typecheck`, `pnpm diagnostics` (Effect diagnostics through `@effect/tsgo`), `pnpm test`,
 `pnpm build`.
 
+## Git conventions
+
+Pull requests land as a **squash merge**. The squash subject is the pull request title, so the title
+follows the same `type(scope): subject` form as a commit subject.
+
 ## Agent skills
 
 ### Issue tracker
