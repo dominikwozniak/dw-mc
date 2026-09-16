@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect"
 
 import { Finding } from "#domain/findings.ts"
+import { short } from "#domain/review.ts"
 
 /** One finding I chose to act on, carrying what I think about it. */
 export const Chosen = Schema.Struct({ ...Finding.fields, note: Schema.optionalKey(Schema.String) })
@@ -41,10 +42,25 @@ export const promptFor = (selection: Selection): Effect.Effect<string, Schema.Sc
   Effect.map(asJson(selection), (json) =>
     [
       `These are the findings I picked from a dw-mc review run on ${selection.repo}#${selection.number}, ` +
-        `at ${selection.head.slice(0, 7)}, which is the commit this worktree stands on.`,
+        `at ${short(selection.head)}, which is the commit this worktree stands on.`,
       `Work through them one at a time. Where a finding carries a note, the note is mine and outranks the ` +
         `finding's own summary; where it carries none, the summary is the whole brief.`,
       `Do not commit and do not push: I do both myself when I have read what you changed.`,
       json
     ].join("\n\n")
   )
+
+/**
+ * Why these findings cannot be fixed where the pull request now is, or nothing
+ * where they can.
+ *
+ * A pull request that moved since its last review run has findings at lines
+ * that may no longer be there, and a worktree cut at the new head would carry
+ * them into code they were never about. Reviewing again is cheap next to fixing
+ * the wrong thing.
+ */
+export const staleAt = (number: number, run: string, now: string): string | null =>
+  run === now
+    ? null
+    : `The findings are from ${short(run)} and the pull request is now at ${short(now)}. ` +
+      `Run dw-mc review ${number} again to review the head you would be fixing.`

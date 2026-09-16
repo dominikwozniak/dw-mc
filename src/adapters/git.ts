@@ -28,8 +28,20 @@ export interface Worktree {
   readonly head: string
 }
 
+/** A fix worktree that still holds work of mine, which nothing may cut away. */
+export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHeld", {
+  directory: Schema.String,
+  detail: Schema.String
+}) {
+  override get message(): string {
+    return `${this.detail}\nThe worktree is at ${this.directory}.`
+  }
+}
+
 /**
- * The tool's own bare clone of `repo`, cloned the first time it is asked for.
+ * Where a worktree is cut from, what it is cut at, and where it goes: the tool's
+ * own bare clone of `repo`, the pull request's head, and a directory under
+ * `under` in the state directory.
  *
  * Everything happens in this clone and never in my checkout: a run that reached
  * into the directory I am working in would read whatever I had half finished
@@ -44,7 +56,7 @@ export interface Worktree {
  * The head comes from the pull request's ref rather than from what a sweep last
  * saw, so what is cut is the commit the run really reads.
  */
-const cloneAt = Effect.fn("git.cloneAt")(function* (repo: string, number: number) {
+const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: number, under: string) {
   const path = yield* Path.Path
   const state = yield* stateDirectory
   const clone = path.join(state, "repos", `${repo}.git`)
@@ -66,7 +78,7 @@ const cloneAt = Effect.fn("git.cloneAt")(function* (repo: string, number: number
     "+refs/heads/*:refs/heads/*"
   ])
   const head = yield* git(["-C", clone, "rev-parse", pullRef])
-  return { clone, head, state }
+  return { clone, head, directory: path.join(state, under, repo, String(number)) }
 })
 
 /**
@@ -85,9 +97,7 @@ export const withWorktree = Effect.fn("git.withWorktree")(function* <A, E, R>(
   number: number,
   use: (worktree: Worktree) => Effect.Effect<A, E, R>
 ) {
-  const path = yield* Path.Path
-  const { clone, head, state } = yield* cloneAt(repo, number)
-  const directory = path.join(state, "worktrees", repo, String(number))
+  const { clone, directory, head } = yield* whereToCut(repo, number, "worktrees")
 
   // A worktree that is not there cannot be removed, and that is the ordinary
   // case rather than a problem: both ends of the run ask for the same thing.
@@ -106,29 +116,56 @@ const worktreesOf = Effect.fn("git.worktreesOf")(function* (clone: string) {
   return listed.split("\n").flatMap((line) => (line.startsWith("worktree ") ? [line.slice("worktree ".length)] : []))
 })
 
+/** How far the branch a fix worktree stands on has gone past `head`. */
+const aheadOf = Effect.fn("git.aheadOf")(function* (clone: string, branch: string, head: string) {
+  const counted = yield* git(["-C", clone, "rev-list", "--count", branch, `^${head}`])
+  return Number(counted.trim())
+})
+
 /**
- * A worktree for a fix session, cut on the pull request's own branch at its
- * head, and left standing when the session ends.
+ * A worktree for a fix session, on a branch of the tool's own, and left
+ * standing when the session ends.
  *
  * It outlives the session because the work in it is mine: I commit and push
  * from inside the session, and a worktree taken down at the end would take an
- * unpushed commit with it. The branch is the pull request's own rather than a
- * detached head, so what I commit has somewhere to go.
+ * unpushed commit with it.
  *
- * A previous session's worktree is removed first, and removed without `--force`
- * on purpose: where it still holds changes, `git` refuses in its own words and
- * this stops, which is the whole point. Nothing of mine is thrown away to make
- * room for a fresh cut.
+ * The branch is `dw-mc/fix/<number>` and never the pull request's own, which is
+ * verified rather than a preference: `git` refuses to fetch into a branch that
+ * a worktree has checked out, so a worktree standing on the pull request's
+ * branch would fail the next fetch of this clone and take every command that
+ * reads it down with it. The branch tracks the pull request's, so a plain
+ * `git push` from inside the session lands on the pull request.
+ *
+ * A previous session's worktree is cut away first, and only where there is
+ * nothing of mine in it: `git worktree remove` without `--force` refuses over
+ * changes I have not committed, and a branch that has gone past the head stops
+ * this in its own words rather than losing commits I have not pushed.
  */
-export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string, number: number, branch: string) {
-  const path = yield* Path.Path
-  const { clone, head, state } = yield* cloneAt(repo, number)
-  const directory = path.join(state, "fixes", repo, String(number))
+export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string, number: number, prBranch: string) {
+  const { clone, directory, head } = yield* whereToCut(repo, number, "fixes")
+  const branch = `dw-mc/fix/${number}`
 
   if ((yield* worktreesOf(clone)).includes(directory)) {
+    const ahead = yield* aheadOf(clone, branch, head)
+    if (ahead > 0) {
+      return yield* new WorktreeHeld({
+        directory,
+        detail:
+          `The last fix session on ${repo}#${number} left ${ahead} commit${ahead === 1 ? "" : "s"} ` +
+          `that the pull request's head does not have. Push them or drop them before opening another session.`
+      })
+    }
     yield* git(["-C", clone, "worktree", "remove", directory])
   }
   yield* git(["-C", clone, "worktree", "add", "-B", branch, directory, head])
+
+  // What makes `git push` inside the session land on the pull request: the
+  // branch tracks the pull request's, and a push follows the upstream's name
+  // rather than the branch's own.
+  yield* git(["-C", clone, "config", `branch.${branch}.remote`, "origin"])
+  yield* git(["-C", clone, "config", `branch.${branch}.merge`, `refs/heads/${prBranch}`])
+  yield* git(["-C", clone, "config", "push.default", "upstream"])
 
   return { directory, head } satisfies Worktree
 })

@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
 import type { Selection } from "#domain/fix.ts"
-import { promptFor } from "#domain/fix.ts"
+import { promptFor, staleAt } from "#domain/fix.ts"
 
 const selected: Selection = {
   repo: "dominikwozniak/dw-mc",
@@ -61,4 +61,18 @@ describe("promptFor", () => {
       assert.include(prompt, "Do not commit")
     })
   )
+})
+
+describe("staleAt", () => {
+  it("has nothing to say where the findings and the pull request are at one head", () => {
+    assert.isNull(staleAt(28, selected.head, selected.head))
+  })
+
+  it("names both heads and the run that would make them one again", () => {
+    const said = staleAt(28, selected.head, "9f2b0c1d4e5a6b7c8d9e0f1a2b3c4d5e6f708192")
+
+    assert.include(said, "284d599")
+    assert.include(said, "9f2b0c1")
+    assert.include(said, "dw-mc review 28")
+  })
 })

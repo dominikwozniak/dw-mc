@@ -9,7 +9,7 @@ import { count, table } from "#cli/table.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Findings as FindingsSchema } from "#domain/findings.ts"
 import type { ReviewRun } from "#domain/review.ts"
-import { lastRun, reportedBy } from "#domain/review.ts"
+import { lastRun, reportedBy, short } from "#domain/review.ts"
 
 /** The findings as the JSON the schema defines, rather than as this file spells it. */
 const asJson = Schema.encodeEffect(Schema.fromJsonString(FindingsSchema))
@@ -27,6 +27,10 @@ export const summary = (found: Findings, blocksOn: Severity): string => {
   const blocked = blocking(found.findings, blocksOn).length
   return `${count(found.findings.length, "finding")}, ${blocked} blocking`
 }
+
+/** Which run these findings are, and what they come to: the line above the list. */
+export const header = (run: ReviewRun, found: Findings, blocksOn: Severity): string =>
+  `${run.repo}#${run.number}  ${short(run.head)}  ${summary(found, blocksOn)}`
 
 /** The findings one to a line, in the order the runner reported them. */
 export const lines = (found: Findings): ReadonlyArray<string> =>
@@ -61,7 +65,7 @@ export const whatItFound = (run: ReviewRun): Effect.Effect<Findings, CliError.Us
     ? Effect.fail(
         new CliError.UserError({
           cause:
-            `The review run on ${run.head.slice(0, 7)} reported no findings: ` +
+            `The review run on ${short(run.head)} reported no findings: ` +
             `${run.outcome._tag === "failed" ? run.outcome.detail : ""}\n` +
             `Run dw-mc review ${run.number} --force to run it again.`
         })
@@ -96,7 +100,7 @@ export const findings = Command.make(
         return
       }
 
-      yield* Console.log(`${repo}#${number}  ${run.head.slice(0, 7)}  ${summary(found, settings.stamp.blocks_on)}`)
+      yield* Console.log(header(run, found, settings.stamp.blocks_on))
       for (const line of lines(found)) {
         yield* Console.log(`  ${line}`)
       }

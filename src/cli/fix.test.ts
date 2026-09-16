@@ -57,6 +57,9 @@ const machine = (options: {
       if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
         return Effect.succeed(fakeHandle({ stdout: `${options.headRefOid ?? head}\n` }))
       }
+      if (argv.startsWith(`-C ${clone} config `)) {
+        return Effect.succeed(fakeHandle({}))
+      }
       if (argv === `-C ${clone} worktree list --porcelain`) {
         return Effect.succeed(fakeHandle({ stdout: `worktree ${clone}\nbare\n` }))
       }
@@ -194,7 +197,7 @@ describe("dw-mc fix", () => {
       assert.strictEqual(opened(spawned)?.options.cwd, worktree)
       assert.include(
         spawned.map((command) => `${command.command} ${command.args.join(" ")}`),
-        `git -C ${clone} worktree add -B ${branch} ${worktree} ${head}`
+        `git -C ${clone} worktree add -B dw-mc/fix/28 ${worktree} ${head}`
       )
       assert.include(printed.join("\n"), worktree)
     }).pipe(Effect.provide(machine({ spawned, keys })), recording(printed))
@@ -211,9 +214,11 @@ describe("dw-mc fix", () => {
 
       yield* run("fix", "28")
 
+      // `git config push.default` is how my own push inside the session lands
+      // on the pull request, and is not the tool pushing anything.
       const vectors = spawned.map((command) => `${command.command} ${command.args.join(" ")}`)
       assert.isFalse(
-        vectors.some((vector) => vector.startsWith("git -C") && /\b(commit|push)\b/.test(vector)),
+        vectors.some((vector) => /^git -C \S+ (commit|push)\b/.test(vector)),
         vectors.join("\n")
       )
       assert.isDefined(opened(spawned))

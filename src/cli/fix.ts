@@ -7,13 +7,13 @@ import { prView } from "#adapters/gh.ts"
 import { fixWorktree } from "#adapters/git.ts"
 import { choose, note } from "#adapters/picker.ts"
 import { fixSession } from "#adapters/runner.ts"
-import { currentRun, summary, whatItFound } from "#cli/findings.ts"
+import { currentRun, header, whatItFound } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { table } from "#cli/table.ts"
 import type { Finding } from "#domain/findings.ts"
 import type { Chosen } from "#domain/fix.ts"
-import { promptFor } from "#domain/fix.ts"
+import { promptFor, staleAt } from "#domain/fix.ts"
 
 /** The findings to pick from, each on the line the report gives it. */
 const choicesOf = (findings: ReadonlyArray<Finding>) => {
@@ -39,33 +39,19 @@ const noted = Effect.fn("fix.noted")(function* (picked: ReadonlyArray<Finding>) 
   return chosen
 })
 
-/**
- * The head both the findings and the worktree stand on, or the sentence saying
- * they cannot.
- *
- * A pull request that moved since its last review run has findings at lines
- * that may no longer be there, and a worktree cut at the new head would carry
- * them into code they were never about. Reviewing again is cheap next to fixing
- * the wrong thing.
- */
-const sameHead = (number: number, run: string, now: string) =>
-  run === now
-    ? Effect.void
-    : Effect.fail(
-        new CliError.UserError({
-          cause:
-            `The findings are from ${run.slice(0, 7)} and the pull request is now at ${now.slice(0, 7)}. ` +
-            `Run dw-mc review ${number} again to review the head you would be fixing.`
-        })
-      )
+/** The domain's word on a head that has moved, as the command's own failure. */
+const fixable = (number: number, run: string, now: string) => {
+  const stale = staleAt(number, run, now)
+  return stale === null ? Effect.void : Effect.fail(new CliError.UserError({ cause: stale }))
+}
 
 /**
  * A fix session: the findings I picked, in an agent session I steer.
  *
  * The tool fixes nothing. It picks the findings apart with me, cuts a worktree
- * on the pull request's branch and hands the session what I chose as JSON, and
- * then it is out of the way: I steer, I commit, I push. Nothing here writes to
- * GitHub and nothing here commits.
+ * on a branch of its own that tracks the pull request's, and hands the session
+ * what I chose as JSON; then it is out of the way. I steer, I commit, I push.
+ * Nothing here writes to GitHub and nothing here commits.
  *
  * The worktree is left standing when the session ends, because the work in it
  * is mine and an unpushed commit lives nowhere else. Re-reviewing the result is
@@ -83,13 +69,13 @@ export const fix = Command.make(
 
       const run = yield* currentRun(repo, number)
       const found = yield* whatItFound(run)
-      yield* Console.log(`${repo}#${number}  ${run.head.slice(0, 7)}  ${summary(found, settings.stamp.blocks_on)}`)
+      yield* Console.log(header(run, found, settings.stamp.blocks_on))
       if (found.findings.length === 0) {
         return
       }
 
       const view = yield* prView(repo, number)
-      yield* sameHead(number, run.head, view.headRefOid)
+      yield* fixable(number, run.head, view.headRefOid)
 
       const picked = yield* choose("Which findings does the session carry?", choicesOf(found.findings))
       const chosen = yield* noted(Option.getOrElse(picked, () => []))
@@ -99,22 +85,18 @@ export const fix = Command.make(
       }
 
       const worktree = yield* fixWorktree(repo, number, view.headRefName)
-      yield* Console.log(`  ${chosen.length} of ${found.findings.length} findings, on ${view.headRefName}`)
-      yield* Console.log(`  ${worktree.directory}`)
+      yield* Console.log(`  ${chosen.length} of ${found.findings.length} findings`)
+      yield* Console.log(`  ${worktree.directory}, pushing to ${view.headRefName}`)
 
       const ended = yield* fixSession({
         directory: worktree.directory,
         prompt: yield* promptFor({ repo, number, head: worktree.head, findings: chosen })
       })
 
-      yield* Console.log(
-        ended === 0
-          ? `The session is over. Nothing was committed or pushed for you; the worktree stands at ${worktree.directory}.`
-          : `The session ended with ${ended}. Nothing was committed or pushed for you; ` +
-              `the worktree stands at ${worktree.directory}.`
-      )
+      yield* Console.log(ended === 0 ? "The session is over." : `The session ended with ${ended}.`)
+      yield* Console.log(`Nothing was committed or pushed for you; the worktree stands at ${worktree.directory}.`)
       yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
     },
-    Effect.catchTag([...userFacing, "GitFailed", "RunnerFailed"], asUserError)
+    Effect.catchTag([...userFacing, "GitFailed", "WorktreeHeld", "RunnerFailed"], asUserError)
   )
 ).pipe(Command.withDescription("Pick findings from the current review run and open a fix session on them"))
