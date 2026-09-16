@@ -25,7 +25,7 @@ import { blocking } from "#domain/findings.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
-import { ReviewRun, runKey } from "#domain/review.ts"
+import { reportedBy, ReviewRun, runKey } from "#domain/review.ts"
 
 /** Something a sweep could not read, and what GitHub said about it. */
 export interface Trouble {
@@ -87,8 +87,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
   const run = yield* Effect.orElseSucceed(runs.get(runKey(found.repo, found.number, view.headRefOid)), () =>
     Option.none<ReviewRun>()
   )
-  const reviewed = Option.getOrUndefined(run)?.outcome
-  const reported = reviewed?._tag === "reported" ? reviewed : undefined
+  const reported = Option.match(run, { onNone: () => null, onSome: reportedBy })
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
       ? previous
@@ -132,8 +131,8 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
-    reviewRunHead: reported === undefined ? null : view.headRefOid,
-    blockingFindings: reported === undefined ? 0 : blocking(reported.findings).length
+    reviewRunHead: reported === null ? null : view.headRefOid,
+    blockingFindings: reported === null ? 0 : blocking(reported.findings).length
   }
 
   yield* store.set(key, facts)

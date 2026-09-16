@@ -261,7 +261,7 @@ describe("the built-in runner's second turn", () => {
     }).pipe(Effect.provide(claude({ spawned, stdout: answer({}) })))
   })
 
-  it.effect("a turn that answered with something that is not a result is a failure", () => {
+  it.effect("a turn that answered with something this cannot read is a failure", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
@@ -270,7 +270,7 @@ describe("the built-in runner's second turn", () => {
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
-      assert.include(error.message, "not a result")
+      assert.include(error.message, "no result")
     }).pipe(Effect.provide(claude({ spawned, stdout: "Command completed" })))
   })
 

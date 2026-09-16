@@ -3,13 +3,13 @@ import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig } from "#adapters/config.ts"
-import { storeFor } from "#adapters/store.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError } from "#cli/sweep.ts"
 import { count, table } from "#cli/table.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Findings as FindingsSchema } from "#domain/findings.ts"
-import { Latest, latestKey, ReviewRun, runKey } from "#domain/review.ts"
+import type { ReviewRun } from "#domain/review.ts"
+import { lastRun, reportedBy } from "#domain/review.ts"
 
 /** The findings as the JSON the schema defines, rather than as this file spells it. */
 const asJson = Schema.encodeEffect(Schema.fromJsonString(FindingsSchema))
@@ -39,22 +39,12 @@ export const lines = (found: Findings): ReadonlyArray<string> =>
  * The last run on the pull request is what "current" means here, and it is read
  * off the state directory rather than worked out from GitHub: this command is
  * one I run inside a fix session, where another round trip to GitHub buys
- * nothing that the run it is about to fix does not already say.
+ * nothing the run it is about to fix does not already say.
  */
 const currentRun = Effect.fn("findings.currentRun")(function* (repo: string, number: number) {
-  const latest = yield* storeFor("runs", Latest)
-  const at = yield* latest.get(latestKey(repo, number))
-  if (Option.isNone(at)) {
-    return yield* asUserError(`No review run on ${repo}#${number}. Run dw-mc review ${number} first.`)
-  }
-
-  const runs = yield* storeFor("runs", ReviewRun)
-  const run = yield* runs.get(runKey(repo, number, at.value.head))
+  const run = yield* lastRun(repo, number)
   if (Option.isNone(run)) {
-    return yield* asUserError(
-      `The run recorded against ${at.value.head.slice(0, 7)} on ${repo}#${number} is gone. ` +
-        `Run dw-mc review ${number} again.`
-    )
+    return yield* asUserError(`No review run on ${repo}#${number}. Run dw-mc review ${number} first.`)
   }
   return run.value
 })
@@ -65,16 +55,19 @@ const currentRun = Effect.fn("findings.currentRun")(function* (repo: string, num
  * A run that failed is not a clean one: a pipe must never be handed "no
  * findings" when what happened is that nothing could be read.
  */
-const reportedBy = (run: ReviewRun): Effect.Effect<Findings, CliError.UserError> =>
-  run.outcome._tag === "reported"
-    ? Effect.succeed({ verdict: run.outcome.verdict, findings: run.outcome.findings })
-    : Effect.fail(
+const whatItFound = (run: ReviewRun): Effect.Effect<Findings, CliError.UserError> => {
+  const found = reportedBy(run)
+  return found === null
+    ? Effect.fail(
         new CliError.UserError({
           cause:
-            `The review run on ${run.head.slice(0, 7)} reported no findings: ${run.outcome.detail}\n` +
+            `The review run on ${run.head.slice(0, 7)} reported no findings: ` +
+            `${run.outcome._tag === "failed" ? run.outcome.detail : ""}\n` +
             `Run dw-mc review ${run.number} --force to run it again.`
         })
       )
+    : Effect.succeed(found)
+}
 
 /**
  * What the current review run found, as a table or as the JSON it is kept in.
@@ -96,7 +89,7 @@ export const findings = Command.make(
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
 
       const run = yield* currentRun(repo, number)
-      const found = yield* reportedBy(run)
+      const found = yield* whatItFound(run)
       if (json) {
         yield* Console.log(yield* asJson(found))
         return
@@ -107,6 +100,6 @@ export const findings = Command.make(
         yield* Console.log(`  ${line}`)
       }
     },
-    Effect.catchTag("ConfigMalformed", asUserError)
+    Effect.catchTag(["ConfigMalformed"], asUserError)
   )
 ).pipe(Command.withDescription("Print what the current review run found on one pull request"))

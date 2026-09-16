@@ -3,7 +3,16 @@ import { DateTime } from "effect"
 
 import { builtIn } from "#adapters/config.ts"
 import type { ReviewRun } from "#domain/review.ts"
-import { latestKey, reportDocument, reportKey, runKey, runnerFor, worthRerunning } from "#domain/review.ts"
+import {
+  latestKey,
+  reportDocument,
+  reportedBy,
+  reportKey,
+  runKey,
+  runnerFor,
+  skippedSince,
+  worthRerunning
+} from "#domain/review.ts"
 
 const run: ReviewRun = {
   repo: "dominikwozniak/dw-mc",
@@ -59,23 +68,66 @@ describe("the runner a review run executes on", () => {
   })
 })
 
-describe("the re-run rule", () => {
-  const docsOnly = builtIn.review.docs_only
-
-  it("does not repeat a run when only documentation changed", () => {
-    assert.isFalse(worthRerunning(["README.md", "docs/adr/0006-source-layout.md", "docs/diagram.png"], docsOnly))
+describe("what a run reported", () => {
+  it("is the verdict and the findings of a run that reported", () => {
+    assert.deepStrictEqual(reportedBy(run), { verdict: "clean", findings: [] })
   })
 
-  it("repeats a run when anything outside the globs changed", () => {
+  it("is nothing at all for a run that failed, which is not a clean verdict", () => {
+    assert.strictEqual(reportedBy({ ...run, outcome: { _tag: "failed", detail: "it exited 1" } }), null)
+  })
+})
+
+describe("the re-run rule", () => {
+  const docsOnly = builtIn.review.docs_only
+  const before = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+  const last: ReviewRun = { ...run, head: before }
+  const asked = (changed: ReadonlyArray<string> | null) => ({ last, head: run.head, changed })
+
+  it("skips a run where only documentation changed since the last one", () => {
+    assert.strictEqual(skippedSince(asked(["README.md", "docs/adr/0006-source-layout.md"]), docsOnly), before)
+  })
+
+  it("runs where anything outside the globs changed", () => {
+    assert.strictEqual(skippedSince(asked(["README.md", "src/cli/review.ts"]), docsOnly), null)
+  })
+
+  it("skips a head that has already had a run, whatever a comparison would say", () => {
+    assert.strictEqual(skippedSince({ last, head: before, changed: null }, docsOnly), before)
+  })
+
+  it("runs where the pull request has had no run to measure from", () => {
+    assert.strictEqual(skippedSince({ last: null, head: run.head, changed: [] }, docsOnly), null)
+  })
+
+  it("runs where the last run reported nothing, so no code was reviewed twice", () => {
+    const failed: ReviewRun = { ...last, outcome: { _tag: "failed", detail: "it exited 1" } }
+
+    assert.strictEqual(skippedSince({ last: failed, head: run.head, changed: ["README.md"] }, docsOnly), null)
+  })
+
+  it("runs where GitHub would not say what changed, rather than trapping me", () => {
+    assert.strictEqual(skippedSince(asked(null), docsOnly), null)
+  })
+})
+
+describe("what the re-run rule counts as worth another run", () => {
+  const docsOnly = builtIn.review.docs_only
+
+  it("is anything outside the documentation globs", () => {
     assert.isTrue(worthRerunning(["README.md", "src/cli/review.ts"], docsOnly))
     assert.isTrue(worthRerunning(["package.json"], docsOnly))
   })
 
-  it("does not repeat a run when nothing changed at all", () => {
+  it("is not documentation alone", () => {
+    assert.isFalse(worthRerunning(["README.md", "docs/adr/0006-source-layout.md", "docs/diagram.png"], docsOnly))
+  })
+
+  it("is not nothing at all", () => {
     assert.isFalse(worthRerunning([], docsOnly))
   })
 
-  it("takes the globs from the repository, so a repository can widen them", () => {
+  it("is whatever the repository's own globs leave out, so a repository can widen them", () => {
     assert.isTrue(worthRerunning(["docs/adr/0006-source-layout.md"], []))
     assert.isFalse(worthRerunning(["src/cli/review.ts"], ["src/**"]))
   })

@@ -76,6 +76,72 @@ interface SoFar {
 const failed = (detail: string) => new RunnerFailed({ runner: "claude", detail })
 
 /**
+ * How long each turn gets before it is given up on.
+ *
+ * The review is the turn that thinks, and a high-effort one that fans out to
+ * subagents takes real minutes, so its limit is there to catch a runner that has
+ * stopped rather than one that is slow. The second turn reads no code and
+ * decides nothing - the review it reports on is already in the session it
+ * resumes - and every run of it by hand came back in seconds.
+ *
+ * Either way, a command that hangs forever is worse than one that says it
+ * failed: a review I walked away from is one I need to be able to come back to.
+ */
+const patience = {
+  reviewing: Duration.minutes(45),
+  reporting: Duration.minutes(5)
+}
+
+/**
+ * One turn of `claude` in `directory`, with `read` over its standard output.
+ *
+ * The two output streams are drained together, because draining one to the end
+ * first can block a runner that is still writing to the other. Every way a turn
+ * can fail to finish comes back from here as a `RunnerFailed`, so a caller is
+ * left with the turn's own answer and nothing else to translate.
+ */
+const turn = Effect.fnUntraced(function* <A, E extends { readonly message: string }, R>(options: {
+  readonly directory: string
+  readonly args: ReadonlyArray<string>
+  readonly read: (stdout: ChildProcessSpawner.ChildProcessHandle["stdout"]) => Effect.Effect<A, E, R>
+}) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+  const handle = yield* Effect.mapError(
+    spawner.spawn(ChildProcess.make("claude", options.args, { cwd: options.directory })),
+    (error) => failed(error.message)
+  )
+
+  const [got, stderr] = yield* Effect.mapError(
+    Effect.all([options.read(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))], { concurrency: 2 }),
+    (error) => failed(error.message)
+  )
+
+  const exitCode = yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
+  if (exitCode !== 0) {
+    return yield* failed(stderr.trim() === "" ? `claude exited ${exitCode}` : stderr.trim())
+  }
+  return got
+})
+
+/**
+ * The result a turn ended on, or the failure it really was.
+ *
+ * A turn that said nothing this can read and a turn the runner itself calls an
+ * error are both failures: `subtype` is where a run that hit its turn limit or
+ * lost its connection says so, and its `result` is the only word on why.
+ */
+const ended = (result: Option.Option<typeof Result.Type>) => {
+  if (Option.isNone(result)) {
+    return Effect.fail(failed("the turn came back with no result"))
+  }
+  const { is_error, result: lastWord, subtype } = result.value
+  return is_error || subtype !== "success"
+    ? Effect.fail(failed(`${subtype}: ${lastWord ?? "nothing else was said"}`))
+    : Effect.succeed(result.value)
+}
+
+/**
  * One review run of Claude Code's own code review, headless, in `directory`.
  *
  * The run is in the foreground and says what it is doing as it does it, which
@@ -88,27 +154,18 @@ const failed = (detail: string) => new RunnerFailed({ runner: "claude", detail }
  * running it, a repository whose review command fans out to subagents can end
  * on a remark about them, and the report is the turn before that. The follow-up
  * turn is what turns the prose into findings, and it needs this run's session.
- *
- * The two output streams are drained together, because draining one to the end
- * first can block a runner that is still writing to the other.
  */
-export const builtinReview = Effect.fn("runner.builtinReview")(function* (options: {
-  readonly directory: string
-  readonly effort: Effort
-  readonly onTool: (tool: string) => Effect.Effect<void>
-}) {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-  const args = ["-p", `/code-review ${options.effort}`, "--output-format", "stream-json", "--verbose"]
-
-  const handle = yield* Effect.mapError(
-    spawner.spawn(ChildProcess.make("claude", args, { cwd: options.directory })),
-    (error) => failed(error.message)
-  )
-
-  const [run, stderr] = yield* Effect.mapError(
-    Effect.all(
-      [
-        handle.stdout.pipe(
+export const builtinReview = Effect.fn("runner.builtinReview")(
+  function* (options: {
+    readonly directory: string
+    readonly effort: Effort
+    readonly onTool: (tool: string) => Effect.Effect<void>
+  }) {
+    const run = yield* turn({
+      directory: options.directory,
+      args: ["-p", `/code-review ${options.effort}`, "--output-format", "stream-json", "--verbose"],
+      read: (stdout) =>
+        stdout.pipe(
           Stream.decodeText(),
           Stream.splitLines,
           Stream.mapEffect((line) => {
@@ -122,45 +179,25 @@ export const builtinReview = Effect.fn("runner.builtinReview")(function* (option
               result: Option.orElse(asResult(line), () => soFar.result)
             })
           )
-        ),
-        Stream.mkString(Stream.decodeText(handle.stderr))
-      ],
-      { concurrency: 2 }
-    ),
-    (error) => failed(error.message)
-  )
+        )
+    })
 
-  const exitCode = yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
-  if (exitCode !== 0) {
-    return yield* failed(stderr.trim() === "" ? `claude exited ${exitCode}` : stderr.trim())
-  }
-  if (Option.isNone(run.result)) {
-    return yield* failed("the run ended with no result")
-  }
+    const { result: lastWord, session_id } = yield* ended(run.result)
 
-  const { is_error, result: lastWord, session_id, subtype } = run.result.value
-  if (is_error || subtype !== "success") {
-    return yield* failed(`${subtype}: ${lastWord ?? "nothing else was said"}`)
-  }
-
-  // The result is the runner's last word, which is its whole answer on a run
-  // that said nothing before it.
-  const report = (run.said.length === 0 ? (lastWord ?? "") : run.said.join("\n\n")).trim()
-  if (report === "") {
-    return yield* failed("the run came back with an empty report")
-  }
-  return { report, sessionId: session_id } satisfies Turn
-}, Effect.scoped)
-
-/**
- * How long the second turn gets before it is given up on.
- *
- * It reads no code and decides nothing: the review it reports on is already in
- * the session it resumes, and every run of it by hand came back in seconds. A
- * turn still going after this is one that is not coming back, and a review
- * command that hangs forever is worse than one that says it failed.
- */
-const patience = Duration.minutes(5)
+    // The result is the runner's last word, which is its whole answer on a run
+    // that said nothing before it.
+    const report = (run.said.length === 0 ? (lastWord ?? "") : run.said.join("\n\n")).trim()
+    if (report === "") {
+      return yield* failed("the run came back with an empty report")
+    }
+    return { report, sessionId: session_id } satisfies Turn
+  },
+  Effect.scoped,
+  Effect.timeoutOrElse({
+    duration: patience.reviewing,
+    orElse: () => failed(`the review did not come back within ${Duration.format(patience.reviewing)}`)
+  })
+)
 
 /**
  * What the second turn asks for.
@@ -193,45 +230,22 @@ const reportFindings = [
  */
 export const builtinFindings = Effect.fn("runner.builtinFindings")(
   function* (options: { readonly directory: string; readonly sessionId: string; readonly jsonSchema: string }) {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const args = [
-      "-p",
-      "--resume",
-      options.sessionId,
-      reportFindings,
-      "--output-format",
-      "json",
-      "--json-schema",
-      options.jsonSchema
-    ]
+    const printed = yield* turn({
+      directory: options.directory,
+      args: [
+        "-p",
+        "--resume",
+        options.sessionId,
+        reportFindings,
+        "--output-format",
+        "json",
+        "--json-schema",
+        options.jsonSchema
+      ],
+      read: (stdout) => Stream.mkString(Stream.decodeText(stdout))
+    })
 
-    const handle = yield* Effect.mapError(
-      spawner.spawn(ChildProcess.make("claude", args, { cwd: options.directory })),
-      (error) => failed(error.message)
-    )
-
-    const [stdout, stderr] = yield* Effect.mapError(
-      Effect.all(
-        [Stream.mkString(Stream.decodeText(handle.stdout)), Stream.mkString(Stream.decodeText(handle.stderr))],
-        { concurrency: 2 }
-      ),
-      (error) => failed(error.message)
-    )
-
-    const exitCode = yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
-    if (exitCode !== 0) {
-      return yield* failed(stderr.trim() === "" ? `claude exited ${exitCode}` : stderr.trim())
-    }
-
-    const result = asResult(stdout.trim())
-    if (Option.isNone(result)) {
-      return yield* failed("the findings turn came back with something that is not a result")
-    }
-
-    const { is_error, result: lastWord, structured_output, subtype } = result.value
-    if (is_error || subtype !== "success") {
-      return yield* failed(`${subtype}: ${lastWord ?? "nothing else was said"}`)
-    }
+    const { structured_output } = yield* ended(asResult(printed.trim()))
     if (structured_output === undefined) {
       return yield* failed("the findings turn came back with no structured output")
     }
@@ -239,7 +253,7 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(
   },
   Effect.scoped,
   Effect.timeoutOrElse({
-    duration: patience,
-    orElse: () => failed(`the findings turn did not come back within ${Duration.format(patience)}`)
+    duration: patience.reporting,
+    orElse: () => failed(`the findings turn did not come back within ${Duration.format(patience.reporting)}`)
   })
 )

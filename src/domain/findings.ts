@@ -37,11 +37,11 @@ const Weighed = Spelling.pipe(
   )
 )
 
-/** Where a finding is, and what it says. Only how much it weighs is spelled two ways. */
-const at = { file: Schema.String, line: Schema.Int, summary: Schema.String }
+/** The fields both spellings of a finding share. Only the severity differs. */
+const shared = { file: Schema.String, line: Schema.Int, summary: Schema.String }
 
 /** One problem a review run reports, at a file and line. */
-export const Finding = Schema.Struct({ ...at, severity: Severity })
+export const Finding = Schema.Struct({ ...shared, severity: Severity })
 export type Finding = typeof Finding.Type
 
 /**
@@ -63,15 +63,17 @@ export type Findings = typeof Findings.Type
  */
 export const Reported = Schema.Struct({
   verdict: Verdict,
-  findings: Schema.Array(Schema.Struct({ ...at, severity: Weighed }))
+  findings: Schema.Array(Schema.Struct({ ...shared, severity: Weighed }))
 })
 
 /**
  * The schema every runner must satisfy, as the JSON Schema a runner is handed.
  *
  * It is derived from the schema the findings are kept under rather than written
- * out beside it: what the runner is asked for and what the tool will accept are
- * then the same thing by construction.
+ * out beside it, so a runner is asked for exactly the shape that is persisted.
+ * `Reported` is wider on purpose and only on the severity: what a runner is
+ * asked for is our three words, and a persona's five are read where they arrive
+ * anyway rather than being asked for.
  */
 export const jsonSchema: string = JSON.stringify(
   SchemaRepresentation.toJsonSchemaDocument(SchemaRepresentation.toRepresentation(Findings.ast)).schema

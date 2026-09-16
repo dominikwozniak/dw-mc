@@ -12,16 +12,18 @@ import { lines, summary } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { jsonSchema, Reported } from "#domain/findings.ts"
-import type { Outcome } from "#domain/review.ts"
+import type { Asked, Outcome } from "#domain/review.ts"
 import {
-  Latest,
+  LastReviewed,
+  lastRun,
   latestKey,
   reportDocument,
+  reportedBy,
   reportKey,
   ReviewRun,
   runKey,
   runnerFor,
-  worthRerunning
+  skippedSince
 } from "#domain/review.ts"
 
 const effortFlag = Flag.Literals("effort", ["low", "medium", "high"]).pipe(
@@ -49,42 +51,21 @@ const runnerOf = (runners: ReadonlyArray<Runner>) => {
 }
 
 /**
- * Why the re-run rule skips this run, or null where it does not.
+ * What the re-run rule is asked about, read before anything is cut or spawned:
+ * the whole point of the rule is not paying for the run.
  *
- * The rule is asked before anything is cut or spawned, because the whole point
- * of it is not paying for the run. A run that has no predecessor, or whose
- * predecessor reported nothing, is never skipped: the rule exists so the same
- * code is not reviewed twice, and a run that failed reviewed it none.
+ * GitHub is asked what changed only where there is a run to measure from and a
+ * different head to measure to. Neither is the rule deciding anything - there is
+ * simply nothing to compare - and a comparison GitHub would not answer comes
+ * back as nothing known rather than as a failure of the command.
  */
-const whySkipped = Effect.fn("review.whySkipped")(function* (options: {
-  readonly repo: string
-  readonly number: number
-  readonly head: string
-  readonly docsOnly: ReadonlyArray<string>
-}) {
-  const latest = yield* storeFor("runs", Latest)
-  const at = yield* latest.get(latestKey(options.repo, options.number))
-  if (Option.isNone(at)) {
-    return null
-  }
-
-  const runs = yield* storeFor("runs", ReviewRun)
-  const last = yield* runs.get(runKey(options.repo, options.number, at.value.head))
-  if (Option.isNone(last) || last.value.outcome._tag !== "reported") {
-    return null
-  }
-
-  // A comparison that cannot be read never skips a run: the rule is here to
-  // save me money, not to stand between me and a review I asked for.
+const askedOf = Effect.fn("review.askedOf")(function* (repo: string, number: number, head: string) {
+  const last = Option.getOrNull(yield* lastRun(repo, number))
   const changed =
-    at.value.head === options.head
-      ? Option.some<ReadonlyArray<string>>([])
-      : yield* Effect.option(comparedFiles(options.repo, at.value.head, options.head))
-
-  return Option.isNone(changed) || worthRerunning(changed.value, options.docsOnly)
-    ? null
-    : `Only documentation changed since ${at.value.head.slice(0, 7)}, so this run is skipped. ` +
-        `Pass --force to review it anyway.`
+    last === null || last.head === head
+      ? null
+      : Option.getOrNull(yield* Effect.option(comparedFiles(repo, last.head, head)))
+  return { last, head, changed } satisfies Asked
 })
 
 /**
@@ -130,11 +111,14 @@ export const review = Command.make(
       const view = yield* prView(repo, number)
       yield* Console.log(`${repo}#${number}  ${view.title}`)
 
-      const skipped = force
+      const since = force
         ? null
-        : yield* whySkipped({ repo, number, head: view.headRefOid, docsOnly: settings.review.docs_only })
-      if (skipped !== null) {
-        yield* Console.log(`  ${skipped}`)
+        : skippedSince(yield* askedOf(repo, number, view.headRefOid), settings.review.docs_only)
+      if (since !== null) {
+        yield* Console.log(
+          `  Only documentation changed since ${since.slice(0, 7)}, so this run is skipped. ` +
+            `Pass --force to review it anyway.`
+        )
         return
       }
 
@@ -179,7 +163,7 @@ export const review = Command.make(
         }
 
         const runs = yield* storeFor("runs", ReviewRun)
-        const latest = yield* storeFor("runs", Latest)
+        const latest = yield* storeFor("runs", LastReviewed)
         const reports = yield* textStoreFor("runs")
         yield* runs.set(runKey(repo, number, run.head), run)
         yield* latest.set(latestKey(repo, number), { head: run.head })
@@ -188,9 +172,10 @@ export const review = Command.make(
         yield* Console.log("")
         yield* Console.log(ran.turn.report)
         yield* Console.log("")
-        if (outcome._tag === "reported") {
-          yield* Console.log(summary(outcome))
-          for (const line of lines(outcome)) {
+        const found = reportedBy(run)
+        if (found !== null) {
+          yield* Console.log(summary(found))
+          for (const line of lines(found)) {
             yield* Console.log(`  ${line}`)
           }
         }

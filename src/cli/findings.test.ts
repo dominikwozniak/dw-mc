@@ -10,7 +10,7 @@ import * as Store from "#adapters/store.ts"
 import { storeFor } from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
 import type { Outcome } from "#domain/review.ts"
-import { Latest, latestKey, ReviewRun, runKey } from "#domain/review.ts"
+import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
 
 const repo = "dominikwozniak/dw-mc"
 const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
@@ -58,7 +58,7 @@ const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version 
 const ran = (outcome: Outcome) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
-    const latest = yield* storeFor("runs", Latest)
+    const latest = yield* storeFor("runs", LastReviewed)
     yield* runs.set(runKey(repo, 28, head), {
       repo,
       number: 28,

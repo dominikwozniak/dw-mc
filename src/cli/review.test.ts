@@ -10,7 +10,7 @@ import * as Store from "#adapters/store.ts"
 import { storeFor, textStoreFor } from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
 import type { Outcome } from "#domain/review.ts"
-import { Latest, latestKey, reportKey, ReviewRun, runKey } from "#domain/review.ts"
+import { LastReviewed, latestKey, reportKey, ReviewRun, runKey } from "#domain/review.ts"
 
 const me = "dominikwozniak"
 const repo = "dominikwozniak/dw-mc"
@@ -198,7 +198,7 @@ const runOf = (head_: string) =>
 const already = (at: string, outcome: Outcome) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
-    const latest = yield* storeFor("runs", Latest)
+    const latest = yield* storeFor("runs", LastReviewed)
     yield* runs.set(runKey(repo, 28, at), {
       repo,
       number: 28,
