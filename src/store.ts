@@ -39,3 +39,19 @@ export const layer = Layer.unwrap(
 
 /** A store that lives only as long as the test that builds it. */
 export const layerTest: Layer.Layer<KeyValueStore.KeyValueStore> = KeyValueStore.layerMemory
+
+/**
+ * Where the state lives, having made sure it is there.
+ *
+ * The filesystem store creates its directory as its layer is built, so asking
+ * for the store is what creates the directory. This names that, because
+ * `dw-mc init` is the command whose job it is.
+ */
+export const openStateDirectory: Effect.Effect<
+  string,
+  Config.ConfigError,
+  KeyValueStore.KeyValueStore | Path.Path
+> = Effect.gen(function*() {
+  yield* KeyValueStore.KeyValueStore
+  return yield* stateDirectory
+}).pipe(Effect.withSpan("store.openStateDirectory"))
