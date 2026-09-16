@@ -1,0 +1,53 @@
+name: Quality gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    # A squash merge lands on `main` carrying `(#NN)` in its subject, and the same tree
+    # already went green on the pull request. Skip that re-run. A direct push to `main`,
+    # which the ruleset forbids but an admin can still make, has no `(#` and still runs.
+    # The test is `contains`, not `endsWith`: a squash message keeps the PR body under
+    # the subject, so the `(#NN)` sits on line one and not at the end of the message.
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '(#')
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # No `version:` input on purpose: the action reads `packageManager` from
+      # package.json and errors out when both are given.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - uses: actions/cache@v6
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - run: pnpm check

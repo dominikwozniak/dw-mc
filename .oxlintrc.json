@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+  "extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  // Root-config-only, and the preset cannot supply it: oxlint inherits `rules`, `plugins`
+  // and `overrides` from an extended config and nothing else. Every Effect rule needs
+  // type-aware mode, so dropping this key leaves ~97 rules loaded, enabled and dead.
+  "options": { "typeAware": true },
+  // `effecttsgo` is repeated although the preset declares it: `plugins` at root replaces
+  // the inherited set rather than merging into it.
+  "plugins": ["effecttsgo", "typescript", "import", "unicorn", "oxc"],
+  // These two categories reach past the preset — a rule in `correctness` or `suspicious`
+  // turns on here even when `recommended.json` does not list it.
+  "categories": { "correctness": "error", "suspicious": "error" },
+  "ignorePatterns": ["dist/**", "node_modules/**", "repos/**"],
+  "rules": {
+    // `_tag` is how Effect discriminates a tagged union. Every match on an error or a
+    // schema reads it, so the rule has no true positive in this codebase.
+    "no-underscore-dangle": "off",
+    // `Effect.gen` takes a generator because that is how it suspends, not because the body
+    // iterates. A body that only asserts is correct and never yields.
+    "require-yield": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts"],
+      "rules": {
+        // A test is its own entry point: `it.effect(...).pipe(Effect.provide(layer))` is
+        // the shape `@effect/vitest` asks for, and the scope ends with the test.
+        "effecttsgo/strict-effect-provide": "off",
+        // A helper defined inside `describe` reads next to the tests that use it. Hoisting
+        // it to module scope to satisfy the rule moves it away from its only caller.
+        "unicorn/consistent-function-scoping": "off",
+        // `return assert.fail(...)` is a narrowing guard — the call throws, so the branch
+        // never returns and the inconsistency the rule reports cannot be observed.
+        "typescript/consistent-return": "off"
+      }
+    }
+  ]
+}
