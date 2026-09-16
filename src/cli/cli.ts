@@ -2,6 +2,8 @@ import { Console, Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { init } from "#cli/init.ts"
+import { status } from "#cli/status.ts"
+import { sweepCommand } from "#cli/sweep.ts"
 
 export const version = "0.0.0"
 
@@ -13,5 +15,5 @@ export const dwMc = Command.make(
   })
 ).pipe(
   Command.withDescription("Keeps the state of my open pull requests on disk and shows what every PR waits on"),
-  Command.withSubcommands([init])
+  Command.withSubcommands([init, sweepCommand, status])
 )
