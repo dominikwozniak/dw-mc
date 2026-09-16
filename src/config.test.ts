@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, Option, Path } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
-import type { ConfigFile, SettingsPatch } from "./config.ts"
-import { builtIn, configPath, ConfigStore, read, settingsFor, write } from "./config.ts"
+import type { ConfigFile, Settings, SettingsPatch } from "./config.ts"
+import { builtIn, configPath, ConfigStore, merge, read, settingsFor, write } from "./config.ts"
 
 const home = (record: Record<string, string | undefined> = { HOME: "/home/dw" }) =>
   Effect.provide(
@@ -79,7 +79,8 @@ describe("config file", () => {
       const config = yield* ConfigStore
       assert.strictEqual(
         yield* config.store.get("config.yaml"),
-        "defaults:\n" +
+        "# dw-mc configuration. 'dw-mc init' rewrites this file and keeps no comments.\n" +
+          "defaults:\n" +
           "  base: null\n" +
           "  stamp:\n" +
           "    blocks_on: warning\n" +
@@ -117,6 +118,16 @@ describe("config file", () => {
       const error = yield* Effect.flip(read)
 
       assert.strictEqual(error._tag, "ConfigMalformed")
+    }).pipe(home()))
+
+  it.effect("rejects a repository key that is not owner/name", () =>
+    Effect.gen(function*() {
+      yield* put("repos:\n  dw-mc:\n    rebase:\n      enabled: true\n")
+
+      const error = yield* Effect.flip(read)
+
+      assert.strictEqual(error._tag, "ConfigMalformed")
+      assert.include(error.message, `at ["repos"]["dw-mc"]`)
     }).pipe(home()))
 
   it.effect("rejects a misspelled key rather than ignoring it", () =>
@@ -189,5 +200,60 @@ describe("settingsFor", () => {
 
     assert.strictEqual(settingsFor(file, "dominikwozniak/dw-mc").base, null)
     assert.strictEqual(settingsFor(file, "dominikwozniak/other").base, "develop")
+  })
+
+  it("carries every key the file can set, so no setting is silently dropped", () => {
+    const settings: Settings = {
+      base: "develop",
+      review: {
+        runners: ["prompt"],
+        effort: "high",
+        model: "claude-opus-5",
+        skill: "code-review",
+        docs_only: ["**/*.mdx"],
+        path_instructions: [{ path: "src/**", instructions: "Read the seams first" }]
+      },
+      ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
+      rebase: { enabled: true },
+      stamp: { blocks_on: "info" }
+    }
+
+    assert.deepStrictEqual(settingsFor({ defaults: settings }, "dominikwozniak/dw-mc"), settings)
+    assert.deepStrictEqual(
+      settingsFor({ repos: { "dominikwozniak/dw-mc": settings } }, "dominikwozniak/dw-mc"),
+      settings
+    )
+  })
+})
+
+describe("merge", () => {
+  it("takes every key the delta sets and keeps every key it does not", () => {
+    const patch: SettingsPatch = {
+      base: "develop",
+      review: { effort: "low", docs_only: ["**/*.md"] },
+      ci: { ignore: ["advisory"] },
+      rebase: { enabled: false },
+      stamp: { blocks_on: "error" }
+    }
+    const delta: SettingsPatch = {
+      review: { effort: "high" },
+      ci: { flaky_patterns: ["ECONNRESET"] },
+      rebase: { enabled: true },
+      stamp: { blocks_on: "warning" }
+    }
+
+    assert.deepStrictEqual(merge(patch, delta), {
+      base: "develop",
+      review: { effort: "high", docs_only: ["**/*.md"] },
+      ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
+      rebase: { enabled: true },
+      stamp: { blocks_on: "warning" }
+    })
+  })
+
+  it("leaves a patch alone where the delta decides nothing", () => {
+    const patch: SettingsPatch = { review: { effort: "low" } }
+
+    assert.deepStrictEqual(merge(patch, {}), patch)
   })
 })

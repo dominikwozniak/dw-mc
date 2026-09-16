@@ -86,7 +86,12 @@ const machine = (options: {
     )
   )
 
-/** Collects what the command printed, so a test can read the table it wrote. */
+/**
+ * Collects what the command printed, so a test can read the table it wrote.
+ *
+ * `Console` is a `Context.Reference` Effect means to be overridden this way, so
+ * this is not a fourth test double beside the three seams.
+ */
 const recording = (printed: Array<string>) => {
   const console_: Console.Console = Object.assign(Object.create(console), {
     log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
@@ -142,7 +147,8 @@ describe("dw-mc init", () => {
       const config = yield* ConfigStore
       assert.strictEqual(
         yield* config.store.get("config.yaml"),
-        "defaults:\n" +
+        "# dw-mc configuration. 'dw-mc init' rewrites this file and keeps no comments.\n" +
+          "defaults:\n" +
           "  base: null\n" +
           "  review:\n" +
           "    runners:\n" +
@@ -212,6 +218,18 @@ describe("dw-mc init", () => {
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
       assert.include(error.message, "runner")
+    }).pipe(
+      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
+      recording([])
+    ))
+
+  it.effect("says what to pass when there is no terminal to answer the prompt", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(init())
+
+      assert.strictEqual(error._tag, "UserError")
+      assert.include(error.message, "--runner builtin")
+      assert.deepStrictEqual(yield* read, Option.none())
     }).pipe(
       Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
       recording([])
@@ -293,6 +311,51 @@ describe("dw-mc init, run again", () => {
       recording(printed)
     )
   })
+
+  it.effect("leaves the file alone when nothing was decided differently", () =>
+    Effect.gen(function*() {
+      yield* write(registered)
+      const config = yield* ConfigStore
+      const byHand = `# my own note\n${yield* config.store.get("config.yaml")}`
+      yield* config.store.set("config.yaml", byHand)
+
+      yield* init()
+
+      assert.strictEqual(yield* config.store.get("config.yaml"), byHand)
+    }).pipe(
+      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
+      recording([])
+    ))
+
+  it.effect("rewrites the file when a flag decides something differently", () =>
+    Effect.gen(function*() {
+      yield* write(registered)
+      const config = yield* ConfigStore
+      yield* config.store.set("config.yaml", `# my own note\n${yield* config.store.get("config.yaml")}`)
+
+      yield* init("--effort", "high")
+
+      assert.notInclude(yield* config.store.get("config.yaml") ?? "", "my own note")
+    }).pipe(
+      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
+      recording([])
+    ))
+
+  it.effect("spells the defaults out over a file that only set some of them", () =>
+    Effect.gen(function*() {
+      yield* write({ defaults: { review: { effort: "high" }, rebase: { enabled: true } } })
+
+      yield* init("--runner", "prompt")
+
+      const defaults = Option.getOrThrow(yield* read).defaults
+      assert.strictEqual(defaults?.review?.effort, "high")
+      assert.strictEqual(defaults?.rebase?.enabled, true)
+      assert.deepStrictEqual(defaults?.review?.runners, ["prompt"])
+      assert.deepStrictEqual(defaults?.stamp, { blocks_on: "error" })
+    }).pipe(
+      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })),
+      recording([])
+    ))
 
   it.effect("does not ask for the runner a second time", () =>
     Effect.gen(function*() {

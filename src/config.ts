@@ -1,7 +1,8 @@
-import type { Types } from "effect"
-import { Config, Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Schema } from "effect"
+import type { Config, Types } from "effect"
+import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Schema } from "effect"
 import { Yaml } from "effect/unstable/encoding"
 import { KeyValueStore } from "effect/unstable/persistence"
+import { xdgDirectory } from "./xdg.ts"
 import type { Value } from "./yaml.ts"
 import { encodeYaml } from "./yaml.ts"
 
@@ -50,10 +51,17 @@ const SettingsPatch = Schema.Struct({
 })
 export type SettingsPatch = typeof SettingsPatch.Type
 
+/** A repository, as `gh` spells it: `owner/name`. */
+export const Repo = Schema.String.pipe(
+  Schema.check(
+    Schema.isPattern(/^[^\s/]+\/[^\s/]+$/, { message: "Expected a repository as owner/name" })
+  )
+)
+
 /** The whole configuration file: global defaults and per-repository overrides. */
 export const ConfigFile = Schema.Struct({
   defaults: Schema.optionalKey(SettingsPatch),
-  repos: Schema.optionalKey(Schema.Record(Schema.String, SettingsPatch))
+  repos: Schema.optionalKey(Schema.Record(Repo, SettingsPatch))
 })
 export type ConfigFile = typeof ConfigFile.Type
 
@@ -133,6 +141,22 @@ export const merge = (patch: SettingsPatch, delta: SettingsPatch): SettingsPatch
   return merged
 }
 
+/** Whether a patch decides anything at all. */
+const decidesNothing = (patch: SettingsPatch): boolean => Object.keys(patch).length === 0
+
+/**
+ * `file` with `defaults` as its global defaults, and with the section left out
+ * where those defaults decide nothing, so an empty `defaults:` is never written.
+ */
+export const withDefaults = (file: ConfigFile, defaults: SettingsPatch): ConfigFile =>
+  decidesNothing(defaults) ? file : { ...file, defaults }
+
+/** `file` with `patch` over `repo`'s settings, registering `repo` when it is new. */
+export const withRepo = (file: ConfigFile, repo: string, patch: SettingsPatch): ConfigFile => ({
+  ...file,
+  repos: { ...file.repos, [repo]: merge(file.repos?.[repo] ?? {}, patch) }
+})
+
 /** What `repo` is worth: its own overrides over the global defaults. */
 export const settingsFor = (file: ConfigFile, repo: string): Settings =>
   apply(apply(builtIn, file.defaults), file.repos?.[repo])
@@ -141,17 +165,10 @@ export const settingsFor = (file: ConfigFile, repo: string): Settings =>
  * Where the configuration lives: `$XDG_CONFIG_HOME/dw-mc`, or
  * `$HOME/.config/dw-mc` when XDG says nothing.
  */
-export const configDirectory: Effect.Effect<string, Config.ConfigError, Path.Path> = Effect.gen(
-  function*() {
-    const path = yield* Path.Path
-    const xdg = yield* Config.String("XDG_CONFIG_HOME").pipe(Config.option)
-    if (Option.isSome(xdg)) {
-      return path.join(xdg.value, "dw-mc")
-    }
-    const home = yield* Config.String("HOME")
-    return path.join(home, ".config", "dw-mc")
-  }
-).pipe(Effect.withSpan("config.configDirectory"))
+export const configDirectory: Effect.Effect<string, Config.ConfigError, Path.Path> = xdgDirectory(
+  "XDG_CONFIG_HOME",
+  ".config"
+)
 
 const fileName = "config.yaml"
 
@@ -241,7 +258,7 @@ export const read = Effect.gen(function*() {
   )
 }).pipe(Effect.withSpan("config.read"))
 
-const document = (
+const mapping = (
   entries: ReadonlyArray<readonly [string, Value | undefined]>
 ): { readonly [key: string]: Value } => {
   const out: Record<string, Value> = {}
@@ -254,11 +271,11 @@ const document = (
 }
 
 const settingsDocument = (patch: SettingsPatch): Value =>
-  document([
+  mapping([
     ["base", patch.base],
     [
       "review",
-      patch.review === undefined ? undefined : document([
+      patch.review === undefined ? undefined : mapping([
         ["runners", patch.review.runners],
         ["effort", patch.review.effort],
         ["model", patch.review.model],
@@ -269,13 +286,13 @@ const settingsDocument = (patch: SettingsPatch): Value =>
     ],
     [
       "ci",
-      patch.ci === undefined ? undefined : document([
+      patch.ci === undefined ? undefined : mapping([
         ["ignore", patch.ci.ignore],
         ["flaky_patterns", patch.ci.flaky_patterns]
       ])
     ],
-    ["rebase", patch.rebase === undefined ? undefined : document([["enabled", patch.rebase.enabled]])],
-    ["stamp", patch.stamp === undefined ? undefined : document([["blocks_on", patch.stamp.blocks_on]])]
+    ["rebase", patch.rebase === undefined ? undefined : mapping([["enabled", patch.rebase.enabled]])],
+    ["stamp", patch.stamp === undefined ? undefined : mapping([["blocks_on", patch.stamp.blocks_on]])]
   ])
 
 /**
@@ -285,18 +302,28 @@ const settingsDocument = (patch: SettingsPatch): Value =>
  * keeps the file stable across runs, so a rewrite shows only what changed.
  */
 const fileDocument = (file: ConfigFile): Value =>
-  document([
+  mapping([
     ["defaults", file.defaults === undefined ? undefined : settingsDocument(file.defaults)],
     [
       "repos",
-      file.repos === undefined ? undefined : document(
+      file.repos === undefined ? undefined : mapping(
         Object.entries(file.repos).map(([name, patch]) => [name, settingsDocument(patch)] as const)
       )
     ]
   ])
 
+const header = "# dw-mc configuration. 'dw-mc init' rewrites this file and keeps no comments."
+
+/**
+ * The file as it would be written.
+ *
+ * Exposed so a caller can tell whether writing would decide anything
+ * differently, and leave the file alone when it would not.
+ */
+export const encode = (file: ConfigFile): string => `${header}\n${encodeYaml(fileDocument(file))}`
+
 /** Writes the whole file, replacing what was there. */
 export const write = Effect.fn("config.write")(function*(file: ConfigFile) {
   const config = yield* ConfigStore
-  yield* config.store.set(fileName, encodeYaml(fileDocument(file)))
+  yield* config.store.set(fileName, encode(file))
 })
