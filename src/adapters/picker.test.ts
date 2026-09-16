@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, FileSystem, Layer, Option, Path } from "effect"
 
-import { key, layerScripted, pick } from "./picker.ts"
+import { key, layerScripted, pick } from "#adapters/picker.ts"
 
 const buckets = [
   { title: "Needs me", value: "needs-me" },

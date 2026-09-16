@@ -3,7 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-import { layer, layerTest, stateDirectory, storeFor } from "./store.ts"
+import { layer, layerTest, stateDirectory, storeFor } from "#adapters/store.ts"
 
 class ReviewRun extends Schema.Class<ReviewRun>("dw-mc/test/ReviewRun")({
   pr: Schema.Int,

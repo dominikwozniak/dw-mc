@@ -12,8 +12,7 @@ import { ConfigStore, read, settingsFor, write } from "#adapters/config.ts"
 import { key, layerScripted } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
-
-import { dwMc, version } from "./cli.ts"
+import { dwMc, version } from "#cli/cli.ts"
 
 /** What the real `gh` says, captured from `gh` itself. */
 const said = {

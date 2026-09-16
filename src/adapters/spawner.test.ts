@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, PlatformError } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
-import { capture, fakeHandle, layerFake } from "./spawner.ts"
+import { capture, fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 describe("spawner", () => {
   it.effect("capture hands the argv to the spawner and trims its stdout", () => {

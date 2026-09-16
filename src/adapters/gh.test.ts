@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, PlatformError } from "effect"
 
-import { currentRepo, requireAuth } from "./gh.ts"
-import { fakeHandle, layerFake } from "./spawner.ts"
+import { currentRepo, requireAuth } from "#adapters/gh.ts"
+import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 /** A spawner that answers every program the same way, and records the argv. */
 const answering = (spawned: Array<ReadonlyArray<string>>, handle: Parameters<typeof fakeHandle>[0]) =>

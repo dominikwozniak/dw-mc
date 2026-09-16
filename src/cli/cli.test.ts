@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
-import { dwMc, version } from "./cli.ts"
+import { dwMc, version } from "#cli/cli.ts"
 
 describe("dw-mc cli", () => {
   it.effect("exposes the root command under the binary name", () =>

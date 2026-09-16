@@ -3,6 +3,10 @@
   // Only what departs from oxfmt's defaults. Double quotes, a two-space indent, LF, a final
   // newline, parentheses around a sole arrow parameter and `sortPackageJson` are already
   // what this repo wants, so they are not repeated here.
+  //
+  // These three are the Effect style, copied from `repos/effect`: a wider line than the
+  // default 100, no statement semicolons, and no trailing comma. They are what `src/` is
+  // written in, and the only part of that style oxfmt can still be asked for.
   "printWidth": 120,
   "semi": false,
   "trailingComma": "none",

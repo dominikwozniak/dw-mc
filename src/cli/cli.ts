@@ -1,7 +1,7 @@
 import { Console, Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
-import { init } from "./init.ts"
+import { init } from "#cli/init.ts"
 
 export const version = "0.0.0"
 

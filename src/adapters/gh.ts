@@ -1,7 +1,7 @@
 import { Effect, PlatformError, Schema } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process"
 
-import { capture } from "./spawner.ts"
+import { capture } from "#adapters/spawner.ts"
 
 /** `gh` is on the machine but would not run. */
 export class GhUnavailable extends Schema.TaggedError<GhUnavailable>()("GhUnavailable", {

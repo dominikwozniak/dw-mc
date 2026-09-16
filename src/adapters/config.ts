@@ -3,9 +3,9 @@ import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Schema
 import { Yaml } from "effect/unstable/encoding"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-import { xdgDirectory } from "./xdg.ts"
-import type { Value } from "./yaml.ts"
-import { encodeYaml } from "./yaml.ts"
+import { xdgDirectory } from "#adapters/xdg.ts"
+import type { Value } from "#adapters/yaml.ts"
+import { encodeYaml } from "#adapters/yaml.ts"
 
 /** A local agent CLI a review run executes on. */
 export const Runner = Schema.Literals(["builtin", "prompt"])

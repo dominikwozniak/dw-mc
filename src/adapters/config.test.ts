@@ -2,8 +2,8 @@ import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, Option, Path } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-import type { ConfigFile, Settings, SettingsPatch } from "./config.ts"
-import { builtIn, configPath, ConfigStore, merge, read, settingsFor, write } from "./config.ts"
+import type { ConfigFile, Settings, SettingsPatch } from "#adapters/config.ts"
+import { builtIn, configPath, ConfigStore, merge, read, settingsFor, write } from "#adapters/config.ts"
 
 const home = (record: Record<string, string | undefined> = { HOME: "/home/dw" }) =>
   Effect.provide(

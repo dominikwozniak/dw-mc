@@ -10,7 +10,7 @@ A module in `src/` belongs to a layer chosen by what it talks to, not by the fea
 
 The direction is the whole point. An adapter that reaches back into a command couples the process boundary to the argument parser, and the deterministic core stops being testable without spawning something.
 
-A module in another layer is named rather than counted: `#adapters/config.ts`, not `../adapters/config.ts`. The name is a node subpath import declared in `package.json`, so it survives the build and reads the same from anywhere. Inside a layer a sibling stays relative, because there is no hop to count and the layer is the directory the file already sits in.
+A module is named, never counted: `#adapters/config.ts`, whether the importer sits in another layer or next door. The name is a node subpath import declared in `package.json`, so it survives the build and reads the same from everywhere, and the layer a module belongs to is stated at each call site rather than inferred from how many `../` precede it. There is no relative import in `src/`, which also means moving a file between layers changes that file and not its importers.
 
 A test lives beside the module it covers, and a module ships the fake its callers need rather than a test-only file next door. The three seams are written that way already: `src/adapters/spawner.ts` exports the fake spawner, `src/adapters/store.ts` the in-memory store, `src/adapters/picker.ts` the scripted terminal, so a caller's test reaches for one import and gets both the thing and its double.
 

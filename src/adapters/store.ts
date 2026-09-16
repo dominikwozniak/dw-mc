@@ -2,7 +2,7 @@ import type { Config, Path } from "effect"
 import { Effect, Layer, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-import { xdgDirectory } from "./xdg.ts"
+import { xdgDirectory } from "#adapters/xdg.ts"
 
 /**
  * Where the tool keeps its state: `$XDG_STATE_HOME/dw-mc`, or
