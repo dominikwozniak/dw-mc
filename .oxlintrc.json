@@ -22,6 +22,36 @@
   },
   "overrides": [
     {
+      // ADR 0006: imports cross the layers in one direction only, `cli` -> `domain` ->
+      // `adapters`. An import pointing back up is invisible in a diff that only adds a
+      // line, so the direction is held here. The patterns match a relative specifier
+      // landing anywhere in the layer, so a detour through `../../src/cli/` is caught
+      // too, while a package path is not - `effect/unstable/cli` is an adapter's import.
+      "files": ["src/adapters/**"],
+      "rules": {
+        "no-restricted-imports": ["error", {
+          "patterns": [{
+            "regex": "^\\.{1,2}/(.*/)?(cli|domain)/",
+            "message": "An adapter owns a boundary and knows nothing above it: import the other way (ADR 0006)."
+          }]
+        }]
+      }
+    },
+    {
+      // `domain/` has no code yet, so this block guards a directory that does not exist.
+      // The guard has to be here before the first file is, or the first file is the one
+      // that gets it wrong.
+      "files": ["src/domain/**"],
+      "rules": {
+        "no-restricted-imports": ["error", {
+          "patterns": [{
+            "regex": "^\\.{1,2}/(.*/)?cli/",
+            "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
+          }]
+        }]
+      }
+    },
+    {
       "files": ["**/*.test.ts"],
       "rules": {
         // A test is its own entry point: `it.effect(...).pipe(Effect.provide(layer))` is
