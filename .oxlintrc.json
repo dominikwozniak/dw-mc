@@ -11,7 +11,15 @@
   // These two categories reach past the preset — a rule in `correctness` or `suspicious`
   // turns on here even when `recommended.json` does not list it.
   "categories": { "correctness": "error", "suspicious": "error" },
-  "ignorePatterns": ["dist/**", "node_modules/**", "repos/**"],
+  "ignorePatterns": ["dist/**", "node_modules/**", "repos/**", "tools/oxlint/anti-slop/**"],
+  // Three plugin namespaces, because a refresh of the vendored two must never reach a
+  // file this repository wrote. `anti-slop` and `anti-slop-effect` are upstream's, cut
+  // down to the rules taken; `dw-mc` is ours. See `tools/oxlint/anti-slop/UPSTREAM.md`.
+  "jsPlugins": [
+    { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
+    { "name": "anti-slop-effect", "specifier": "./tools/oxlint/anti-slop/effect/index.ts" },
+    { "name": "dw-mc", "specifier": "./tools/oxlint/dw-mc/index.ts" }
+  ],
   "rules": {
     // `_tag` is how Effect discriminates a tagged union. Every match on an error or a
     // schema reads it, so the rule has no true positive in this codebase.
@@ -19,6 +27,17 @@
     // `Effect.gen` takes a generator because that is how it suspends, not because the body
     // iterates. A body that only asserts is correct and never yields.
     "require-yield": "off",
+    // ADR 0002: mission control reads GitHub and nothing else. The rule reads the argument
+    // vector handed to `gh` against an allow list held in the rule file, and refuses
+    // everything else, so a verb nobody has thought about waits to be read.
+    "dw-mc/no-gh-writes": "error",
+    // Four rules from `anti-slop`, vendored rather than installed: there is no package,
+    // and the project is meant to be copied. Every one of them is a ratchet against the
+    // next change rather than a cleanup of this one.
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+    "anti-slop-effect/prefer-effect-match": "error",
     // Two ADR 0006 invariants, held for every file the linter sees and restated by each
     // override below.
     //
@@ -45,6 +64,13 @@
     ]
   },
   "overrides": [
+    {
+      // A lint plugin is loaded by path, not by this package's subpath names, so its own
+      // modules are the one place a relative import is the only spelling there is. ADR 0006
+      // is about `src/`, and nothing under `tools/` belongs to a layer.
+      "files": ["tools/**"],
+      "rules": { "no-restricted-imports": "off" }
+    },
     {
       // ADR 0006: imports cross the layers in one direction only, `cli` -> `domain` ->
       // `adapters`. An import pointing back up is invisible in a diff that only adds a
