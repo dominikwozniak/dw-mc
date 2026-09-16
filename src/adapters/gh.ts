@@ -41,7 +41,8 @@ export class GhUnreadable extends Schema.TaggedError<GhUnreadable>()("GhUnreadab
   }
 }
 
-const unavailable = (error: PlatformError.PlatformError): GhUnavailable =>
+/** What a `gh` that would not even start comes to. */
+export const unavailable = (error: PlatformError.PlatformError): GhUnavailable =>
   new GhUnavailable({
     detail: error.reason._tag === "NotFound" ? "it is not installed" : error.message
   })
@@ -99,7 +100,8 @@ export class GhReadFailed extends Schema.TaggedError<GhReadFailed>()("GhReadFail
 /** Anything that can go wrong reading GitHub through `gh`. */
 export type GhError = GhUnavailable | GhReadFailed | GhUnreadable
 
-const readJson = <A>(
+/** One `gh` read, decoded, with every way it can go wrong in our words. */
+export const readJson = <A>(
   label: string,
   command: string,
   args: ReadonlyArray<string>,
@@ -167,7 +169,7 @@ export const searchPrs = Effect.fnUntraced(function* (repo: string) {
  * a `StatusContext` an overall `state`. Every field is optional because which
  * ones arrive depends on which shape it is.
  */
-const CheckEntry = Schema.Struct({
+export const CheckEntry = Schema.Struct({
   name: Schema.optionalKey(Schema.String),
   context: Schema.optionalKey(Schema.String),
   status: Schema.optionalKey(Schema.String),
@@ -178,7 +180,7 @@ const CheckEntry = Schema.Struct({
   /** Where the check reports, which is the only place its job id appears. */
   detailsUrl: Schema.optionalKey(Schema.String)
 })
-type CheckEntry = typeof CheckEntry.Type
+export type CheckEntry = typeof CheckEntry.Type
 
 const PrView = Schema.fromJsonString(
   Schema.Struct({
@@ -203,67 +205,6 @@ const viewFields = "number,title,url,isDraft,headRefOid,mergeable,reviewDecision
 export const prView = Effect.fnUntraced(function* (repo: string, number: number) {
   return yield* readJson("pr view", "gh", ["pr", "view", String(number), "--repo", repo, "--json", viewFields], PrView)
 })
-
-const failing = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED", "ERROR"])
-const running = new Set(["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED", "EXPECTED"])
-
-const nameOf = (entry: CheckEntry): string => entry.name ?? entry.context ?? ""
-
-const counted = (entries: ReadonlyArray<CheckEntry> | null, ignore: ReadonlyArray<string>) =>
-  (entries ?? []).filter((entry) => !ignore.includes(nameOf(entry)))
-
-const hasFailed = (entry: CheckEntry): boolean => failing.has(entry.conclusion ?? "") || failing.has(entry.state ?? "")
-
-/**
- * What the rollup comes to: red when anything failed, pending only while
- * nothing has failed yet, green when every check that counts has passed.
- *
- * `ci.ignore` names the checks that do not count towards green, so a check I
- * have decided to live with cannot hold a PR out of Ready.
- */
-export const rollupState = (
-  entries: ReadonlyArray<CheckEntry> | null,
-  ignore: ReadonlyArray<string>
-): "green" | "red" | "pending" | "none" => {
-  const entriesCounted = counted(entries, ignore)
-  if (entriesCounted.length === 0) {
-    return "none"
-  }
-  if (entriesCounted.some(hasFailed)) {
-    return "red"
-  }
-  if (
-    entriesCounted.some(
-      (entry) => (entry.status !== undefined && entry.status !== "COMPLETED") || running.has(entry.state ?? "")
-    )
-  ) {
-    return "pending"
-  }
-  return "green"
-}
-
-/**
- * The checks that failed and count, which are the ones there is a log to read.
- *
- * `ci.ignore` is applied here as well as in the rollup: a check that cannot
- * hold a PR out of Ready is not one the classifier should be explaining either.
- */
-export const failedChecks = (
-  entries: ReadonlyArray<CheckEntry> | null,
-  ignore: ReadonlyArray<string>
-): ReadonlyArray<CheckEntry> => counted(entries, ignore).filter(hasFailed)
-
-/**
- * The job a check reports on, out of the URL it reports at.
- *
- * A check run details URL ends `/actions/runs/<run>/job/<job>`, and the job id
- * is what the logs endpoint takes. A commit status points somewhere else
- * entirely, which is null: there is no log of ours to read.
- */
-export const jobIdOf = (detailsUrl: string | undefined): string | null => {
-  const found = detailsUrl?.match(/\/job\/(\d+)/)
-  return found?.[1] ?? null
-}
 
 const Comments = Schema.fromJsonString(
   Schema.Array(
@@ -403,102 +344,3 @@ export const reviewDecisionOf = (raw: string): "approved" | "changes-requested" 
       : raw === "REVIEW_REQUIRED"
         ? "review-required"
         : "none"
-
-const RepoDefaultBranch = Schema.fromJsonString(
-  Schema.Struct({ defaultBranchRef: Schema.NullOr(Schema.Struct({ name: Schema.String })) })
-)
-
-/**
- * The branch a repository merges into, which is the one the first flaky signal
- * asks about. An empty repository has none, and `main` is the better guess than
- * failing the sweep over it.
- */
-export const defaultBranch = Effect.fnUntraced(function* (repo: string) {
-  const view = yield* readJson(
-    "repo view defaultBranchRef",
-    "gh",
-    ["repo", "view", repo, "--json", "defaultBranchRef"],
-    RepoDefaultBranch
-  )
-  return view.defaultBranchRef?.name ?? "main"
-})
-
-const Runs = Schema.fromJsonString(Schema.Array(Schema.Struct({ conclusion: Schema.String })))
-
-/** How far back on the default branch a workflow's own breakage would still show. */
-const recentRuns = 5
-
-/** `gh run list` reports a conclusion in lower case, unlike every check on a PR. */
-const failedRun = new Set(["failure", "timed_out"])
-
-/**
- * Whether `workflow` is failing on `branch` too.
- *
- * Only the last few runs count: a workflow that broke a month ago and was fixed
- * says nothing about the failure in front of me.
- */
-export const workflowFailsOn = Effect.fnUntraced(function* (repo: string, branch: string, workflow: string) {
-  const runs = yield* readJson(
-    "run list",
-    "gh",
-    [
-      "run",
-      "list",
-      "--repo",
-      repo,
-      "--branch",
-      branch,
-      "--workflow",
-      workflow,
-      "--limit",
-      String(recentRuns),
-      "--json",
-      "conclusion"
-    ],
-    Runs
-  )
-  return runs.some((run) => failedRun.has(run.conclusion))
-})
-
-const PrFiles = Schema.fromJsonString(Schema.Struct({ files: Schema.Array(Schema.Struct({ path: Schema.String })) }))
-
-/** The repository paths a pull request changes. */
-export const prFiles = Effect.fnUntraced(function* (repo: string, number: number) {
-  const view = yield* readJson(
-    "pr view files",
-    "gh",
-    ["pr", "view", String(number), "--repo", repo, "--json", "files"],
-    PrFiles
-  )
-  return view.files.map((file) => file.path)
-})
-
-/**
- * How much of a failing job's log is kept.
- *
- * A job that failed prints what went wrong at the end, so the tail is the part
- * worth classifying, and a build that logged a whole dependency tree is not
- * worth holding in memory beyond it.
- */
-const logTailBytes = 64 * 1024
-
-/**
- * What one failing job printed, from the end.
- *
- * `gh api` refuses a response carrying terminal escape sequences unless it is
- * told otherwise, and a runner log is full of them. Verified by running it: the
- * endpoint answers with the plain log once the flag is passed.
- */
-export const jobLog = Effect.fnUntraced(function* (repo: string, jobId: string) {
-  const log = yield* capture("gh", [
-    "api",
-    `repos/${repo}/actions/jobs/${jobId}/logs`,
-    "--allow-escape-sequences"
-  ]).pipe(
-    Effect.catchTags({
-      PlatformError: (error) => Effect.fail(unavailable(error)),
-      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: "api job logs", detail: error.stderr }))
-    })
-  )
-  return log.length <= logTailBytes ? log : log.slice(-logTailBytes)
-})
