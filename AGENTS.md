@@ -18,6 +18,11 @@ Commands: `pnpm typecheck`, `pnpm diagnostics` (Effect diagnostics through `@eff
 
 ## Git conventions
 
+A ticket is built on its own branch, in its own worktree under `.claude/worktree/<branch>`, and
+lands on `main` through a pull request. Nothing is committed to `main` directly. The branch is named
+`type/<issue>-subject`, as in `feat/2-three-test-seams`. (This is the development workflow; the
+throwaway worktrees `CONTEXT.md` describes are what the tool itself cuts at runtime.)
+
 Pull requests land as a **squash merge**. The squash subject is the pull request title, so the title
 follows the same `type(scope): subject` form as a commit subject.
 
