@@ -758,16 +758,21 @@ describe("a red CI, classified", () => {
       yield* run("status")
 
       assert.strictEqual(printed[0], "Needs me")
-      // Every read a sweep makes, and not one write: no re-run, no comment, no merge.
-      assert.deepStrictEqual(
-        spawned.filter((argv) => !argv.startsWith("gh api repos/") && !argv.startsWith("gh pr view")),
-        [
-          "gh api user",
-          `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`,
-          `gh repo view ${repo} --json defaultBranchRef`,
-          `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`
-        ]
-      )
+      // Every program a sweep spawns, in full and unfiltered: a write would
+      // have to appear in this list, and a filtered one is where it would hide.
+      assert.deepStrictEqual(spawned.toSorted(), [
+        "gh api repos/dominikwozniak/dw-mc/actions/jobs/1/logs --allow-escape-sequences",
+        "gh api repos/dominikwozniak/dw-mc/issues/1/comments?per_page=100",
+        "gh api repos/dominikwozniak/dw-mc/pulls/1/comments?per_page=100",
+        "gh api repos/dominikwozniak/dw-mc/pulls/1/reviews?per_page=100",
+        "gh api user",
+        `gh pr view 1 --repo ${repo} --json commits`,
+        `gh pr view 1 --repo ${repo} --json files`,
+        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup`,
+        `gh repo view ${repo} --json defaultBranchRef`,
+        `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`,
+        `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`
+      ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })

@@ -1,3 +1,8 @@
+import { Effect } from "effect"
+
+import { defaultBranch, failedChecks, jobIdOf, jobLog, prFiles, workflowFailsOn } from "#adapters/ci.ts"
+import type { CheckEntry } from "#adapters/gh.ts"
+
 /**
  * Everything the classifier is allowed to know about one red CI.
  *
@@ -16,21 +21,10 @@ export interface Evidence {
 /** Whether a red CI is mine to fix. */
 export type Classification = "flaky" | "legitimate"
 
-/** Which of the three signals fired, and on what. */
-export interface Signals {
-  /** The workflow that is red on the default branch too, or null where none is. */
-  readonly redOnDefaultBranch: string | null
-  /** The changed file the log names, or null where it names none. */
-  readonly namesChangedFile: string | null
-  /** The flaky pattern the log matches, or null where it matches none. */
-  readonly flakyPattern: string | null
-}
-
 /** What the classifier decided, and the sentence that says why. */
 export interface Verdict {
   readonly classification: Classification
   readonly reason: string
-  readonly signals: Signals
 }
 
 /**
@@ -67,8 +61,17 @@ const baseName = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
  * - and it is worth matching second, because a name as ordinary as `index.ts`
  * belongs to more repositories than mine.
  */
+const escaped = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/**
+ * Whether the log names a file called `base` rather than some longer name
+ * ending in it: a changed `src/a.ts` is not what a log printing `data.ts` is
+ * complaining about.
+ */
+const namesFile = (log: string, base: string): boolean => new RegExp(`(^|[^\\w.-])${escaped(base)}`).test(log)
+
 const namedChangedFile = (log: string, changedFiles: ReadonlyArray<string>): string | null =>
-  changedFiles.find((file) => log.includes(file)) ?? changedFiles.find((file) => log.includes(baseName(file))) ?? null
+  changedFiles.find((file) => log.includes(file)) ?? changedFiles.find((file) => namesFile(log, baseName(file))) ?? null
 
 /**
  * The flaky pattern the log matches, mine before the built-in ones.
@@ -96,26 +99,78 @@ const matchedPattern = (log: string, patterns: ReadonlyArray<string>): string | 
  * is the one I can recover from.
  */
 export const classify = (evidence: Evidence, flakyPatterns: ReadonlyArray<string>): Verdict => {
-  const signals: Signals = {
-    redOnDefaultBranch: evidence.alsoRedOnDefaultBranch[0] ?? null,
-    namesChangedFile: namedChangedFile(evidence.log, evidence.changedFiles),
-    flakyPattern: matchedPattern(evidence.log, flakyPatterns)
+  const named = namedChangedFile(evidence.log, evidence.changedFiles)
+  if (named !== null) {
+    return { classification: "legitimate", reason: `the log names ${named}, which this PR changes` }
   }
 
-  if (signals.namesChangedFile !== null) {
-    return {
-      classification: "legitimate",
-      reason: `the log names ${signals.namesChangedFile}, which this PR changes`,
-      signals
-    }
-  }
-
+  const redOnDefaultBranch = evidence.alsoRedOnDefaultBranch[0]
+  const pattern = matchedPattern(evidence.log, flakyPatterns)
   const excuses = [
-    signals.redOnDefaultBranch === null ? null : `${signals.redOnDefaultBranch} is red on the default branch too`,
-    signals.flakyPattern === null ? null : `the log matches "${signals.flakyPattern}"`
+    redOnDefaultBranch === undefined ? null : `${redOnDefaultBranch} is red on the default branch too`,
+    pattern === null ? null : `the log matches "${pattern}"`
   ].filter((it) => it !== null)
 
   return excuses.length === 0
-    ? { classification: "legitimate", reason: "nothing explains the failure", signals }
-    : { classification: "flaky", reason: excuses.join(", and "), signals }
+    ? { classification: "legitimate", reason: "nothing explains the failure" }
+    : { classification: "flaky", reason: excuses.join(", and ") }
 }
+
+/**
+ * How many failing jobs the log is read from.
+ *
+ * One broken workflow usually fails several jobs with the same cause, and the
+ * logs are the one read here that is measured in megabytes.
+ */
+const loggedJobs = 3
+
+/** The values of `xs` that `f` has one for. */
+const filterMap = <A, B>(xs: ReadonlyArray<A>, f: (a: A) => B | null): ReadonlyArray<B> =>
+  xs.flatMap((x) => {
+    const b = f(x)
+    return b === null ? [] : [b]
+  })
+
+/** No evidence at all, which is what an unreadable CI comes to. */
+const nothing: Evidence = { alsoRedOnDefaultBranch: [], changedFiles: [], log: "" }
+
+/**
+ * What a red CI looks like to the classifier.
+ *
+ * A read that fails costs its own signal and nothing else. GitHub drops an
+ * Actions log after ninety days, so a pull request open that long would
+ * otherwise lose its row over a log nobody can fetch any more - and a missing
+ * signal only ever moves the verdict towards legitimate, which is the answer
+ * that puts the pull request in front of me rather than hiding it.
+ */
+export const evidenceFor = Effect.fn("flaky.evidenceFor")(function* (
+  repo: string,
+  number: number,
+  entries: ReadonlyArray<CheckEntry> | null,
+  ignore: ReadonlyArray<string>
+) {
+  const failed = failedChecks(entries, ignore)
+  const workflows = [...new Set(filterMap(failed, (check) => check.workflowName ?? null))]
+  const jobs = filterMap(failed, (check) => jobIdOf(check.detailsUrl)).slice(0, loggedJobs)
+
+  const branch = yield* Effect.orElseSucceed(defaultBranch(repo), () => null)
+  if (branch === null) {
+    return nothing
+  }
+
+  const [alsoRed, changedFiles, logs] = yield* Effect.all(
+    [
+      Effect.forEach(workflows, (workflow) =>
+        Effect.map(
+          Effect.orElseSucceed(workflowFailsOn(repo, branch, workflow), () => false),
+          (red) => (red ? [workflow] : [])
+        )
+      ),
+      Effect.orElseSucceed(prFiles(repo, number), (): ReadonlyArray<string> => []),
+      Effect.forEach(jobs, (job) => Effect.orElseSucceed(jobLog(repo, job), () => ""))
+    ],
+    { concurrency: 3 }
+  )
+
+  return { alsoRedOnDefaultBranch: alsoRed.flat(), changedFiles, log: logs.join("\n") } satisfies Evidence
+})

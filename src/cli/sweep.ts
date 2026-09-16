@@ -3,31 +3,24 @@ import { Console, Effect, Option } from "effect"
 import { CliError, Command } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 
+import { rollupState } from "#adapters/ci.ts"
 import type { ConfigFile, Settings } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
-import type { Comment, Found, PrView } from "#adapters/gh.ts"
+import type { Comment, Found } from "#adapters/gh.ts"
 import {
-  defaultBranch,
-  failedChecks,
-  jobIdOf,
-  jobLog,
   mergeabilityOf,
   prComments,
   prCommits,
-  prFiles,
   prReviews,
   prView,
   reviewDecisionOf,
-  rollupState,
   searchPrs,
-  viewer,
-  workflowFailsOn
+  viewer
 } from "#adapters/gh.ts"
 import { storeFor } from "#adapters/store.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
-import type { Evidence } from "#domain/flaky.ts"
-import { classify } from "#domain/flaky.ts"
+import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
 
@@ -51,51 +44,6 @@ const writtenBy = (comments: ReadonlyArray<Comment>, login: string): ReadonlyArr
 
 const byHumansOtherThan = (comments: ReadonlyArray<Comment>, login: string): ReadonlyArray<DateTime.Utc> =>
   comments.filter((comment) => !comment.bot && comment.login !== login).map((comment) => comment.at)
-
-/**
- * How many failing jobs a classification reads the log of.
- *
- * One workflow failing usually fails several jobs with the same cause, and the
- * logs are the one read here that is measured in megabytes.
- */
-const loggedJobs = 3
-
-/**
- * What the classifier gets to see about a red CI.
- *
- * Every read here is extra, and it happens only for a pull request that is
- * actually red and has actually moved, which on most sweeps is none of them.
- */
-const ciEvidence = Effect.fn("sweep.ciEvidence")(function* (found: Found, view: PrView, ignore: ReadonlyArray<string>) {
-  const failed = failedChecks(view.statusCheckRollup, ignore)
-  const workflows = [
-    ...new Set(failed.flatMap((check) => (check.workflowName === undefined ? [] : [check.workflowName])))
-  ]
-  const jobs = failed
-    .flatMap((check) => {
-      const id = jobIdOf(check.detailsUrl)
-      return id === null ? [] : [id]
-    })
-    .slice(0, loggedJobs)
-
-  const branch = yield* defaultBranch(found.repo)
-  const [alsoRed, changedFiles, logs] = yield* Effect.all(
-    [
-      Effect.forEach(workflows, (workflow) =>
-        Effect.map(workflowFailsOn(found.repo, branch, workflow), (red) => (red ? [workflow] : []))
-      ),
-      prFiles(found.repo, found.number),
-      Effect.forEach(jobs, (job) => jobLog(found.repo, job))
-    ],
-    { concurrency: 3 }
-  )
-
-  return {
-    alsoRedOnDefaultBranch: alsoRed.flat(),
-    changedFiles,
-    log: logs.join("\n")
-  } satisfies Evidence
-})
 
 /**
  * The facts about one tracked PR, read from GitHub and kept on disk.
@@ -145,10 +93,13 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
       ? null
       : quiet !== undefined
         ? quiet.ciFlaky
-        : yield* Effect.map(ciEvidence(found, view, settings.ci.ignore), (evidence) => {
-            const verdict = classify(evidence, settings.ci.flaky_patterns)
-            return verdict.classification === "flaky" ? verdict.reason : null
-          })
+        : yield* Effect.map(
+            evidenceFor(found.repo, found.number, view.statusCheckRollup, settings.ci.ignore),
+            (evidence) => {
+              const verdict = classify(evidence, settings.ci.flaky_patterns)
+              return verdict.classification === "flaky" ? verdict.reason : null
+            }
+          )
 
   const facts: Facts = {
     repo: found.repo,

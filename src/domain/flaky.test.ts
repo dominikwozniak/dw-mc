@@ -1,7 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
+import { Effect } from "effect"
 
+import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import type { Evidence } from "#domain/flaky.ts"
-import { classify } from "#domain/flaky.ts"
+import { classify, evidenceFor } from "#domain/flaky.ts"
 
 /** A red CI with none of the three signals firing. */
 const unexplained: Evidence = {
@@ -17,8 +19,7 @@ describe("classify", () => {
     it("calls a failure nothing explains mine to fix", () => {
       assert.deepStrictEqual(classify(unexplained, []), {
         classification: "legitimate",
-        reason: "nothing explains the failure",
-        signals: { redOnDefaultBranch: null, namesChangedFile: null, flakyPattern: null }
+        reason: "nothing explains the failure"
       })
     })
 
@@ -27,7 +28,6 @@ describe("classify", () => {
 
       assert.strictEqual(verdict.classification, "flaky")
       assert.strictEqual(verdict.reason, "Quality gate is red on the default branch too")
-      assert.strictEqual(verdict.signals.redOnDefaultBranch, "Quality gate")
     })
 
     it("calls a failure that matches a known flaky pattern flaky", () => {
@@ -35,7 +35,6 @@ describe("classify", () => {
 
       assert.strictEqual(verdict.classification, "flaky")
       assert.strictEqual(verdict.reason, 'the log matches "ECONNRESET"')
-      assert.strictEqual(verdict.signals.flakyPattern, "ECONNRESET")
     })
 
     it("matches a known flaky pattern whatever case the log prints it in", () => {
@@ -47,14 +46,19 @@ describe("classify", () => {
 
       assert.strictEqual(verdict.classification, "legitimate")
       assert.strictEqual(verdict.reason, "the log names src/domain/flaky.ts, which this PR changes")
-      assert.strictEqual(verdict.signals.namesChangedFile, "src/domain/flaky.ts")
     })
 
     it("names a changed file the log prints without its directory", () => {
       const verdict = classify(evidence({ log: "  at flaky.ts:12:3\n" }), [])
 
       assert.strictEqual(verdict.classification, "legitimate")
-      assert.strictEqual(verdict.signals.namesChangedFile, "src/domain/flaky.ts")
+      assert.strictEqual(verdict.reason, "the log names src/domain/flaky.ts, which this PR changes")
+    })
+
+    it("does not take a longer name ending in a changed file's name for that file", () => {
+      const verdict = classify(evidence({ changedFiles: ["src/a.ts"], log: "FAIL test/data.ts:1:1" }), [])
+
+      assert.strictEqual(verdict.reason, "nothing explains the failure")
     })
 
     it("prefers the file the log spells in full over one it matches by name alone", () => {
@@ -66,7 +70,7 @@ describe("classify", () => {
         []
       )
 
-      assert.strictEqual(verdict.signals.namesChangedFile, "src/domain/flaky.ts")
+      assert.strictEqual(verdict.reason, "the log names src/domain/flaky.ts, which this PR changes")
     })
   })
 
@@ -94,17 +98,21 @@ describe("classify", () => {
       assert.strictEqual(verdict.reason, "the log names src/domain/flaky.ts, which this PR changes")
     })
 
-    it("records every signal it saw, even the ones the verdict did not turn on", () => {
+    it("hands a failure back to me when the default branch is red and the log names a file I changed", () => {
       const verdict = classify(
-        evidence({ alsoRedOnDefaultBranch: ["Quality gate"], log: "ETIMEDOUT in src/domain/flaky.ts" }),
+        evidence({ alsoRedOnDefaultBranch: ["Quality gate"], log: "FAIL src/domain/flaky.ts:12:3" }),
         []
       )
 
-      assert.deepStrictEqual(verdict.signals, {
-        redOnDefaultBranch: "Quality gate",
-        namesChangedFile: "src/domain/flaky.ts",
-        flakyPattern: "ETIMEDOUT"
-      })
+      assert.strictEqual(verdict.classification, "legitimate")
+      assert.strictEqual(verdict.reason, "the log names src/domain/flaky.ts, which this PR changes")
+    })
+
+    it("hands a failure back to me when a flaky pattern matches and the log names a file I changed", () => {
+      const verdict = classify(evidence({ log: "ETIMEDOUT reaching src/domain/flaky.ts" }), [])
+
+      assert.strictEqual(verdict.classification, "legitimate")
+      assert.strictEqual(verdict.reason, "the log names src/domain/flaky.ts, which this PR changes")
     })
   })
 
@@ -115,13 +123,13 @@ describe("classify", () => {
       ])
 
       assert.strictEqual(verdict.classification, "flaky")
-      assert.strictEqual(verdict.signals.flakyPattern, "Chromium revision is not downloaded")
+      assert.strictEqual(verdict.reason, 'the log matches "Chromium revision is not downloaded"')
     })
 
     it("reports mine before the built-in one when both match", () => {
       const verdict = classify(evidence({ log: "ETIMEDOUT while pulling the image" }), ["while pulling the image"])
 
-      assert.strictEqual(verdict.signals.flakyPattern, "while pulling the image")
+      assert.strictEqual(verdict.reason, 'the log matches "while pulling the image"')
     })
 
     it("takes a pattern as text and not as a regular expression", () => {
@@ -133,5 +141,121 @@ describe("classify", () => {
     const twice = [classify(unexplained, []), classify(unexplained, [])]
 
     assert.deepStrictEqual(twice[0], twice[1])
+  })
+})
+
+describe("evidenceFor", () => {
+  const repo = "dominikwozniak/dw-mc"
+
+  const failed = (workflow = "Quality gate", job = "104772538303") => ({
+    name: "Check",
+    status: "COMPLETED",
+    conclusion: "FAILURE",
+    workflowName: workflow,
+    detailsUrl: `https://github.com/${repo}/actions/runs/1/job/${job}`
+  })
+
+  /** A `gh` that answers each read from `answers`, and refuses anything in `refuses`. */
+  const gh = (options: {
+    readonly answers: Record<string, string>
+    readonly refuses?: ReadonlyArray<string> | undefined
+    readonly spawned?: Array<string> | undefined
+  }) =>
+    layerFake((command) => {
+      if (command._tag !== "StandardCommand") {
+        return Effect.die("flaky.test: the fake was handed a piped command")
+      }
+      const argv = command.args.join(" ")
+      options.spawned?.push(argv)
+      if (options.refuses?.some((pattern) => argv.includes(pattern)) ?? false) {
+        return Effect.succeed(fakeHandle({ exitCode: 1, stderr: "gh: Not Found (HTTP 404)" }))
+      }
+      const key = Object.keys(options.answers).find((read) => argv.includes(read))
+      return key === undefined
+        ? Effect.die(`flaky.test: nothing stubbed for '${argv}'`)
+        : Effect.succeed(fakeHandle({ stdout: options.answers[key] }))
+    })
+
+  const answers = {
+    "--json defaultBranchRef": `{"defaultBranchRef":{"name":"main"}}`,
+    "run list": `[{"conclusion":"failure"}]`,
+    "--json files": `{"files":[{"path":"src/cli/sweep.ts"}]}`,
+    "/logs": "connect ETIMEDOUT"
+  }
+
+  it.effect("reads all three signals off the failing checks", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      assert.deepStrictEqual(yield* evidenceFor(repo, 25, [failed()], []), {
+        alsoRedOnDefaultBranch: ["Quality gate"],
+        changedFiles: ["src/cli/sweep.ts"],
+        log: "connect ETIMEDOUT"
+      })
+      assert.isTrue(spawned.some((argv) => argv.includes("--branch main --workflow Quality gate")))
+    }).pipe(Effect.provide(gh({ answers, spawned })))
+  })
+
+  it.effect("asks about a workflow once however many of its jobs failed", () => {
+    const spawned: Array<string> = []
+    const checks = [failed("Quality gate", "1"), failed("Quality gate", "2")]
+
+    return Effect.gen(function* () {
+      yield* evidenceFor(repo, 25, checks, [])
+
+      assert.strictEqual(spawned.filter((argv) => argv.startsWith("run list")).length, 1)
+      assert.strictEqual(spawned.filter((argv) => argv.includes("/logs")).length, 2)
+    }).pipe(Effect.provide(gh({ answers, spawned })))
+  })
+
+  it.effect("reads at most three logs, however many jobs failed", () => {
+    const spawned: Array<string> = []
+    const checks = [1, 2, 3, 4, 5].map((job) => failed("Quality gate", String(job)))
+
+    return Effect.gen(function* () {
+      yield* evidenceFor(repo, 25, checks, [])
+
+      assert.strictEqual(spawned.filter((argv) => argv.includes("/logs")).length, 3)
+    }).pipe(Effect.provide(gh({ answers, spawned })))
+  })
+
+  it.effect("keeps the signals it can read when a log has aged out of GitHub", () => {
+    return Effect.gen(function* () {
+      const read = yield* evidenceFor(repo, 25, [failed()], [])
+
+      assert.strictEqual(read.log, "")
+      assert.deepStrictEqual(read.alsoRedOnDefaultBranch, ["Quality gate"])
+      assert.deepStrictEqual(read.changedFiles, ["src/cli/sweep.ts"])
+    }).pipe(Effect.provide(gh({ answers, refuses: ["/logs"] })))
+  })
+
+  it.effect("keeps the signals it can read when the changed files will not come back", () => {
+    return Effect.gen(function* () {
+      const read = yield* evidenceFor(repo, 25, [failed()], [])
+
+      assert.deepStrictEqual(read.changedFiles, [])
+      assert.strictEqual(read.log, "connect ETIMEDOUT")
+    }).pipe(Effect.provide(gh({ answers, refuses: ["--json files"] })))
+  })
+
+  it.effect("comes back with nothing, and so with legitimate, when gh will not say which branch", () => {
+    return Effect.gen(function* () {
+      const read = yield* evidenceFor(repo, 25, [failed()], [])
+
+      assert.deepStrictEqual(read, { alsoRedOnDefaultBranch: [], changedFiles: [], log: "" })
+      assert.strictEqual(classify(read, []).classification, "legitimate")
+    }).pipe(Effect.provide(gh({ answers, refuses: ["--json defaultBranchRef"] })))
+  })
+
+  it.effect("reads nothing at all for a check ci.ignore says does not count", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const read = yield* evidenceFor(repo, 25, [failed()], ["Check"])
+
+      assert.strictEqual(read.log, "")
+      assert.deepStrictEqual(read.alsoRedOnDefaultBranch, [])
+      assert.isFalse(spawned.some((argv) => argv.includes("/logs") || argv.startsWith("run list")))
+    }).pipe(Effect.provide(gh({ answers, spawned })))
   })
 })
