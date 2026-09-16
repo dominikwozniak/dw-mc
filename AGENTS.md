@@ -47,3 +47,10 @@ Issues live in the GitHub Issues of `dominikwozniak/dw-mc`, driven by the `gh` C
 ### Domain docs
 
 Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Effect
+
+The `## Effect` section above is what the `effect-ts` skill installs, pinned from `Effect-TS/skills` in
+`skills-lock.json`. It is a bootstrap skill and it has already run; it carries no Effect knowledge, so
+reach for it only when re-pinning the skill set, never while writing code. The knowledge lives in
+`node_modules/effect/AGENTS.md`.
