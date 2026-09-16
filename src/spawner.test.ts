@@ -37,7 +37,9 @@ describe("spawner", () => {
     return Effect.gen(function*() {
       const error = yield* Effect.flip(capture("nope", []))
 
-      assert.strictEqual(error._tag, "PlatformError")
+      if (error._tag !== "PlatformError") {
+        return assert.fail(`expected a PlatformError, got ${error._tag}`)
+      }
       assert.strictEqual(error.reason._tag, "NotFound")
     }).pipe(Effect.provide(missing))
   })
@@ -52,5 +54,22 @@ describe("spawner", () => {
       assert.isTrue(both.includes("out"))
       assert.isTrue(both.includes("err"))
     }).pipe(Effect.provide(noisy))
+  })
+
+  it.effect("a program that exits non-zero fails instead of looking like empty output", () => {
+    const failing = layerFake(() =>
+      Effect.succeed(fakeHandle({ exitCode: 1, stderr: "could not resolve to a PullRequest\n" }))
+    )
+
+    return Effect.gen(function*() {
+      const error = yield* Effect.flip(capture("gh", ["pr", "view", "999"]))
+
+      if (error._tag !== "CommandFailed") {
+        return assert.fail(`expected a CommandFailed, got ${error._tag}`)
+      }
+      assert.strictEqual(error.exitCode, 1)
+      assert.strictEqual(error.stderr, "could not resolve to a PullRequest")
+      assert.deepStrictEqual(error.args, ["pr", "view", "999"])
+    }).pipe(Effect.provide(failing))
   })
 })

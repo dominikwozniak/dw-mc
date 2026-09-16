@@ -1,22 +1,50 @@
-import { Effect, Layer, Sink, Stream } from "effect"
+import { Effect, Layer, Schema, Sink, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 const encoder = new TextEncoder()
 
+/** A program that ran but ended badly. */
+export class CommandFailed extends Schema.TaggedError<CommandFailed>()("CommandFailed", {
+  command: Schema.String,
+  args: Schema.Array(Schema.String),
+  exitCode: Schema.Int,
+  stderr: Schema.String
+}) {
+  override get message(): string {
+    return `${[this.command, ...this.args].join(" ")} exited ${this.exitCode}: ${this.stderr}`
+  }
+}
+
 /**
  * Runs a program to completion and returns its trimmed standard output.
  *
- * The one place the tool builds a `ChildProcess`, so `gh`, `claude` and `codex`
- * do not each re-derive collecting stdout and trimming the trailing newline.
+ * The spawner's own `string` collects stdout without ever reading the exit
+ * code, so a program that failed would come back as an empty success. This
+ * reads both, and a non-zero exit is a failure carrying whatever the program
+ * said on stderr. The two output streams drain together, because draining one
+ * to the end first can block a program that is still writing to the other.
  */
-export const capture = Effect.fn("spawner.capture")(function*(
-  command: string,
-  args: ReadonlyArray<string>
-) {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-  const output = yield* spawner.string(ChildProcess.make(command, args))
-  return output.trim()
-})
+export const capture = Effect.fn("spawner.capture")(
+  function*(command: string, args: ReadonlyArray<string>) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const handle = yield* spawner.spawn(ChildProcess.make(command, args))
+
+    const [stdout, stderr] = yield* Effect.all(
+      [
+        Stream.mkString(Stream.decodeText(handle.stdout)),
+        Stream.mkString(Stream.decodeText(handle.stderr))
+      ],
+      { concurrency: 2 }
+    )
+    const exitCode = yield* handle.exitCode
+
+    if (exitCode !== 0) {
+      return yield* new CommandFailed({ command, args, exitCode, stderr: stderr.trim() })
+    }
+    return stdout.trim()
+  },
+  Effect.scoped
+)
 
 /**
  * A `ChildProcessSpawner` built from a fake spawn function, for tests.
