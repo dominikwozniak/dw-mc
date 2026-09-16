@@ -3,7 +3,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-import { layer, layerTest, stateDirectory, storeFor } from "#adapters/store.ts"
+import { layer, layerTest, stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
 
 class ReviewRun extends Schema.Class<ReviewRun>("dw-mc/test/ReviewRun")({
   pr: Schema.Int,
@@ -26,6 +26,20 @@ describe("store", () => {
 
       const raw = yield* KeyValueStore.KeyValueStore
       assert.strictEqual(yield* raw.get("7"), undefined)
+    }).pipe(Effect.provide(layerTest))
+  )
+
+  it.effect("a text store keeps Markdown as the Markdown it is, in the same namespace", () =>
+    Effect.gen(function* () {
+      const reports = yield* textStoreFor("review-run")
+      const report = "# dominikwozniak/dw-mc#7\n\nOne finding, on src/cli/cli.ts:12.\n"
+
+      yield* reports.set("7.md", report)
+
+      assert.strictEqual(yield* reports.get("7.md"), report)
+
+      const raw = yield* KeyValueStore.KeyValueStore
+      assert.strictEqual(yield* raw.get("review-run/7.md"), report)
     }).pipe(Effect.provide(layerTest))
   )
 
