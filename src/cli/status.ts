@@ -36,13 +36,16 @@ const cells = (placed: Placed, stamped: boolean): ReadonlyArray<string> => [
  * Every tracked PR under the bucket it sits in, in the order I act on them.
  *
  * The rows of every bucket are measured together, so the columns line up down
- * the whole table rather than restarting under each heading.
+ * the whole table rather than restarting under each heading, and they are ruled
+ * apart: three columns of prose run into one another without a rule, and the
+ * middle one is a commit subject that can end in anything.
  */
 const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>): ReadonlyArray<string> => {
   const rows = table(
     grouped.flatMap((it) =>
       it.placed.map((placed) => cells(placed, stamped.has(prKey(placed.facts.repo, placed.facts.number))))
-    )
+    ),
+    " │ "
   )
   let taken = 0
   return grouped.flatMap((it, index) => {
