@@ -10,6 +10,8 @@ A module in `src/` belongs to a layer chosen by what it talks to, not by the fea
 
 The direction is the whole point. An adapter that reaches back into a command couples the process boundary to the argument parser, and the deterministic core stops being testable without spawning something.
 
+A module in another layer is named rather than counted: `#adapters/config.ts`, not `../adapters/config.ts`. The name is a node subpath import declared in `package.json`, so it survives the build and reads the same from anywhere. Inside a layer a sibling stays relative, because there is no hop to count and the layer is the directory the file already sits in.
+
 A test lives beside the module it covers, and a module ships the fake its callers need rather than a test-only file next door. The three seams are written that way already: `src/adapters/spawner.ts` exports the fake spawner, `src/adapters/store.ts` the in-memory store, `src/adapters/picker.ts` the scripted terminal, so a caller's test reaches for one import and gets both the thing and its double.
 
 The layout grows with the code and not ahead of it. A directory appears when there is code to put in it; `domain/` not existing while nothing yet takes facts and returns a decision is this rule working, not an exception to it. A fourth layer is a change to this record — rewritten in place, no note of what it replaced — not a directory added quietly next to the others.
@@ -17,5 +19,5 @@ The layout grows with the code and not ahead of it. A directory appears when the
 ## Consequences
 
 - A module's public surface carries its own fake, so `dist` ships the fakes too. That is the price of a caller importing the thing and its double from one path; a separate test-only entry point buys nothing back for a private CLI.
-- The direction is invisible in a diff that only adds an import, so `no-restricted-imports` in [`.oxlintrc.json`](../../.oxlintrc.json) holds it: an import reaching up a layer fails `pnpm lint`.
+- The direction is invisible in a diff that only adds an import, so `no-restricted-imports` in [`.oxlintrc.json`](../../.oxlintrc.json) holds it: an import reaching up a layer fails `pnpm lint`. Its patterns have to match both spellings a module has, the subpath name and the relative path, or half the ways in go unguarded.
 - The layer names are structural and stay out of [`CONTEXT.md`](../../CONTEXT.md). A directory _inside_ a layer is a domain concept and needs the glossary's word for it; a folder the glossary cannot name is the signal to reach for `/domain-modeling` first.
