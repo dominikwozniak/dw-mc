@@ -1,7 +1,15 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, PlatformError } from "effect"
 
-import { currentRepo, requireAuth } from "#adapters/gh.ts"
+import {
+  currentRepo,
+  mergeabilityOf,
+  prComments,
+  requireAuth,
+  reviewDecisionOf,
+  rollupState,
+  viewer
+} from "#adapters/gh.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 /** A spawner that answers every program the same way, and records the argv. */
@@ -99,5 +107,98 @@ describe("currentRepo", () => {
       assert.strictEqual(error._tag, "GhUnreadable")
       assert.include(error.message, "gh repo view")
     }).pipe(Effect.provide(changed))
+  })
+})
+
+describe("rollupState", () => {
+  const run = (name: string, conclusion: string, status = "COMPLETED") => ({ name, status, conclusion })
+
+  it("calls a PR with nothing to run neither green nor red", () => {
+    assert.strictEqual(rollupState([], []), "none")
+    assert.strictEqual(rollupState(null, []), "none")
+  })
+
+  it("calls a rollup green when every check that counts has passed", () => {
+    assert.strictEqual(rollupState([run("Check", "SUCCESS"), run("Lint", "SKIPPED")], []), "green")
+  })
+
+  it("calls a rollup red the moment one check has failed", () => {
+    assert.strictEqual(rollupState([run("Check", "SUCCESS"), run("Lint", "FAILURE")], []), "red")
+  })
+
+  it("prefers red over pending, because a failure is already mine to fix", () => {
+    assert.strictEqual(rollupState([run("Check", "", "IN_PROGRESS"), run("Lint", "FAILURE")], []), "red")
+  })
+
+  it("calls a rollup pending while a check is still running", () => {
+    assert.strictEqual(rollupState([run("Check", "SUCCESS"), run("Lint", "", "IN_PROGRESS")], []), "pending")
+  })
+
+  it("reads a commit status, which reports a state rather than a conclusion", () => {
+    assert.strictEqual(rollupState([{ context: "ci/circleci", state: "FAILURE" }], []), "red")
+    assert.strictEqual(rollupState([{ context: "ci/circleci", state: "PENDING" }], []), "pending")
+    assert.strictEqual(rollupState([{ context: "ci/circleci", state: "SUCCESS" }], []), "green")
+  })
+
+  it("lets a check I have decided to live with out of the count", () => {
+    assert.strictEqual(rollupState([run("Check", "SUCCESS"), run("codecov", "FAILURE")], ["codecov"]), "green")
+  })
+
+  it("calls a rollup of nothing but ignored checks neither green nor red", () => {
+    assert.strictEqual(rollupState([run("codecov", "FAILURE")], ["codecov"]), "none")
+  })
+})
+
+describe("gh's words in ours", () => {
+  it("reads what gh says about merging", () => {
+    assert.strictEqual(mergeabilityOf("MERGEABLE"), "mergeable")
+    assert.strictEqual(mergeabilityOf("CONFLICTING"), "conflicting")
+    assert.strictEqual(mergeabilityOf("UNKNOWN"), "unknown")
+  })
+
+  it("reads an empty review decision as nobody having been asked", () => {
+    assert.strictEqual(reviewDecisionOf(""), "none")
+    assert.strictEqual(reviewDecisionOf("APPROVED"), "approved")
+    assert.strictEqual(reviewDecisionOf("CHANGES_REQUESTED"), "changes-requested")
+    assert.strictEqual(reviewDecisionOf("REVIEW_REQUIRED"), "review-required")
+  })
+})
+
+describe("viewer", () => {
+  it.effect("asks gh who it is logged in as", () => {
+    const spawned: Array<ReadonlyArray<string>> = []
+    const loggedIn = answering(spawned, { stdout: `{"login":"dominikwozniak","id":47635604}` })
+
+    return Effect.gen(function* () {
+      assert.strictEqual(yield* viewer, "dominikwozniak")
+      assert.deepStrictEqual(spawned, [["gh", "api", "user"]])
+    }).pipe(Effect.provide(loggedIn))
+  })
+})
+
+describe("prComments", () => {
+  it.effect("says which comments came from an app rather than a person", () => {
+    const answered = layerFake((command) => {
+      if (command._tag !== "StandardCommand") {
+        return Effect.die("gh.test: the fake was handed a piped command")
+      }
+      const body =
+        (command.args[1]?.includes("/issues/") ?? false)
+          ? `[{"created_at":"2026-09-15T08:43:44Z","user":{"login":"coderabbitai[bot]","type":"Bot"}}]`
+          : `[{"created_at":"2026-09-15T09:00:00Z","user":{"login":"dominikwozniak","type":"User"}}]`
+      return Effect.succeed(fakeHandle({ stdout: body }))
+    })
+
+    return Effect.gen(function* () {
+      const comments = yield* prComments("AirHelp/ahplus-rails", 7884)
+
+      assert.deepStrictEqual(
+        comments.map((comment) => [comment.login, comment.bot]),
+        [
+          ["coderabbitai[bot]", true],
+          ["dominikwozniak", false]
+        ]
+      )
+    }).pipe(Effect.provide(answered))
   })
 })

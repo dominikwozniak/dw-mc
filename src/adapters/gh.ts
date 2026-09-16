@@ -1,3 +1,4 @@
+import type { DateTime } from "effect"
 import { Effect, PlatformError, Schema } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process"
 
@@ -84,3 +85,289 @@ export const currentRepo: Effect.Effect<
   )
   return view.nameWithOwner
 }).pipe(Effect.withSpan("gh.currentRepo"))
+
+/** A read of GitHub that `gh` itself refused. */
+export class GhReadFailed extends Schema.TaggedError<GhReadFailed>()("GhReadFailed", {
+  command: Schema.String,
+  detail: Schema.String
+}) {
+  override get message(): string {
+    return `gh ${this.command} failed: ${this.detail}`
+  }
+}
+
+/** Anything that can go wrong reading GitHub through `gh`. */
+export type GhError = GhUnavailable | GhReadFailed | GhUnreadable
+
+const readJson = <A>(
+  label: string,
+  command: string,
+  args: ReadonlyArray<string>,
+  schema: Schema.Codec<A, string>
+): Effect.Effect<A, GhError, ChildProcessSpawner.ChildProcessSpawner> =>
+  capture(command, args).pipe(
+    Effect.catchTags({
+      PlatformError: (error) => Effect.fail(unavailable(error)),
+      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: label, detail: error.stderr }))
+    }),
+    Effect.flatMap((json) =>
+      Schema.decodeEffect(schema)(json).pipe(
+        Effect.mapError((error) => new GhUnreadable({ command: label, reason: error.message }))
+      )
+    ),
+    Effect.withSpan(`gh.${label}`)
+  )
+
+const User = Schema.fromJsonString(Schema.Struct({ login: Schema.String }))
+
+/** The login `gh` is authenticated as: the "me" every read is scoped to. */
+export const viewer: Effect.Effect<string, GhError, ChildProcessSpawner.ChildProcessSpawner> = readJson(
+  "api user",
+  "gh",
+  ["api", "user"],
+  User
+).pipe(Effect.map((user) => user.login))
+
+const SearchResults = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      number: Schema.Int,
+      repository: Schema.Struct({ nameWithOwner: Schema.String })
+    })
+  )
+)
+
+/** One open pull request the search found. */
+export interface Found {
+  readonly repo: string
+  readonly number: number
+}
+
+/**
+ * The open pull requests I authored in `repo`.
+ *
+ * One search per repository rather than one for all of them: a repository `gh`
+ * cannot read then costs me that repository's rows and not the whole table.
+ */
+export const searchPrs = Effect.fnUntraced(function* (repo: string) {
+  const found = yield* readJson(
+    "search prs",
+    "gh",
+    ["search", "prs", "--author=@me", "--state=open", "--repo", repo, "--limit", "100", "--json", "number,repository"],
+    SearchResults
+  )
+
+  return found.map((it): Found => ({ repo: it.repository.nameWithOwner, number: it.number }))
+})
+
+/**
+ * One entry of a PR's status check rollup.
+ *
+ * A rollup mixes two shapes: a `CheckRun` reports a `status` and a `conclusion`,
+ * a `StatusContext` an overall `state`. Every field is optional because which
+ * ones arrive depends on which shape it is.
+ */
+const CheckEntry = Schema.Struct({
+  name: Schema.optionalKey(Schema.String),
+  context: Schema.optionalKey(Schema.String),
+  status: Schema.optionalKey(Schema.String),
+  conclusion: Schema.optionalKey(Schema.String),
+  state: Schema.optionalKey(Schema.String)
+})
+type CheckEntry = typeof CheckEntry.Type
+
+const PrView = Schema.fromJsonString(
+  Schema.Struct({
+    number: Schema.Int,
+    title: Schema.String,
+    url: Schema.String,
+    isDraft: Schema.Boolean,
+    headRefOid: Schema.String,
+    mergeable: Schema.String,
+    reviewDecision: Schema.String,
+    statusCheckRollup: Schema.NullOr(Schema.Array(CheckEntry))
+  })
+)
+export type PrView = typeof PrView.Type
+
+const viewFields = "number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup"
+
+/**
+ * Everything about one pull request that arrives without paging through it:
+ * its head, what GitHub thinks of merging it, and where CI got to.
+ */
+export const prView = Effect.fnUntraced(function* (repo: string, number: number) {
+  return yield* readJson("pr view", "gh", ["pr", "view", String(number), "--repo", repo, "--json", viewFields], PrView)
+})
+
+const failing = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED", "ERROR"])
+const running = new Set(["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED", "EXPECTED"])
+
+const nameOf = (entry: CheckEntry): string => entry.name ?? entry.context ?? ""
+
+/**
+ * What the rollup comes to: red when anything failed, pending only while
+ * nothing has failed yet, green when every check that counts has passed.
+ *
+ * `ci.ignore` names the checks that do not count towards green, so a check I
+ * have decided to live with cannot hold a PR out of Ready.
+ */
+export const rollupState = (
+  entries: ReadonlyArray<CheckEntry> | null,
+  ignore: ReadonlyArray<string>
+): "green" | "red" | "pending" | "none" => {
+  const counted = (entries ?? []).filter((entry) => !ignore.includes(nameOf(entry)))
+  if (counted.length === 0) {
+    return "none"
+  }
+  if (counted.some((entry) => failing.has(entry.conclusion ?? "") || failing.has(entry.state ?? ""))) {
+    return "red"
+  }
+  if (
+    counted.some(
+      (entry) => (entry.status !== undefined && entry.status !== "COMPLETED") || running.has(entry.state ?? "")
+    )
+  ) {
+    return "pending"
+  }
+  return "green"
+}
+
+const Comments = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      created_at: Schema.DateTimeUtcFromString,
+      user: Schema.NullOr(Schema.Struct({ login: Schema.String, type: Schema.String }))
+    })
+  )
+)
+
+/** Who wrote a comment and when. */
+export interface Comment {
+  readonly login: string
+  readonly bot: boolean
+  readonly at: DateTime.Utc
+}
+
+const comments = (label: string, path: string) =>
+  readJson(label, "gh", ["api", path], Comments).pipe(
+    Effect.map((all) =>
+      all.flatMap((comment): ReadonlyArray<Comment> =>
+        comment.user === null
+          ? []
+          : [{ login: comment.user.login, bot: comment.user.type === "Bot", at: comment.created_at }]
+      )
+    )
+  )
+
+/**
+ * Every comment on a pull request: the ones on the conversation and the ones
+ * left on the diff.
+ *
+ * REST is what says whether an author is a person or an app - `gh pr view`
+ * reports a bot's login with no sign that it is one - and the bucket rules turn
+ * on exactly that. Verified by running both: the endpoints ignore `direction`,
+ * so a page is asked for at its maximum and the newest comment is picked out of
+ * it rather than asked for first.
+ */
+export const prComments = Effect.fnUntraced(function* (repo: string, number: number) {
+  const page = "per_page=100"
+  const [conversation, onDiff] = yield* Effect.all(
+    [
+      comments("api issue comments", `repos/${repo}/issues/${number}/comments?${page}`),
+      comments("api review comments", `repos/${repo}/pulls/${number}/comments?${page}`)
+    ],
+    { concurrency: 2 }
+  )
+  return [...conversation, ...onDiff]
+})
+
+const Reviews = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      submitted_at: Schema.DateTimeUtcFromString,
+      body: Schema.String,
+      user: Schema.NullOr(Schema.Struct({ login: Schema.String, type: Schema.String }))
+    })
+  )
+)
+
+/**
+ * The reviews on a pull request that said something, as comments.
+ *
+ * A review carries a body of its own, which is where a reviewer writes the
+ * sentence that is not attached to any line. An empty body is a verdict and
+ * nothing more, and the verdict arrives with the PR as `reviewDecision`.
+ */
+export const prReviews = Effect.fnUntraced(function* (repo: string, number: number) {
+  const all = yield* readJson(
+    "api reviews",
+    "gh",
+    ["api", `repos/${repo}/pulls/${number}/reviews?per_page=100`],
+    Reviews
+  )
+
+  return all.flatMap((review): ReadonlyArray<Comment> =>
+    review.user === null || review.body.trim() === ""
+      ? []
+      : [{ login: review.user.login, bot: review.user.type === "Bot", at: review.submitted_at }]
+  )
+})
+
+const Commits = Schema.fromJsonString(
+  Schema.Struct({
+    commits: Schema.Array(
+      Schema.Struct({
+        committedDate: Schema.DateTimeUtcFromString,
+        authors: Schema.Array(Schema.Struct({ login: Schema.NullOr(Schema.String) }))
+      })
+    )
+  })
+)
+
+/** One commit on a pull request, and who wrote it. */
+export interface Commit {
+  readonly logins: ReadonlyArray<string>
+  readonly at: DateTime.Utc
+}
+
+/**
+ * The commits on a pull request.
+ *
+ * This is the expensive read of the three: `gh` returns every commit with its
+ * whole message, so a sweep only asks for it when something about the PR has
+ * actually moved.
+ */
+export const prCommits = Effect.fnUntraced(function* (repo: string, number: number) {
+  const view = yield* readJson(
+    "pr view commits",
+    "gh",
+    ["pr", "view", String(number), "--repo", repo, "--json", "commits"],
+    Commits
+  )
+
+  return view.commits.map((commit): Commit => ({
+    logins: commit.authors.flatMap((author) => (author.login === null ? [] : [author.login])),
+    at: commit.committedDate
+  }))
+})
+
+/**
+ * What `gh` says about merging, in our words. Anything else is `unknown`:
+ * GitHub answers that too, for a PR whose mergeability it is still computing.
+ */
+export const mergeabilityOf = (raw: string): "mergeable" | "conflicting" | "unknown" =>
+  raw === "MERGEABLE" ? "mergeable" : raw === "CONFLICTING" ? "conflicting" : "unknown"
+
+/**
+ * What `gh` says the reviewers decided, in our words. A repository that requires
+ * no reviewer reports an empty string, which is `none` rather than pending.
+ */
+export const reviewDecisionOf = (raw: string): "approved" | "changes-requested" | "review-required" | "none" =>
+  raw === "APPROVED"
+    ? "approved"
+    : raw === "CHANGES_REQUESTED"
+      ? "changes-requested"
+      : raw === "REVIEW_REQUIRED"
+        ? "review-required"
+        : "none"
