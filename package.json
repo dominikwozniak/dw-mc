@@ -16,6 +16,13 @@
     "dist"
   ],
   "type": "module",
+  "imports": {
+    "#*.ts": {
+      "types": "./src/*.ts",
+      "development": "./src/*.ts",
+      "default": "./dist/*.js"
+    }
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.check.json",
