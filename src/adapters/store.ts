@@ -29,6 +29,18 @@ export const storeFor = Effect.fn("store.storeFor")(function* <S extends Schema.
   return KeyValueStore.toSchemaStore(KeyValueStore.prefix(store, `${namespace}/`), schema)
 })
 
+/**
+ * The same namespace, kept as text rather than as JSON.
+ *
+ * A review run's report is Markdown, and the state directory is meant to hold
+ * what I can open: through a schema store the same report would be one long
+ * JSON string with its newlines escaped.
+ */
+export const textStoreFor = Effect.fn("store.textStoreFor")(function* (namespace: string) {
+  const store = yield* KeyValueStore.KeyValueStore
+  return KeyValueStore.prefix(store, `${namespace}/`)
+})
+
 /** The state directory on disk. */
 export const layer = Layer.unwrap(Effect.map(stateDirectory, (directory) => KeyValueStore.layerFileSystem(directory)))
 

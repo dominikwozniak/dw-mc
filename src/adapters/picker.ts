@@ -24,15 +24,22 @@ export const key = (name: string): Terminal.UserInput => ({
 })
 
 /**
- * A terminal that answers with `keys` and draws nowhere, for tests.
+ * A terminal that answers with `keys` and draws into `drawn`, for tests.
  *
  * Effect ships no test terminal, so this builds one from `Terminal.make`. A
  * prompt only ever asks for `columns`, `display` and `readInput`; it never
  * calls `readLine`. The keys are queued once, so a second prompt over the same
  * terminal finds the script spent rather than replaying it. Running out of keys
  * ends the queue, which a prompt reads as the user quitting.
+ *
+ * What is drawn is kept only where a caller asks for it: a prompt redraws
+ * itself on every keypress, and a test that is about the answer does not want
+ * the frames.
  */
-export const layerScripted = (keys: ReadonlyArray<Terminal.UserInput>): Layer.Layer<Terminal.Terminal> =>
+export const layerScripted = (
+  keys: ReadonlyArray<Terminal.UserInput>,
+  drawn?: Array<string>
+): Layer.Layer<Terminal.Terminal> =>
   Layer.effect(
     Terminal.Terminal,
     Effect.gen(function* () {
@@ -47,7 +54,7 @@ export const layerScripted = (keys: ReadonlyArray<Terminal.UserInput>): Layer.La
         rows: Effect.succeed(24),
         readInput: Effect.succeed(queue),
         readLine: Effect.die("picker: a prompt never reads a line"),
-        display: () => Effect.void
+        display: (text) => Effect.sync(() => drawn?.push(text))
       })
     })
   )

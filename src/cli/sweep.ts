@@ -23,6 +23,7 @@ import { Facts as FactsSchema } from "#domain/bucket.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
+import { ReviewRun, runKey } from "#domain/review.ts"
 
 /** Something a sweep could not read, and what GitHub said about it. */
 export interface Trouble {
@@ -38,6 +39,7 @@ export interface Report {
 }
 
 type Store = KeyValueStore.SchemaStore<typeof FactsSchema>
+type Runs = KeyValueStore.SchemaStore<typeof ReviewRun>
 
 const writtenBy = (comments: ReadonlyArray<Comment>, login: string): ReadonlyArray<DateTime.Utc> =>
   comments.filter((comment) => comment.login === login).map((comment) => comment.at)
@@ -53,7 +55,13 @@ const byHumansOtherThan = (comments: ReadonlyArray<Comment>, login: string): Rea
  * message in full, and on a PR that is where the last sweep left it that whole
  * read buys a timestamp the state directory already has.
  */
-const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: string, found: Found, settings: Settings) {
+const sweepPr = Effect.fn("sweep.pullRequest")(function* (
+  store: Store,
+  runs: Runs,
+  me: string,
+  found: Found,
+  settings: Settings
+) {
   const view = yield* prView(found.repo, found.number)
   const [onThePr, inReviews] = yield* Effect.all(
     [prComments(found.repo, found.number), prReviews(found.repo, found.number)],
@@ -69,9 +77,12 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
   // facts, and these facts are a cache of GitHub: reading them again costs a
   // sweep some calls, where failing here would cost the PR its row for good.
   const previous = Option.getOrUndefined(yield* Effect.orElseSucceed(store.get(key), () => Option.none<Facts>()))
-  // A review run is recorded against a head, so what is known about it survives
-  // everything that leaves the head alone - a new comment, a CI run turning red.
-  const onThisHead = previous?.head === view.headRefOid ? previous : undefined
+  // Whether this head has been reviewed is the run's to say, not a previous
+  // sweep's: a run is recorded against one head, and a head with no run of its
+  // own has not been reviewed however many sweeps have seen the pull request.
+  const reviewed = yield* Effect.orElseSucceed(runs.get(runKey(found.repo, found.number, view.headRefOid)), () =>
+    Option.none<ReviewRun>()
+  )
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
       ? previous
@@ -115,8 +126,9 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
-    reviewRunHead: onThisHead?.reviewRunHead ?? null,
-    blockingFindings: onThisHead?.blockingFindings ?? 0
+    reviewRunHead: Option.isSome(reviewed) ? view.headRefOid : null,
+    // The findings are the follow-up turn's, and it does not run yet.
+    blockingFindings: 0
   }
 
   yield* store.set(key, facts)
@@ -158,6 +170,7 @@ export const sweep = Effect.gen(function* () {
   }
 
   const store = yield* storeFor("prs", FactsSchema)
+  const runs = yield* storeFor("runs", ReviewRun)
   const me = yield* viewer
 
   const found = gather(yield* Effect.forEach(repos, (repo) => attempt(repo, searchPrs(repo)), { concurrency }))
@@ -168,7 +181,7 @@ export const sweep = Effect.gen(function* () {
       (pr: Found) =>
         attempt(
           `${pr.repo}#${pr.number}`,
-          Effect.map(sweepPr(store, me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
+          Effect.map(sweepPr(store, runs, me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
         ),
       { concurrency }
     )

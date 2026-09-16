@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
+import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
@@ -10,6 +10,7 @@ import * as Store from "#adapters/store.ts"
 import { storeFor } from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
 import { Facts } from "#domain/bucket.ts"
+import { ReviewRun, runKey } from "#domain/review.ts"
 
 const me = "dominikwozniak"
 
@@ -213,6 +214,20 @@ const registered = (...repos: ReadonlyArray<string>) =>
   write({ repos: Object.fromEntries(repos.map((repo) => [repo, {}])) } satisfies ConfigFile)
 
 const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
+
+/** What `dw-mc review` leaves behind: a review run against one head. */
+const reviewed = (repo: string, number: number, head: string) =>
+  Effect.flatMap(storeFor("runs", ReviewRun), (runs) =>
+    runs.set(runKey(repo, number, head), {
+      repo,
+      number,
+      head,
+      runner: "builtin",
+      effort: "low",
+      sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
+      ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z")
+    })
+  )
 
 describe("dw-mc status", () => {
   it.effect("prints every tracked PR under its bucket, hardest first", () => {
@@ -535,11 +550,9 @@ describe("dw-mc sweep", () => {
       yield* registered("dominikwozniak/dw-mc")
       yield* run("sweep")
 
-      // What `dw-mc review` will write once it exists: a review run on this head.
+      yield* reviewed("dominikwozniak/dw-mc", 1, head)
       const store = yield* storeFor("prs", Facts)
       const key = "dominikwozniak/dw-mc#1"
-      const reviewed = Option.getOrThrow(yield* store.get(key))
-      yield* store.set(key, { ...reviewed, reviewRunHead: head })
 
       prs[0] = { number: 1, title: "feat: reviewed", comments: [comment("someone", "2026-09-15T09:00:00Z")] }
       printed.length = 0
@@ -559,10 +572,9 @@ describe("dw-mc sweep", () => {
       yield* registered("dominikwozniak/dw-mc")
       yield* run("sweep")
 
+      yield* reviewed("dominikwozniak/dw-mc", 1, "aaaa")
       const store = yield* storeFor("prs", Facts)
       const key = "dominikwozniak/dw-mc#1"
-      const reviewed = Option.getOrThrow(yield* store.get(key))
-      yield* store.set(key, { ...reviewed, reviewRunHead: "aaaa" })
 
       prs[0] = { number: 1, headRefOid: "bbbb" }
       printed.length = 0
@@ -713,9 +725,7 @@ describe("a red CI, classified", () => {
       yield* registered(repo)
       yield* run("sweep")
 
-      const store = yield* storeFor("prs", Facts)
-      const key = `${repo}#1`
-      yield* store.set(key, { ...Option.getOrThrow(yield* store.get(key)), reviewRunHead: head })
+      yield* reviewed(repo, 1, head)
       printed.length = 0
       yield* run("status")
 
