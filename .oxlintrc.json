@@ -18,7 +18,31 @@
     "no-underscore-dangle": "off",
     // `Effect.gen` takes a generator because that is how it suspends, not because the body
     // iterates. A body that only asserts is correct and never yields.
-    "require-yield": "off"
+    "require-yield": "off",
+    // Two ADR 0006 invariants, held for every file the linter sees and restated by each
+    // override below.
+    //
+    // **An override replaces a rule's configuration in full rather than merging into it.**
+    // Every block that names `no-restricted-imports` therefore repeats these two patterns,
+    // and the blocks are written to match disjoint sets of files so that no file's
+    // configuration depends on which of two blocks oxlint applies last. A version of this
+    // that set only the root reported nothing inside `src/adapters/` and `src/domain/`,
+    // where an override already claimed the rule, and looked like it worked.
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "regex": "^\\.",
+            "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
+          },
+          {
+            "regex": "^@effect/platform-node(/|$)",
+            "message": "The entry point is the one place the platform services are provided: take the service and let `src/cli/bin.ts` supply its layer (ADR 0006)."
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
@@ -29,11 +53,20 @@
       // layer, so a detour through `../../src/cli/` is caught too. A package path is not -
       // `effect/unstable/cli` is an adapter's import.
       "files": ["src/adapters/**"],
+      "excludeFiles": ["src/**/*.test.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
+              {
+                "regex": "^\\.",
+                "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
+              },
+              {
+                "regex": "^@effect/platform-node(/|$)",
+                "message": "The entry point is the one place the platform services are provided: take the service and let `src/cli/bin.ts` supply its layer (ADR 0006)."
+              },
               {
                 "regex": "^(#|\\.{1,2}/(.*/)?)(cli|domain)/",
                 "message": "An adapter owns a boundary and knows nothing above it: import the other way (ADR 0006)."
@@ -48,14 +81,85 @@
       // The guard has to be here before the first file is, or the first file is the one
       // that gets it wrong.
       "files": ["src/domain/**"],
+      "excludeFiles": ["src/**/*.test.ts"],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
+                "regex": "^\\.",
+                "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
+              },
+              {
+                "regex": "^@effect/platform-node(/|$)",
+                "message": "The entry point is the one place the platform services are provided: take the service and let `src/cli/bin.ts` supply its layer (ADR 0006)."
+              },
+              {
                 "regex": "^(#|\\.{1,2}/(.*/)?)cli/",
                 "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // A test provides its own layers, so it reaches for the platform services the entry
+      // point otherwise keeps to itself. The direction still holds, and so does the ban on
+      // counting a module rather than naming it.
+      "files": ["src/adapters/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.",
+                "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
+              },
+              {
+                "regex": "^(#|\\.{1,2}/(.*/)?)(cli|domain)/",
+                "message": "An adapter owns a boundary and knows nothing above it: import the other way (ADR 0006)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/domain/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.",
+                "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
+              },
+              {
+                "regex": "^(#|\\.{1,2}/(.*/)?)cli/",
+                "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The entry point is the one file that assembles the real layers, and a command's
+      // test assembles its own, so both keep the platform services. `cli` is the top layer
+      // and has nothing above it to reach for.
+      "files": ["src/cli/bin.ts", "src/cli/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.",
+                "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
               }
             ]
           }
