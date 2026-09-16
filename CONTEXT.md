@@ -60,7 +60,7 @@ A local agent CLI that a review run executes on. Claude Code is the primary runn
 _Avoid_: reviewer, provider, model
 
 **Finding**:
-One problem a review run reports, at a file and line, with a severity of error, warning or info. An error is a blocking finding: it withholds the stamp until the head changes.
+One problem a review run reports, at a file and line, with a severity of error, warning or info. A finding at or above `stamp.blocks_on`, an error unless I configure otherwise, is a blocking finding: it withholds the stamp until the head changes.
 _Avoid_: issue, comment, violation
 
 **Outcome**:

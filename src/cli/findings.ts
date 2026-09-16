@@ -1,8 +1,8 @@
 import { Console, Effect, Option, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig } from "#adapters/config.ts"
+import type { ConfigFile, Severity } from "#adapters/config.ts"
+import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError } from "#cli/sweep.ts"
 import { count, table } from "#cli/table.ts"
@@ -19,12 +19,12 @@ const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDescription("Print the findings as the JSON a fix session is handed")
 )
 
-/** What a run's findings come to in one line. */
-export const summary = (found: Findings): string => {
+/** What a run's findings come to in one line, against the bar that blocks. */
+export const summary = (found: Findings, blocksOn: Severity): string => {
   if (found.findings.length === 0) {
     return "clean, nothing to fix"
   }
-  const blocked = blocking(found.findings).length
+  const blocked = blocking(found.findings, blocksOn).length
   return `${count(found.findings.length, "finding")}, ${blocked} blocking`
 }
 
@@ -87,6 +87,7 @@ export const findings = Command.make(
     function* ({ json, pr }) {
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
+      const settings = settingsFor(file, repo)
 
       const run = yield* currentRun(repo, number)
       const found = yield* whatItFound(run)
@@ -95,7 +96,7 @@ export const findings = Command.make(
         return
       }
 
-      yield* Console.log(`${repo}#${number}  ${run.head.slice(0, 7)}  ${summary(found)}`)
+      yield* Console.log(`${repo}#${number}  ${run.head.slice(0, 7)}  ${summary(found, settings.stamp.blocks_on)}`)
       for (const line of lines(found)) {
         yield* Console.log(`  ${line}`)
       }

@@ -41,10 +41,13 @@ export const Facts = Schema.Struct({
   myLastCommitAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   /** The head a review run has already covered, or null where none has. */
   reviewRunHead: Schema.NullOr(Schema.String),
-  /** Errors reported by a review run on this head. */
+  /** Findings on this head that withhold the stamp, at the bar `stamp.blocks_on` sets. */
   blockingFindings: Schema.Int
 })
 export type Facts = typeof Facts.Type
+
+/** Where a sweep keeps what it learned about one tracked PR: one key per PR. */
+export const factsKey = (repo: string, number: number): string => `${repo}#${number}`
 
 /** The one place a tracked PR sits at a time, named for what it waits on. */
 export const Bucket = Schema.Literals(["needs-me", "needs-review-run", "waiting-on-others", "ready"])
