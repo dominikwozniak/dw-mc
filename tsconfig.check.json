@@ -11,8 +11,8 @@
     "declaration": false,
     "declarationMap": false,
     "noEmit": true,
-    // Widened from the build's `src`, which `tools/` is outside of. `noEmit` does not
-    // relax the check: every file in the program still has to sit under it.
+    // `tools/` sits outside the build's `src`, and `noEmit` does not relax the check:
+    // every file in the program still has to sit under `rootDir`.
     "rootDir": "."
   }
 }

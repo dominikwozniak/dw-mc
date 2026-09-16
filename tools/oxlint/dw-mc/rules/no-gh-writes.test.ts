@@ -25,6 +25,8 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
     { name: "a write verb", code: `capture("gh", ["pr", "merge", "27"])`, errors: [notARead] },
     { name: "a read nobody has admitted", code: `capture("gh", ["label", "list"])`, errors: [notARead] },
     { name: "a verb built at runtime", code: `capture("gh", [verb, "view"])`, errors: [notARead] },
+    { name: "a vector assembled elsewhere", code: `capture("gh", args)`, errors: [notARead] },
+    { name: "no vector at all", code: `capture("gh")`, errors: [notARead] },
     { name: "an empty vector", code: `capture("gh", [])`, errors: [notARead] },
     { name: "-X", code: `capture("gh", ["api", "repos/o/r/issues/1/comments", "-X", "POST"])`, errors: [apiWrite] },
     { name: "-X with its value attached", code: `capture("gh", ["api", "repos/o/r", "-XPATCH"])`, errors: [apiWrite] },

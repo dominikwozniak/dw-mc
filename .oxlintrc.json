@@ -27,9 +27,9 @@
     // `Effect.gen` takes a generator because that is how it suspends, not because the body
     // iterates. A body that only asserts is correct and never yields.
     "require-yield": "off",
-    // ADR 0002: mission control reads GitHub and nothing else. The rule reads the argument
-    // vector handed to `gh` against an allow list held in the rule file, and refuses
-    // everything else, so a verb nobody has thought about waits to be read.
+    // ADR 0002's write boundary. The rule reads the argument vector handed to `gh` against
+    // an allow list held in the rule file, and refuses everything else, so a verb nobody
+    // has thought about waits to be read.
     "dw-mc/no-gh-writes": "error",
     // Four rules from `anti-slop`, vendored rather than installed: there is no package,
     // and the project is meant to be copied. Every one of them is a ratchet against the
@@ -133,7 +133,10 @@
     {
       // A test provides its own layers, so it reaches for the platform services the entry
       // point otherwise keeps to itself. The direction still holds, and so does the ban on
-      // counting a module rather than naming it.
+      // counting a module rather than naming it. There are three of these blocks because
+      // ADR 0006 has three layers and a test lives beside the module it covers; a test
+      // anywhere else in `src/` keeps the root block, which is the stricter answer and the
+      // right one for a file the record does not allow.
       "files": ["src/adapters/**/*.test.ts"],
       "rules": {
         "no-restricted-imports": [

@@ -11,6 +11,7 @@ import { defineRule } from "@oxlint/plugins"
  * yet waits to be read rather than arriving by silence.
  */
 const reads: ReadonlyArray<ReadonlyArray<string>> = [
+  /** The spawner's own test spawns it, and it reads nothing but the local binary. */
   ["--version"],
   ["api"],
   ["auth", "status"],
@@ -23,6 +24,9 @@ const reads: ReadonlyArray<ReadonlyArray<string>> = [
 /** What turns `gh api` from a read into a write, whatever endpoint it names. */
 const apiWriteFlags = ["-X", "--method", "-f", "--field", "-F", "--raw-field", "--input"]
 
+/** What a vector that does not spell its verb out is called in a diagnostic. */
+const unreadable = "A `gh` argument vector this rule cannot read"
+
 const stringValue = (node: ESTree.Node): string | undefined =>
   node.type === "Literal" && typeof node.value === "string" ? node.value : undefined
 
@@ -33,7 +37,7 @@ const stringValue = (node: ESTree.Node): string | undefined =>
  * cannot decide the verb, so the prefix is the whole question. Every `gh` vector
  * in this repository spells its verb out.
  */
-const spelledOut = (vector: ESTree.ArrayExpression): ReadonlyArray<string> => {
+const leadingWords = (vector: ESTree.ArrayExpression): ReadonlyArray<string> => {
   const words: Array<string> = []
   for (const element of vector.elements) {
     if (element === null) {
@@ -77,7 +81,15 @@ const writeFlag = (vector: ESTree.ArrayExpression): string | undefined => {
   return undefined
 }
 
-/** Mission control reads GitHub and nothing else, held against the vector handed to `gh`. */
+/**
+ * ADR 0002's write boundary, held against the vector handed to `gh`.
+ *
+ * A call carrying the string `"gh"` is a `gh` invocation, and its array literals
+ * are the vectors it hands over. One spelling is out of reach: a `gh` bound to a
+ * variable first, which would take the scope analysis this rule is thin for
+ * avoiding. Nothing in `src/` is written that way, and a call that hands `gh` a
+ * vector assembled elsewhere is refused rather than followed.
+ */
 export const noGhWritesRule = defineRule({
   meta: {
     type: "problem",
@@ -86,20 +98,20 @@ export const noGhWritesRule = defineRule({
     },
     messages: {
       notARead:
-        "{{invocation}} is not one of the reads dw-mc makes. Mission control only reads GitHub: it never comments, replies, resolves a thread, labels, reviews, approves, changes a status or merges (ADR 0002). A read that belongs here is a line in `reads` in this rule.",
+        "{{invocation}} is not one of the reads dw-mc makes. Mission control never comments, replies, resolves a thread, labels, reviews, approves, changes a status or merges (ADR 0002), and v1 makes no GitHub write at all. A read that belongs here is a line in `reads` in this rule.",
       apiWrite:
-        "`gh api` carrying `{{flag}}` sends a write. Mission control only reads GitHub (ADR 0002), and the REST endpoint is not a way around that."
+        "`gh api` carrying `{{flag}}` sends a write, and ADR 0002 leaves dw-mc none to send. The REST endpoint is not a way around the boundary."
     }
   },
   createOnce(context) {
     const checkVector = (vector: ESTree.ArrayExpression) => {
-      const words = spelledOut(vector)
+      const words = leadingWords(vector)
       if (!isRead(words)) {
         context.report({
           node: vector,
           messageId: "notARead",
           data: {
-            invocation: words.length > 0 ? `\`gh ${words.join(" ")}\`` : "A `gh` argument vector built at runtime"
+            invocation: words.length > 0 ? `\`gh ${words.join(" ")}\`` : unreadable
           }
         })
         return
@@ -118,10 +130,13 @@ export const noGhWritesRule = defineRule({
         if (!node.arguments.some((argument) => stringValue(argument) === "gh")) {
           return
         }
-        for (const argument of node.arguments) {
-          if (argument.type === "ArrayExpression") {
-            checkVector(argument)
-          }
+        const vectors = node.arguments.filter((argument) => argument.type === "ArrayExpression")
+        if (vectors.length === 0) {
+          context.report({ node, messageId: "notARead", data: { invocation: unreadable } })
+          return
+        }
+        for (const vector of vectors) {
+          checkVector(vector)
         }
       }
     }
