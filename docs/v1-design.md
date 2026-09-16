@@ -71,15 +71,15 @@ Each line says whether it was run or read.
 
 ## Effect v4 modules to use
 
-Read `LLMS.md` in the Effect repository first. Everything below is under `packages/effect/src` unless noted.
+Read `node_modules/effect/AGENTS.md` first, then `repos/effect/LLMS.md` for the module map ([ADR 0004](./adr/0004-effect-reference-material.md)). Everything below is under `node_modules/effect/src` unless noted.
 
 | need | module |
 | --- | --- |
 | CLI commands, flags, subcommands | `unstable/cli` `Command`, example `ai-docs/src/70_cli/10_basics.ts` |
-| interactive picker | `unstable/cli` `Prompt`: `Select`, `MultiSelect`, `Confirm`, `AutoComplete`; needs `Terminal` from `platform/node` `NodeTerminal` |
+| interactive picker | `unstable/cli` `Prompt`: `Select`, `MultiSelect`, `Confirm`, `AutoComplete`; needs `Terminal` from `@effect/platform-node` `NodeTerminal` |
 | spawning `gh`, `claude`, `codex` | `unstable/process` `ChildProcess.make` + `ChildProcessSpawner` (`string`, `lines`, `spawn`, `exitCode`), example `ai-docs/src/60_child-process/` |
 | typed JSON state files | `unstable/persistence` `KeyValueStore.layerFileSystem(dir)` + `toSchemaStore(store, schema)` |
-| filesystem, paths, services | core `FileSystem`, `Path`; `platform/node` `NodeServices.layer` |
+| filesystem, paths, services | core `FileSystem`, `Path`; `NodeServices.layer` from the `@effect/platform-node` package |
 | retries and polling | `Schedule` |
 | tables | none in Effect; a small formatter of our own on `Terminal` |
 
