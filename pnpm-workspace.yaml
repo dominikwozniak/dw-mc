@@ -2,14 +2,6 @@
 # configuration lives: only auth and registry settings are read from `.npmrc`.
 # No `packages:` key on purpose; omitting it means the root package is the whole workspace.
 
-# Which dependencies may run install scripts. Everything unlisted is denied, and under
-# `strictDepBuilds` a denied build fails the install rather than warning. `dprint` is the
-# one package here that ships a postinstall, and it costs nothing to deny: the binary
-# arrives through the `@dprint/darwin-arm64` optional dependency, and `bin.cjs` falls back
-# to the same resolution at runtime, so nothing is downloaded and nothing is skipped.
-allowBuilds:
-  dprint: false
-
 # Release cooldown, in minutes: refuse a package version published less than 3 days ago.
 # The v11 default is 1440. A week would be stronger and is not affordable here: `effect`
 # ships a release candidate every few days and vitest 5 pulls the rolldown/vite toolchain,
@@ -24,8 +16,8 @@ minimumReleaseAgeStrict: true
 # Versions exempted from the cooldown. Each entry is a deliberate, dated decision.
 minimumReleaseAgeExclude:
   # 2026-09-16 — the version the test seam is written against, younger than the cooldown.
-  - '@vitest/mocker@5.0.1'
-  - '@vitest/spy@5.0.1'
+  - "@vitest/mocker@5.0.1"
+  - "@vitest/spy@5.0.1"
   - vitest@5.0.1
   # 2026-09-16 — pulled in by vitest 5.0.1 above, so it is the same decision.
   - magic-string@1.4.1
