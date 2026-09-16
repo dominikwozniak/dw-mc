@@ -10,6 +10,9 @@ import { sweepCommand } from "#cli/sweep.ts"
 
 export const version = "0.0.0"
 
+/** Where the project lives, printed beside the version in the header. */
+export const projectUrl = "github.com/dominikwozniak/dw-mc"
+
 export const dwMc = Command.make(
   "dw-mc",
   {},

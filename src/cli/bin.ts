@@ -7,12 +7,13 @@ import { Command } from "effect/unstable/cli"
 import { ConfigStore } from "#adapters/config.ts"
 import * as Store from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
+import * as Header from "#cli/header.ts"
 
 // Both stores are built here, for the whole CLI rather than for `init` alone:
 // the filesystem store makes its directory as its layer is built, so any run of
 // dw-mc leaves the state and configuration directories behind it.
 dwMc.pipe(
   Command.run({ version }),
-  Effect.provide(Layer.provideMerge(Layer.mergeAll(ConfigStore.layer, Store.layer), NodeServices.layer)),
+  Effect.provide(Layer.provideMerge(Layer.mergeAll(ConfigStore.layer, Store.layer, Header.layer), NodeServices.layer)),
   NodeRuntime.runMain
 )
