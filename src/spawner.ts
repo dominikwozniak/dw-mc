@@ -52,7 +52,7 @@ export const fakeHandle = (options: {
     stdin: Sink.drain,
     stdout,
     stderr,
-    all: stdout,
+    all: Stream.merge(stdout, stderr),
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
     unref: Effect.succeed(Effect.void)

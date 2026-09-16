@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, PlatformError } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { capture, fakeHandle, layerFake } from "./spawner.ts"
 
 describe("spawner", () => {
@@ -39,5 +40,17 @@ describe("spawner", () => {
       assert.strictEqual(error._tag, "PlatformError")
       assert.strictEqual(error.reason._tag, "NotFound")
     }).pipe(Effect.provide(missing))
+  })
+
+  it.effect("the fake's combined output carries stderr as well as stdout", () => {
+    const noisy = layerFake(() => Effect.succeed(fakeHandle({ stdout: "out", stderr: "err" })))
+
+    return Effect.gen(function*() {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const both = yield* spawner.string(ChildProcess.make("noisy", []), { includeStderr: true })
+
+      assert.isTrue(both.includes("out"))
+      assert.isTrue(both.includes("err"))
+    }).pipe(Effect.provide(noisy))
   })
 })
