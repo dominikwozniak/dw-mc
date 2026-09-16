@@ -13,10 +13,20 @@ does not cover, read the sources: `node_modules/effect/src` and `node_modules/@e
 `repos/effect/` is a read-only checkout of the Effect monorepo for the few things npm leaves out; see
 `repos/AGENTS.md`. Never import from it.
 
+## Tooling
+
+`pnpm` is the package manager, pinned in `package.json`. Never `npm`, `npx`, `yarn` or `bun`; run a
+one-off tool with `pnpm dlx`, as in `pnpm dlx skills@latest add mattpocock/skills`.
+
 Commands: `pnpm typecheck`, `pnpm diagnostics` (Effect diagnostics through `@effect/tsgo`), `pnpm test`,
 `pnpm build`.
 
 ## Git conventions
+
+A ticket is built on its own branch, in its own worktree under `.claude/worktree/<branch>`, and
+lands on `main` through a pull request. Nothing is committed to `main` directly. The branch is named
+`type/<issue>-subject`, as in `feat/2-three-test-seams`. (This is the development workflow; the
+throwaway worktrees `CONTEXT.md` describes are what the tool itself cuts at runtime.)
 
 Pull requests land as a **squash merge**. The squash subject is the pull request title, so the title
 follows the same `type(scope): subject` form as a commit subject.
