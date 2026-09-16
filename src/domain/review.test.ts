@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
 import { DateTime } from "effect"
 
+import { builtIn } from "#adapters/config.ts"
 import type { ReviewRun } from "#domain/review.ts"
-import { reportDocument, reportKey, runKey, runnerFor } from "#domain/review.ts"
+import { latestKey, reportDocument, reportKey, runKey, runnerFor, worthRerunning } from "#domain/review.ts"
 
 const run: ReviewRun = {
   repo: "dominikwozniak/dw-mc",
@@ -11,7 +12,8 @@ const run: ReviewRun = {
   runner: "builtin",
   effort: "low",
   sessionId: "d111a7b1-a1ef-45e5-a160-68ca50a65260",
-  ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z")
+  ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
+  outcome: { _tag: "reported", verdict: "clean", findings: [] }
 }
 
 describe("review run", () => {
@@ -22,6 +24,11 @@ describe("review run", () => {
 
   it("keeps the report beside the run it came from", () => {
     assert.strictEqual(reportKey(run.repo, run.number, run.head), `${runKey(run.repo, run.number, run.head)}.md`)
+  })
+
+  it("keys the head last reviewed to the pull request, not to a head", () => {
+    assert.strictEqual(latestKey(run.repo, run.number), "dominikwozniak/dw-mc#28@latest")
+    assert.notStrictEqual(latestKey(run.repo, run.number), runKey(run.repo, run.number, run.head))
   })
 
   it("says what the report is of, above the report", () => {
@@ -49,5 +56,27 @@ describe("the runner a review run executes on", () => {
   it("is none at all where the configured runners are not built", () => {
     assert.strictEqual(runnerFor(["prompt"]), null)
     assert.strictEqual(runnerFor([]), null)
+  })
+})
+
+describe("the re-run rule", () => {
+  const docsOnly = builtIn.review.docs_only
+
+  it("does not repeat a run when only documentation changed", () => {
+    assert.isFalse(worthRerunning(["README.md", "docs/adr/0006-source-layout.md", "docs/diagram.png"], docsOnly))
+  })
+
+  it("repeats a run when anything outside the globs changed", () => {
+    assert.isTrue(worthRerunning(["README.md", "src/cli/review.ts"], docsOnly))
+    assert.isTrue(worthRerunning(["package.json"], docsOnly))
+  })
+
+  it("does not repeat a run when nothing changed at all", () => {
+    assert.isFalse(worthRerunning([], docsOnly))
+  })
+
+  it("takes the globs from the repository, so a repository can widen them", () => {
+    assert.isTrue(worthRerunning(["docs/adr/0006-source-layout.md"], []))
+    assert.isFalse(worthRerunning(["src/cli/review.ts"], ["src/**"]))
   })
 })

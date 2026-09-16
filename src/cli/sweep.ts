@@ -18,8 +18,10 @@ import {
   viewer
 } from "#adapters/gh.ts"
 import { storeFor } from "#adapters/store.ts"
+import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
+import { blocking } from "#domain/findings.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
@@ -80,9 +82,13 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
   // Whether this head has been reviewed is the run's to say, not a previous
   // sweep's: a run is recorded against one head, and a head with no run of its
   // own has not been reviewed however many sweeps have seen the pull request.
-  const reviewed = yield* Effect.orElseSucceed(runs.get(runKey(found.repo, found.number, view.headRefOid)), () =>
+  // A run that could not report findings does not count, either: its verdict is
+  // what takes a pull request out of Needs review run, and it reached none.
+  const run = yield* Effect.orElseSucceed(runs.get(runKey(found.repo, found.number, view.headRefOid)), () =>
     Option.none<ReviewRun>()
   )
+  const reviewed = Option.getOrUndefined(run)?.outcome
+  const reported = reviewed?._tag === "reported" ? reviewed : undefined
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
       ? previous
@@ -126,9 +132,8 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
-    reviewRunHead: Option.isSome(reviewed) ? view.headRefOid : null,
-    // The findings are the follow-up turn's, and it does not run yet.
-    blockingFindings: 0
+    reviewRunHead: reported === undefined ? null : view.headRefOid,
+    blockingFindings: reported === undefined ? 0 : blocking(reported.findings).length
   }
 
   yield* store.set(key, facts)
@@ -216,8 +221,6 @@ export const printTroubles = Effect.fn("sweep.printTroubles")(function* (trouble
     yield* Console.log(`  ${trouble.where}  ${trouble.detail}`)
   }
 })
-
-const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`
 
 /**
  * Refreshes what mission control knows about every tracked PR.

@@ -1,4 +1,4 @@
-import { Effect, Option, Schema, Stream } from "effect"
+import { Duration, Effect, Option, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 import type { Effort } from "#adapters/config.ts"
@@ -45,7 +45,9 @@ const Result = Schema.Struct({
   subtype: Schema.String,
   is_error: Schema.Boolean,
   session_id: Schema.String,
-  result: Schema.optionalKey(Schema.String)
+  result: Schema.optionalKey(Schema.String),
+  /** What a turn given a JSON schema validated, which this hands on unread. */
+  structured_output: Schema.optionalKey(Schema.Unknown)
 })
 
 const asWorking = Schema.decodeUnknownOption(Schema.fromJsonString(Working))
@@ -149,3 +151,95 @@ export const builtinReview = Effect.fn("runner.builtinReview")(function* (option
   }
   return { report, sessionId: session_id } satisfies Turn
 }, Effect.scoped)
+
+/**
+ * How long the second turn gets before it is given up on.
+ *
+ * It reads no code and decides nothing: the review it reports on is already in
+ * the session it resumes, and every run of it by hand came back in seconds. A
+ * turn still going after this is one that is not coming back, and a review
+ * command that hangs forever is worse than one that says it failed.
+ */
+const patience = Duration.minutes(5)
+
+/**
+ * What the second turn asks for.
+ *
+ * It asks for a report of what was already said rather than for another look:
+ * the prose is the review, and this turn is only what makes it machine
+ * readable. The shape it must answer in arrives as a JSON schema beside it, so
+ * the prompt does not describe the schema twice.
+ */
+const reportFindings = [
+  "Report the findings of the review you just gave as structured output.",
+  "Every finding carries the file it is in as a repository path, the line it is at,",
+  "its severity and a one-sentence summary.",
+  "The verdict is clean when there is nothing to report and findings otherwise.",
+  "Report nothing you did not already say."
+].join(" ")
+
+/**
+ * The second turn of a review run: the prose the first one wrote, back as
+ * findings that validate.
+ *
+ * It resumes the first turn's session rather than reading the diff again, which
+ * is what makes it cheap and what makes it accurate - verified by running it,
+ * the line numbers it reports beat the ones the prose gives. The output is
+ * handed on as it arrived: what the findings must look like belongs to the
+ * domain, and the schema the runner is held to comes in from there too.
+ *
+ * Every way this can end badly ends as a `RunnerFailed`, because a review run
+ * that could not report is a failure and never a clean verdict.
+ */
+export const builtinFindings = Effect.fn("runner.builtinFindings")(
+  function* (options: { readonly directory: string; readonly sessionId: string; readonly jsonSchema: string }) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const args = [
+      "-p",
+      "--resume",
+      options.sessionId,
+      reportFindings,
+      "--output-format",
+      "json",
+      "--json-schema",
+      options.jsonSchema
+    ]
+
+    const handle = yield* Effect.mapError(
+      spawner.spawn(ChildProcess.make("claude", args, { cwd: options.directory })),
+      (error) => failed(error.message)
+    )
+
+    const [stdout, stderr] = yield* Effect.mapError(
+      Effect.all(
+        [Stream.mkString(Stream.decodeText(handle.stdout)), Stream.mkString(Stream.decodeText(handle.stderr))],
+        { concurrency: 2 }
+      ),
+      (error) => failed(error.message)
+    )
+
+    const exitCode = yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
+    if (exitCode !== 0) {
+      return yield* failed(stderr.trim() === "" ? `claude exited ${exitCode}` : stderr.trim())
+    }
+
+    const result = asResult(stdout.trim())
+    if (Option.isNone(result)) {
+      return yield* failed("the findings turn came back with something that is not a result")
+    }
+
+    const { is_error, result: lastWord, structured_output, subtype } = result.value
+    if (is_error || subtype !== "success") {
+      return yield* failed(`${subtype}: ${lastWord ?? "nothing else was said"}`)
+    }
+    if (structured_output === undefined) {
+      return yield* failed("the findings turn came back with no structured output")
+    }
+    return structured_output
+  },
+  Effect.scoped,
+  Effect.timeoutOrElse({
+    duration: patience,
+    orElse: () => failed(`the findings turn did not come back within ${Duration.format(patience)}`)
+  })
+)

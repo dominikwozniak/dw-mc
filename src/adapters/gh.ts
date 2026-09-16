@@ -287,6 +287,30 @@ export const prReviews = Effect.fnUntraced(function* (repo: string, number: numb
   )
 })
 
+const Compare = Schema.fromJsonString(
+  Schema.Struct({ files: Schema.optionalKey(Schema.Array(Schema.Struct({ filename: Schema.String }))) })
+)
+
+/**
+ * The repository paths that changed between two commits.
+ *
+ * GitHub compares them rather than git, because the commit a run was recorded
+ * against is not one the tool's own clone is promised to still have: a force
+ * push moves the pull request's ref and the old commit goes with it, where
+ * GitHub keeps both sides of the comparison. A comparison of a commit with
+ * itself reports no files at all, and so does one of two commits with nothing
+ * between them, which is why the key is optional.
+ *
+ * `base...head` measures from where the two commits last agreed, so two heads
+ * on one branch report what was pushed between them, and a branch rebased since
+ * reports its whole diff. The second is the right answer for a caller deciding
+ * whether the code has moved: after a rebase it has, all of it.
+ */
+export const comparedFiles = Effect.fnUntraced(function* (repo: string, base: string, head: string) {
+  const compare = yield* readJson("api compare", "gh", ["api", `repos/${repo}/compare/${base}...${head}`], Compare)
+  return (compare.files ?? []).map((file) => file.filename)
+})
+
 const Commits = Schema.fromJsonString(
   Schema.Struct({
     commits: Schema.Array(

@@ -63,6 +63,14 @@ _Avoid_: reviewer, provider, model
 One problem a review run reports, at a file and line, with a severity of error, warning or info. An error is a blocking finding: it withholds the stamp until the head changes.
 _Avoid_: issue, comment, violation
 
+**Failure**:
+A review run that reached no verdict: the runner exited badly, ran out of patience, or answered in a shape that does not validate. Recorded as what it is, never as a clean verdict.
+_Avoid_: error, crash
+
+**Re-run rule**:
+When a review run is repeated on a pull request that has already had one: only where files outside the repository's `docs_only` globs changed since that run. A force flag overrides it.
+_Avoid_: cache, debounce
+
 **Fix session**:
 An interactive agent session mission control opens for me in a fresh worktree, carrying the findings I selected and my notes on them. It is never the review run that produced the findings; the re-review of its result is a new review run.
 _Avoid_: auto-fix, repair run

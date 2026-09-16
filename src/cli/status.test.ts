@@ -225,6 +225,7 @@ const reviewed = (repo: string, number: number, head: string) =>
       runner: "builtin",
       effort: "low",
       sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
+      outcome: { _tag: "reported", verdict: "clean", findings: [] },
       ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z")
     })
   )
