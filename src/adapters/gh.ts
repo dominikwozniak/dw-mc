@@ -182,7 +182,6 @@ const PrView = Schema.fromJsonString(
     title: Schema.String,
     url: Schema.String,
     isDraft: Schema.Boolean,
-    baseRefName: Schema.String,
     headRefOid: Schema.String,
     mergeable: Schema.String,
     reviewDecision: Schema.String,
@@ -191,7 +190,7 @@ const PrView = Schema.fromJsonString(
 )
 export type PrView = typeof PrView.Type
 
-const viewFields = "number,title,url,isDraft,baseRefName,headRefOid,mergeable,reviewDecision,statusCheckRollup"
+const viewFields = "number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup"
 
 /**
  * Everything about one pull request that arrives without paging through it:
@@ -281,6 +280,38 @@ export const prComments = Effect.fnUntraced(function* (repo: string, number: num
     { concurrency: 2 }
   )
   return [...conversation, ...onDiff]
+})
+
+const Reviews = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      submitted_at: Schema.DateTimeUtcFromString,
+      body: Schema.String,
+      user: Schema.NullOr(Schema.Struct({ login: Schema.String, type: Schema.String }))
+    })
+  )
+)
+
+/**
+ * The reviews on a pull request that said something, as comments.
+ *
+ * A review carries a body of its own, which is where a reviewer writes the
+ * sentence that is not attached to any line. An empty body is a verdict and
+ * nothing more, and the verdict arrives with the PR as `reviewDecision`.
+ */
+export const prReviews = Effect.fnUntraced(function* (repo: string, number: number) {
+  const all = yield* readJson(
+    "api reviews",
+    "gh",
+    ["api", `repos/${repo}/pulls/${number}/reviews?per_page=100`],
+    Reviews
+  )
+
+  return all.flatMap((review): ReadonlyArray<Comment> =>
+    review.user === null || review.body.trim() === ""
+      ? []
+      : [{ login: review.user.login, bot: review.user.type === "Bot", at: review.submitted_at }]
+  )
 })
 
 const Commits = Schema.fromJsonString(

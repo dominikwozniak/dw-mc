@@ -1,4 +1,6 @@
-import { DateTime, Schema } from "effect"
+import { Schema } from "effect"
+
+import { isAfter, later } from "#domain/moment.ts"
 
 /** How far GitHub has got towards letting a tracked PR merge. */
 export const Mergeability = Schema.Literals(["mergeable", "conflicting", "unknown"])
@@ -28,17 +30,16 @@ export const Facts = Schema.Struct({
   draft: Schema.Boolean,
   /** The head commit every other fact here is about. */
   head: Schema.String,
-  base: Schema.String,
   mergeable: Mergeability,
   reviewDecision: ReviewDecision,
   checks: ChecksState,
-  /** Whether the flaky classifier excuses a red CI. Always false until it lands. */
+  /** Whether the flaky classifier excuses a red CI. */
   ciFlaky: Schema.Boolean,
   /** The newest comment from a person who is not me, bots excluded. */
   newestHumanCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   myLastCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   myLastCommitAt: Schema.NullOr(Schema.DateTimeUtcFromString),
-  /** The head a review run has already covered. Null until one has run. */
+  /** The head a review run has already covered, or null where none has. */
   reviewRunHead: Schema.NullOr(Schema.String),
   /** Errors reported by a review run on this head. */
   blockingFindings: Schema.Int
@@ -64,12 +65,6 @@ export interface Placed {
 /** The buckets in the order I act on them: the top of the table is my next move. */
 export const order: ReadonlyArray<Bucket> = ["needs-me", "needs-review-run", "waiting-on-others", "ready"]
 
-const isAfter = (self: DateTime.Utc | null, other: DateTime.Utc | null): boolean =>
-  self !== null && (other === null || DateTime.toEpochMillis(self) > DateTime.toEpochMillis(other))
-
-const later = (self: DateTime.Utc | null, other: DateTime.Utc | null): DateTime.Utc | null =>
-  isAfter(self, other) ? self : other
-
 /**
  * The first of the five rules that makes a PR mine to move, or null when none
  * does. The order is the order I would fix them in: a conflict makes every
@@ -92,6 +87,22 @@ const needsMe = (facts: Facts): string | null => {
     return "a comment I have not answered"
   }
   return null
+}
+
+/**
+ * What is actually true of a PR nothing is waiting on.
+ *
+ * Ready is reached by having no reason not to be, so the reason says only what
+ * holds: a repository that requires no reviewer produces no approval, and a
+ * pull request with no CI at all is not green.
+ */
+const readyReason = (facts: Facts): string => {
+  const held = [
+    facts.reviewDecision === "approved" ? "approved" : null,
+    facts.checks === "green" ? "green" : null,
+    facts.mergeable === "mergeable" ? "mergeable" : null
+  ].filter((it) => it !== null)
+  return held.length === 0 ? "nothing left to wait on" : held.join(", ")
 }
 
 /**
@@ -120,22 +131,20 @@ export const place = (facts: Facts): Placement => {
   if (facts.checks === "pending") {
     return { bucket: "waiting-on-others", reason: "CI is still running" }
   }
-  return {
-    bucket: "ready",
-    reason: facts.reviewDecision === "approved" ? "approved, green and mergeable" : "green and mergeable"
-  }
+  return { bucket: "ready", reason: readyReason(facts) }
 }
 
 /**
  * The tracked PRs grouped into their buckets, in the order I act on them, with
  * the empty buckets left out so the table is only what there is to do.
  */
-export const group = (
-  facts: ReadonlyArray<Facts>
-): ReadonlyArray<{
+/** One bucket with what is in it: a heading in the table, and the rows under it. */
+export interface Grouped {
   readonly bucket: Bucket
   readonly placed: ReadonlyArray<Placed>
-}> => {
+}
+
+export const group = (facts: ReadonlyArray<Facts>): ReadonlyArray<Grouped> => {
   const placed = facts
     .map((it): Placed => ({ facts: it, placement: place(it) }))
     .toSorted((a, b) => a.facts.repo.localeCompare(b.facts.repo) || a.facts.number - b.facts.number)

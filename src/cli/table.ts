@@ -1,8 +1,6 @@
 /**
- * The columns of a table, padded to line up and with the trailing blanks cut.
- *
- * Effect ships no table, and a table is all these commands print, so this is it:
- * it takes the cells and gives back the lines.
+ * The rows of a table, padded so the columns line up and with the trailing
+ * blanks cut. Effect ships no table and a table is what these commands print.
  */
 export const table = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<string> => {
   const widths = rows.reduce<ReadonlyArray<number>>(

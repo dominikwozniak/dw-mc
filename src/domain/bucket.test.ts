@@ -14,7 +14,6 @@ const clean: Facts = {
   url: "https://github.com/dominikwozniak/dw-mc/pull/24",
   draft: false,
   head: "31268022360852f71815404b6bbdd6bd797cfb4c",
-  base: "main",
   mergeable: "mergeable",
   reviewDecision: "none",
   checks: "green",
@@ -146,12 +145,17 @@ describe("place", () => {
   it("calls a reviewed, green and mergeable PR ready", () => {
     assert.deepStrictEqual(place(facts({ reviewDecision: "approved" })), {
       bucket: "ready",
-      reason: "approved, green and mergeable"
+      reason: "approved, green, mergeable"
     })
   })
 
   it("calls a PR in a repository that requires no reviewer ready too", () => {
-    assert.deepStrictEqual(place(clean), { bucket: "ready", reason: "green and mergeable" })
+    assert.deepStrictEqual(place(clean), { bucket: "ready", reason: "green, mergeable" })
+  })
+
+  it("claims for ready only what is actually true of the PR", () => {
+    assert.strictEqual(place(facts({ checks: "none", mergeable: "unknown" })).reason, "nothing left to wait on")
+    assert.strictEqual(place(facts({ checks: "none" })).reason, "mergeable")
   })
 
   it("does not hold a PR back for a mergeability GitHub has not computed yet", () => {

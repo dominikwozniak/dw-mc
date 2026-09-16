@@ -3,7 +3,7 @@ import { Command } from "effect/unstable/cli"
 
 import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
 import { table, truncate } from "#cli/table.ts"
-import type { Bucket, Placed } from "#domain/bucket.ts"
+import type { Bucket, Grouped, Placed } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 
 /** The glossary's name for each bucket, which is what the heading says. */
@@ -29,7 +29,7 @@ const cells = (placed: Placed): ReadonlyArray<string> => [
  * The rows of every bucket are measured together, so the columns line up down
  * the whole table rather than restarting under each heading.
  */
-const lines = (grouped: ReturnType<typeof group>): ReadonlyArray<string> => {
+const lines = (grouped: ReadonlyArray<Grouped>): ReadonlyArray<string> => {
   const rows = table(grouped.flatMap((it) => it.placed.map(cells)))
   let taken = 0
   return grouped.flatMap((it, index) => {

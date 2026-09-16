@@ -1,4 +1,5 @@
-import { Console, DateTime, Effect, Option } from "effect"
+import type { DateTime } from "effect"
+import { Console, Effect, Option } from "effect"
 import { CliError, Command } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 
@@ -9,6 +10,7 @@ import {
   mergeabilityOf,
   prComments,
   prCommits,
+  prReviews,
   prView,
   reviewDecisionOf,
   rollupState,
@@ -18,6 +20,7 @@ import {
 import { storeFor } from "#adapters/store.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
+import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
 
 /** Something a sweep could not read, and what GitHub said about it. */
@@ -35,12 +38,6 @@ export interface Report {
 
 type Store = KeyValueStore.SchemaStore<typeof FactsSchema>
 
-const newest = (moments: ReadonlyArray<DateTime.Utc>): DateTime.Utc | null =>
-  moments.reduce<DateTime.Utc | null>(
-    (best, at) => (best === null || DateTime.toEpochMillis(at) > DateTime.toEpochMillis(best) ? at : best),
-    null
-  )
-
 const writtenBy = (comments: ReadonlyArray<Comment>, login: string): ReadonlyArray<DateTime.Utc> =>
   comments.filter((comment) => comment.login === login).map((comment) => comment.at)
 
@@ -57,13 +54,20 @@ const byHumansOtherThan = (comments: ReadonlyArray<Comment>, login: string): Rea
  */
 const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: string, found: Found, settings: Settings) {
   const view = yield* prView(found.repo, found.number)
-  const comments = yield* prComments(found.repo, found.number)
+  const [onThePr, inReviews] = yield* Effect.all(
+    [prComments(found.repo, found.number), prReviews(found.repo, found.number)],
+    { concurrency: 2 }
+  )
+  const comments = [...onThePr, ...inReviews]
 
   const checks = rollupState(view.statusCheckRollup, settings.ci.ignore)
   const newestHumanCommentAt = newest(byHumansOtherThan(comments, me))
 
   const key = `${found.repo}#${found.number}`
   const previous = Option.getOrUndefined(yield* store.get(key))
+  // A review run is recorded against a head, so what is known about it survives
+  // everything that leaves the head alone - a new comment, a CI run turning red.
+  const onThisHead = previous?.head === view.headRefOid ? previous : undefined
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
       ? previous
@@ -85,19 +89,16 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
     url: view.url,
     draft: view.isDraft,
     head: view.headRefOid,
-    base: view.baseRefName,
     mergeable: mergeabilityOf(view.mergeable),
     reviewDecision: reviewDecisionOf(view.reviewDecision),
     checks,
-    // Both wait on work this build order has not reached: the flaky classifier
-    // and the first review run. Until then no PR is excused a red CI and every
-    // PR is owed a review run, which is the behaviour the design asks for.
+    // Nothing classifies a failure as flaky yet, so no PR is excused a red CI.
     ciFlaky: false,
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
-    reviewRunHead: quiet?.reviewRunHead ?? null,
-    blockingFindings: quiet?.blockingFindings ?? 0
+    reviewRunHead: onThisHead?.reviewRunHead ?? null,
+    blockingFindings: onThisHead?.blockingFindings ?? 0
   }
 
   yield* store.set(key, facts)

@@ -1,6 +1,6 @@
-import { DateTime } from "effect"
-
 import type { ChecksState, Facts } from "#domain/bucket.ts"
+import type { Moment } from "#domain/moment.ts"
+import { isSame } from "#domain/moment.ts"
 
 /**
  * The three signals that say whether a tracked PR has moved at all.
@@ -11,7 +11,7 @@ import type { ChecksState, Facts } from "#domain/bucket.ts"
 export interface Pulse {
   readonly head: string
   readonly checks: ChecksState
-  readonly newestHumanCommentAt: DateTime.Utc | null
+  readonly newestHumanCommentAt: Moment
 }
 
 /** The pulse of a PR a previous sweep recorded. */
@@ -20,9 +20,6 @@ export const pulseOf = (facts: Facts): Pulse => ({
   checks: facts.checks,
   newestHumanCommentAt: facts.newestHumanCommentAt
 })
-
-const sameMoment = (self: DateTime.Utc | null, other: DateTime.Utc | null): boolean =>
-  self === null || other === null ? self === other : DateTime.toEpochMillis(self) === DateTime.toEpochMillis(other)
 
 /**
  * Whether a PR is where the last sweep left it.
@@ -33,4 +30,4 @@ const sameMoment = (self: DateTime.Utc | null, other: DateTime.Utc | null): bool
 export const isQuiet = (previous: Pulse, current: Pulse): boolean =>
   previous.head === current.head &&
   previous.checks === current.checks &&
-  sameMoment(previous.newestHumanCommentAt, current.newestHumanCommentAt)
+  isSame(previous.newestHumanCommentAt, current.newestHumanCommentAt)

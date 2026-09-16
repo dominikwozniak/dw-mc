@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Path, Stdio } from "effect"
+import { ConfigProvider, Console, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
@@ -7,13 +7,22 @@ import { ConfigStore, write } from "#adapters/config.ts"
 import { layerScripted } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
+import { storeFor } from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
+import { Facts } from "#domain/bucket.ts"
 
 const me = "dominikwozniak"
 
 /** One comment, in the shape the REST endpoints answer with. */
 const comment = (login: string, at: string, type: "User" | "Bot" = "User") => ({
   created_at: at,
+  user: { login, type }
+})
+
+/** One review, in the shape the REST endpoint answers with. */
+const review = (login: string, at: string, body: string, type: "User" | "Bot" = "User") => ({
+  submitted_at: at,
+  body,
   user: { login, type }
 })
 
@@ -49,6 +58,7 @@ interface Fixture {
   readonly rollup?: ReadonlyArray<ReturnType<typeof check>>
   readonly comments?: ReadonlyArray<ReturnType<typeof comment>>
   readonly onDiff?: ReadonlyArray<ReturnType<typeof comment>>
+  readonly reviews?: ReadonlyArray<ReturnType<typeof review>>
   readonly commits?: ReadonlyArray<ReturnType<typeof commit>>
   /** What `gh` says on stderr instead of answering about this PR. */
   readonly refuses?: string
@@ -59,7 +69,6 @@ const view = (repo: string, pr: Fixture) => ({
   title: pr.title ?? "feat: a pull request",
   url: `https://github.com/${repo}/pull/${pr.number}`,
   isDraft: pr.isDraft ?? false,
-  baseRefName: "main",
   headRefOid: pr.headRefOid ?? "31268022360852f71815404b6bbdd6bd797cfb4c",
   mergeable: pr.mergeable ?? "MERGEABLE",
   reviewDecision: pr.reviewDecision ?? "",
@@ -116,6 +125,16 @@ const github = (options: {
         return refuse(pr.refuses)
       }
       return fields === "commits" ? json({ commits: pr.commits ?? [] }) : json(view(repo, pr))
+    }
+
+    const reviews = /^api repos\/(\S+?)\/pulls\/(\d+)\/reviews\?per_page=100$/.exec(argv)
+    if (reviews !== null) {
+      const [, repo = "", number = ""] = reviews
+      const pr = found(repo, number)
+      if (pr === undefined) {
+        return refuse(`no pull request ${repo}#${number}`)
+      }
+      return json(pr.reviews ?? [])
     }
 
     const rest = /^api repos\/(\S+?)\/(issues|pulls)\/(\d+)\/comments\?per_page=100$/.exec(argv)
@@ -257,6 +276,50 @@ describe("dw-mc status", () => {
       yield* run("status")
 
       assert.deepStrictEqual(printed[0], "Needs me")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("counts the body of a review as a comment", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: {
+        "dominikwozniak/dw-mc": [
+          {
+            number: 1,
+            reviews: [review("someone", "2026-09-15T09:00:00Z", "one thought before I approve")],
+            commits: [commit(me, "2026-09-15T08:00:00Z")]
+          }
+        ]
+      }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs me")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("passes over a review that said nothing but its verdict", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: {
+        "dominikwozniak/dw-mc": [
+          {
+            number: 1,
+            reviews: [review("someone", "2026-09-15T09:00:00Z", "")],
+            commits: [commit(me, "2026-09-15T08:00:00Z")]
+          }
+        ]
+      }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs review run")
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
@@ -425,6 +488,54 @@ describe("dw-mc sweep", () => {
 
       assert.strictEqual(spawned.filter((argv) => argv.endsWith("--json commits")).length, 1)
     }).pipe(Effect.provide(machine(spawner)), recording([]))
+  })
+
+  it.effect("keeps the review run on a head a comment did not move", () => {
+    const head = "31268022360852f71815404b6bbdd6bd797cfb4c"
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, title: "feat: reviewed" }]
+    const spawner = github({ repos: { "dominikwozniak/dw-mc": prs } })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("sweep")
+
+      // What `dw-mc review` will write once it exists: a review run on this head.
+      const store = yield* storeFor("prs", Facts)
+      const key = "dominikwozniak/dw-mc#1"
+      const reviewed = Option.getOrThrow(yield* store.get(key))
+      yield* store.set(key, { ...reviewed, reviewRunHead: head })
+
+      prs[0] = { number: 1, title: "feat: reviewed", comments: [comment("someone", "2026-09-15T09:00:00Z")] }
+      printed.length = 0
+      yield* run("status")
+
+      assert.deepStrictEqual(printed[0], "Needs me")
+      assert.strictEqual(Option.getOrThrow(yield* store.get(key)).reviewRunHead, head)
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("forgets the review run once the head has moved", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, headRefOid: "aaaa" }]
+    const spawner = github({ repos: { "dominikwozniak/dw-mc": prs } })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("sweep")
+
+      const store = yield* storeFor("prs", Facts)
+      const key = "dominikwozniak/dw-mc#1"
+      const reviewed = Option.getOrThrow(yield* store.get(key))
+      yield* store.set(key, { ...reviewed, reviewRunHead: "aaaa" })
+
+      prs[0] = { number: 1, headRefOid: "bbbb" }
+      printed.length = 0
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs review run")
+      assert.strictEqual(Option.getOrThrow(yield* store.get(key)).reviewRunHead, null)
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
   it.effect("reports what it could not load", () => {
