@@ -41,7 +41,8 @@ export class GhUnreadable extends Schema.TaggedError<GhUnreadable>()("GhUnreadab
   }
 }
 
-const unavailable = (error: PlatformError.PlatformError): GhUnavailable =>
+/** What a `gh` that would not even start comes to. */
+export const unavailable = (error: PlatformError.PlatformError): GhUnavailable =>
   new GhUnavailable({
     detail: error.reason._tag === "NotFound" ? "it is not installed" : error.message
   })
@@ -99,7 +100,8 @@ export class GhReadFailed extends Schema.TaggedError<GhReadFailed>()("GhReadFail
 /** Anything that can go wrong reading GitHub through `gh`. */
 export type GhError = GhUnavailable | GhReadFailed | GhUnreadable
 
-const readJson = <A>(
+/** One `gh` read, decoded, with every way it can go wrong in our words. */
+export const readJson = <A>(
   label: string,
   command: string,
   args: ReadonlyArray<string>,
@@ -167,14 +169,18 @@ export const searchPrs = Effect.fnUntraced(function* (repo: string) {
  * a `StatusContext` an overall `state`. Every field is optional because which
  * ones arrive depends on which shape it is.
  */
-const CheckEntry = Schema.Struct({
+export const CheckEntry = Schema.Struct({
   name: Schema.optionalKey(Schema.String),
   context: Schema.optionalKey(Schema.String),
   status: Schema.optionalKey(Schema.String),
   conclusion: Schema.optionalKey(Schema.String),
-  state: Schema.optionalKey(Schema.String)
+  state: Schema.optionalKey(Schema.String),
+  /** The workflow the check runs in. A commit status belongs to no workflow. */
+  workflowName: Schema.optionalKey(Schema.String),
+  /** Where the check reports, which is the only place its job id appears. */
+  detailsUrl: Schema.optionalKey(Schema.String)
 })
-type CheckEntry = typeof CheckEntry.Type
+export type CheckEntry = typeof CheckEntry.Type
 
 const PrView = Schema.fromJsonString(
   Schema.Struct({
@@ -199,39 +205,6 @@ const viewFields = "number,title,url,isDraft,headRefOid,mergeable,reviewDecision
 export const prView = Effect.fnUntraced(function* (repo: string, number: number) {
   return yield* readJson("pr view", "gh", ["pr", "view", String(number), "--repo", repo, "--json", viewFields], PrView)
 })
-
-const failing = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED", "ERROR"])
-const running = new Set(["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED", "EXPECTED"])
-
-const nameOf = (entry: CheckEntry): string => entry.name ?? entry.context ?? ""
-
-/**
- * What the rollup comes to: red when anything failed, pending only while
- * nothing has failed yet, green when every check that counts has passed.
- *
- * `ci.ignore` names the checks that do not count towards green, so a check I
- * have decided to live with cannot hold a PR out of Ready.
- */
-export const rollupState = (
-  entries: ReadonlyArray<CheckEntry> | null,
-  ignore: ReadonlyArray<string>
-): "green" | "red" | "pending" | "none" => {
-  const counted = (entries ?? []).filter((entry) => !ignore.includes(nameOf(entry)))
-  if (counted.length === 0) {
-    return "none"
-  }
-  if (counted.some((entry) => failing.has(entry.conclusion ?? "") || failing.has(entry.state ?? ""))) {
-    return "red"
-  }
-  if (
-    counted.some(
-      (entry) => (entry.status !== undefined && entry.status !== "COMPLETED") || running.has(entry.state ?? "")
-    )
-  ) {
-    return "pending"
-  }
-  return "green"
-}
 
 const Comments = Schema.fromJsonString(
   Schema.Array(

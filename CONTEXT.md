@@ -39,6 +39,16 @@ The bucket for a PR with nothing left for me: a human review is pending.
 **Ready**:
 The bucket for a PR that is approved, green and mergeable. Only my merge is left.
 
+### CI
+
+**Flaky failure**:
+A red CI that is not mine to fix, decided from three signals a sweep reads: the same workflow is red on the default branch, the failing log names a file the PR changes, and the log matches a known flaky pattern. No model is involved.
+_Avoid_: intermittent, transient
+
+**Legitimate failure**:
+A red CI that is mine to fix. It is the answer whenever the evidence does not excuse the failure, so an unexplained red is mine.
+_Avoid_: real, genuine
+
 ### Reviews
 
 **Review run**:

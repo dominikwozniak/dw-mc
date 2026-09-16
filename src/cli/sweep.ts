@@ -3,6 +3,7 @@ import { Console, Effect, Option } from "effect"
 import { CliError, Command } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 
+import { rollupState } from "#adapters/ci.ts"
 import type { ConfigFile, Settings } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import type { Comment, Found } from "#adapters/gh.ts"
@@ -13,13 +14,13 @@ import {
   prReviews,
   prView,
   reviewDecisionOf,
-  rollupState,
   searchPrs,
   viewer
 } from "#adapters/gh.ts"
 import { storeFor } from "#adapters/store.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
+import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
 
@@ -64,7 +65,10 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
   const newestHumanCommentAt = newest(byHumansOtherThan(comments, me))
 
   const key = `${found.repo}#${found.number}`
-  const previous = Option.getOrUndefined(yield* store.get(key))
+  // State this version cannot read is state from another version of these
+  // facts, and these facts are a cache of GitHub: reading them again costs a
+  // sweep some calls, where failing here would cost the PR its row for good.
+  const previous = Option.getOrUndefined(yield* Effect.orElseSucceed(store.get(key), () => Option.none<Facts>()))
   // A review run is recorded against a head, so what is known about it survives
   // everything that leaves the head alone - a new comment, a CI run turning red.
   const onThisHead = previous?.head === view.headRefOid ? previous : undefined
@@ -82,6 +86,21 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
             .map((commit) => commit.at)
         )
 
+  // A red CI is classified once per state of the PR: while it sits where the
+  // last sweep left it, the verdict it earned there still stands.
+  const ciFlaky =
+    checks !== "red"
+      ? null
+      : quiet !== undefined
+        ? quiet.ciFlaky
+        : yield* Effect.map(
+            evidenceFor(found.repo, found.number, view.statusCheckRollup, settings.ci.ignore),
+            (evidence) => {
+              const verdict = classify(evidence, settings.ci.flaky_patterns)
+              return verdict.classification === "flaky" ? verdict.reason : null
+            }
+          )
+
   const facts: Facts = {
     repo: found.repo,
     number: found.number,
@@ -92,8 +111,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
     mergeable: mergeabilityOf(view.mergeable),
     reviewDecision: reviewDecisionOf(view.reviewDecision),
     checks,
-    // Nothing classifies a failure as flaky yet, so no PR is excused a red CI.
-    ciFlaky: false,
+    ciFlaky,
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
