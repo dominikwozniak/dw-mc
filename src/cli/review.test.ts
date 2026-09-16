@@ -78,7 +78,7 @@ const machine = (options: {
       if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
         return Effect.succeed(fakeHandle({ stdout: "true\n" }))
       }
-      if (argv === `-C ${clone} rev-parse FETCH_HEAD`) {
+      if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
         return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
       }
       return Effect.succeed(fakeHandle({}))
@@ -199,8 +199,8 @@ describe("dw-mc review", () => {
       assert.deepStrictEqual(spawned, [
         `gh pr view 28 --repo ${repo} --json number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup`,
         `git -C ${clone} rev-parse --is-bare-repository`,
-        `git -C ${clone} fetch --no-tags --force origin refs/pull/28/head`,
-        `git -C ${clone} rev-parse FETCH_HEAD`,
+        `git -C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`,
+        `git -C ${clone} rev-parse refs/dw-mc/pr/28`,
         `git -C ${clone} worktree remove --force ${worktree}`,
         `git -C ${clone} worktree add --detach ${worktree} ${head}`,
         `claude -p /code-review low --output-format stream-json --verbose`,
@@ -250,6 +250,7 @@ describe("dw-mc review", () => {
 
   it.effect("takes the worktree down when the runner gives up, and records nothing", () => {
     const spawned: Array<string> = []
+    const drawn: Array<string> = []
 
     return Effect.gen(function* () {
       yield* registered(repo)
@@ -258,10 +259,13 @@ describe("dw-mc review", () => {
 
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "Invalid API key")
-      assert.strictEqual(spawned.at(-1), `git -C ${clone} worktree remove --force ${worktree}`)
+      assert.include(spawned, `git -C ${clone} worktree remove --force ${worktree}`)
       assert.deepStrictEqual(yield* runOf(head), Option.none())
+      // The run I walked away from is the one I most need to hear give up.
+      assert.include(drawn, "\u0007")
+      assert.include(spawned.at(-1) ?? "", `${repo}#28 could not be reviewed`)
     }).pipe(
-      Effect.provide(machine({ spawned, runner: { stderr: "Invalid API key · Run /login\n", exitCode: 1 } })),
+      Effect.provide(machine({ spawned, drawn, runner: { stderr: "Invalid API key · Run /login\n", exitCode: 1 } })),
       recording([])
     )
   })

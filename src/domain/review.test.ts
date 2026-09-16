@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { DateTime } from "effect"
 
 import type { ReviewRun } from "#domain/review.ts"
-import { reportDocument, reportKey, runKey } from "#domain/review.ts"
+import { reportDocument, reportKey, runKey, runnerFor } from "#domain/review.ts"
 
 const run: ReviewRun = {
   repo: "dominikwozniak/dw-mc",
@@ -37,5 +37,17 @@ describe("review run", () => {
       "One finding, on src/cli/cli.ts:12.",
       ""
     ])
+  })
+})
+
+describe("the runner a review run executes on", () => {
+  it("is the built-in one, which is the only one built", () => {
+    assert.strictEqual(runnerFor(["builtin"]), "builtin")
+    assert.strictEqual(runnerFor(["prompt", "builtin"]), "builtin")
+  })
+
+  it("is none at all where the configured runners are not built", () => {
+    assert.strictEqual(runnerFor(["prompt"]), null)
+    assert.strictEqual(runnerFor([]), null)
   })
 })

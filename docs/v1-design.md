@@ -62,7 +62,8 @@ repos:
 Each line says whether it was run or read.
 
 - Run: `claude -p "/code-review low" --output-format stream-json --verbose` works headless; in print mode that output format refuses without `--verbose`. The findings come back as text in `result`, one `file:line — description` per line, beside the `session_id`. No `ReportFindings` tool call appears in the stream and `structured_output` is empty.
-- Run: a detached worktree cut from the tool's own bare clone is enough for the built-in review: the clone carries `refs/heads/main`, so `git merge-base HEAD main` resolves there and the review diffs the pull request against the base branch as it would in my own checkout.
+- Run: a detached worktree cut from the tool's own bare clone is enough for the built-in review: the clone carries `refs/heads/main`, so `git merge-base HEAD main` resolves there and the review diffs the pull request against the base branch as it would in my own checkout. Neither `git clone --bare` nor `gh repo clone -- --bare` writes a `remote.origin.fetch`, so that base branch only moves on where the fetch asks for it by refspec.
+- Run: the report is every assistant turn's text, not the `result` alone. A repository whose own `/code-review` fans out to subagents ends on a remark about the notification that came back, and that remark is what `result` carries; the report is the turn before it.
 - Run: passing `--json-schema` on that same call breaks it: `result` becomes `Command completed`.
 - Run: `claude -p --resume <session_id> "Report the findings as structured output…" --output-format json --json-schema <schema>` returns the findings as validated JSON under `structured_output`, with line numbers more accurate than the text. The `session_id` comes from the first call's JSON result.
 - Run: `claude -p "/security-review"` headless returns nothing: zero turns, empty result. Not a runner.

@@ -30,7 +30,13 @@ export interface Turn {
 const Working = Schema.Struct({
   type: Schema.Literal("assistant"),
   message: Schema.Struct({
-    content: Schema.Array(Schema.Struct({ type: Schema.String, name: Schema.optionalKey(Schema.String) }))
+    content: Schema.Array(
+      Schema.Struct({
+        type: Schema.String,
+        name: Schema.optionalKey(Schema.String),
+        text: Schema.optionalKey(Schema.String)
+      })
+    )
   })
 })
 
@@ -45,15 +51,25 @@ const Result = Schema.Struct({
 const asWorking = Schema.decodeUnknownOption(Schema.fromJsonString(Working))
 const asResult = Schema.decodeUnknownOption(Schema.fromJsonString(Result))
 
-/** The tools one event reports the runner reaching for. */
-const toolsIn = (line: string): ReadonlyArray<string> =>
-  Option.match(asWorking(line), {
-    onNone: () => [],
-    onSome: (event) =>
-      event.message.content.flatMap((block) =>
-        block.type === "tool_use" && block.name !== undefined ? [block.name] : []
-      )
-  })
+/** What one event says the runner reached for, and what it said out loud. */
+interface Heard {
+  readonly tools: ReadonlyArray<string>
+  readonly said: ReadonlyArray<string>
+}
+
+const heardIn = (line: string): Heard => {
+  const blocks = Option.match(asWorking(line), { onNone: () => [], onSome: (event) => event.message.content })
+  return {
+    tools: blocks.flatMap((block) => (block.type === "tool_use" && block.name !== undefined ? [block.name] : [])),
+    said: blocks.flatMap((block) => (block.type === "text" && block.text !== undefined ? [block.text] : []))
+  }
+}
+
+/** What the run comes to while it is still going. */
+interface SoFar {
+  readonly said: ReadonlyArray<string>
+  readonly result: Option.Option<typeof Result.Type>
+}
 
 const failed = (detail: string) => new RunnerFailed({ runner: "claude", detail })
 
@@ -65,9 +81,11 @@ const failed = (detail: string) => new RunnerFailed({ runner: "claude", detail }
  * nothing for minutes is one I stop trusting.
  *
  * `--comment` is the flag that makes the built-in review post on the pull
- * request, and it is never passed (ADR 0002). The report comes back as prose;
- * the follow-up turn is what turns it into findings, and it needs the session
- * this one ran in.
+ * request, and it is never passed (ADR 0002). The report is everything the
+ * runner said on its own turns rather than the `result` alone: verified by
+ * running it, a repository whose review command fans out to subagents can end
+ * on a remark about them, and the report is the turn before that. The follow-up
+ * turn is what turns the prose into findings, and it needs this run's session.
  *
  * The two output streams are drained together, because draining one to the end
  * first can block a runner that is still writing to the other.
@@ -85,16 +103,22 @@ export const builtinReview = Effect.fn("runner.builtinReview")(function* (option
     (error) => failed(error.message)
   )
 
-  const [result, stderr] = yield* Effect.mapError(
+  const [run, stderr] = yield* Effect.mapError(
     Effect.all(
       [
         handle.stdout.pipe(
           Stream.decodeText(),
           Stream.splitLines,
-          Stream.tap((line) => Effect.forEach(toolsIn(line), options.onTool, { discard: true })),
+          Stream.mapEffect((line) => {
+            const heard = heardIn(line)
+            return Effect.as(Effect.forEach(heard.tools, options.onTool, { discard: true }), { line, heard })
+          }),
           Stream.runFold(
-            () => Option.none<typeof Result.Type>(),
-            (last, line) => Option.orElse(asResult(line), () => last)
+            (): SoFar => ({ said: [], result: Option.none() }),
+            (soFar, { heard, line }): SoFar => ({
+              said: [...soFar.said, ...heard.said],
+              result: Option.orElse(asResult(line), () => soFar.result)
+            })
           )
         ),
         Stream.mkString(Stream.decodeText(handle.stderr))
@@ -108,16 +132,20 @@ export const builtinReview = Effect.fn("runner.builtinReview")(function* (option
   if (exitCode !== 0) {
     return yield* failed(stderr.trim() === "" ? `claude exited ${exitCode}` : stderr.trim())
   }
-  if (Option.isNone(result)) {
+  if (Option.isNone(run.result)) {
     return yield* failed("the run ended with no result")
   }
 
-  const { is_error, result: prose, session_id, subtype } = result.value
+  const { is_error, result: lastWord, session_id, subtype } = run.result.value
   if (is_error || subtype !== "success") {
-    return yield* failed(`${subtype}: ${prose ?? "nothing else was said"}`)
+    return yield* failed(`${subtype}: ${lastWord ?? "nothing else was said"}`)
   }
-  if (prose === undefined || prose.trim() === "") {
+
+  // The result is the runner's last word, which is its whole answer on a run
+  // that said nothing before it.
+  const report = (run.said.length === 0 ? (lastWord ?? "") : run.said.join("\n\n")).trim()
+  if (report === "") {
     return yield* failed("the run came back with an empty report")
   }
-  return { report: prose.trim(), sessionId: session_id } satisfies Turn
+  return { report, sessionId: session_id } satisfies Turn
 }, Effect.scoped)

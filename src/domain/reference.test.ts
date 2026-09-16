@@ -42,4 +42,10 @@ describe("a reference to a pull request", () => {
       assert.deepStrictEqual(resolve(text, registered), { _tag: "unreadable", text }, text)
     }
   })
+
+  it("refuses a repository that is a way out of the state directory", () => {
+    for (const text of ["../..#28", "dominikwozniak/..#28", "../dw-mc#28", "./.#28"]) {
+      assert.deepStrictEqual(resolve(text, registered), { _tag: "unreadable", text }, text)
+    }
+  })
 })

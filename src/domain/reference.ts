@@ -14,6 +14,14 @@ export type Reference =
 const spelled = /^(?:([^\s/]+\/[^\s/]+)#)?(\d+)$/
 
 /**
+ * A segment of nothing but dots, which no repository is called.
+ *
+ * The repository names a directory under the state directory before it names
+ * anything else, so `../x` would be a way out of it.
+ */
+const onlyDots = /^\.+$/
+
+/**
  * The pull request a reference names.
  *
  * A reference that spells its repository out is taken as it is, registered or
@@ -27,7 +35,12 @@ export const resolve = (text: string, registered: ReadonlyArray<string>): Refere
     return { _tag: "unreadable", text }
   }
 
-  const repo = found?.[1] ?? (registered.length === 1 ? registered[0] : undefined)
+  const spelledRepo = found?.[1]
+  if (spelledRepo !== undefined && spelledRepo.split("/").some((segment) => onlyDots.test(segment))) {
+    return { _tag: "unreadable", text }
+  }
+
+  const repo = spelledRepo ?? (registered.length === 1 ? registered[0] : undefined)
   if (repo === undefined) {
     return { _tag: "ambiguous", repos: registered }
   }

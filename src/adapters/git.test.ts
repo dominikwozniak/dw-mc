@@ -8,6 +8,7 @@ const state = "/home/dw/.local/state/dw-mc"
 const clone = `${state}/repos/dominikwozniak/dw-mc.git`
 const worktree = `${state}/worktrees/dominikwozniak/dw-mc/28`
 const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
+const fetched = `-C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`
 
 /** What the real `git` says, captured from `git` itself. */
 const said = {
@@ -38,7 +39,7 @@ const git = (options: {
         ? Effect.succeed(fakeHandle({ stdout: "true\n" }))
         : Effect.succeed(fakeHandle({ exitCode: 128, stderr: said.noRepository }))
     }
-    if (argv === `-C ${clone} rev-parse FETCH_HEAD`) {
+    if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
       return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
     }
     return Effect.succeed(fakeHandle({}))
@@ -58,13 +59,26 @@ describe("the tool's own clone and its throwaway worktree", () => {
       assert.deepStrictEqual(spawned, [
         `git -C ${clone} rev-parse --is-bare-repository`,
         `git clone --bare --filter=blob:none https://github.com/dominikwozniak/dw-mc.git ${clone}`,
-        `git -C ${clone} fetch --no-tags --force origin refs/pull/28/head`,
-        `git -C ${clone} rev-parse FETCH_HEAD`,
+        `git ${fetched}`,
+        `git -C ${clone} rev-parse refs/dw-mc/pr/28`,
         `git -C ${clone} worktree remove --force ${worktree}`,
         `git -C ${clone} worktree add --detach ${worktree} ${head}`,
         `git -C ${clone} worktree remove --force ${worktree}`
       ])
     }).pipe(Effect.provide(machine(git({ spawned }))))
+  })
+
+  it.effect("brings the base branch up to date with the pull request's head", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* withWorktree("dominikwozniak/dw-mc", 28, () => Effect.void)
+
+      // A bare clone is made with no refspec, so nothing else moves `main` on:
+      // a review diffing against it would report every commit since the clone.
+      assert.include(spawned, `git ${fetched}`)
+      assert.include(fetched, "+refs/heads/*:refs/heads/*")
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
   })
 
   it.effect("clones once and fetches every run after that", () => {
@@ -74,7 +88,7 @@ describe("the tool's own clone and its throwaway worktree", () => {
       yield* withWorktree("dominikwozniak/dw-mc", 28, () => Effect.void)
 
       assert.isFalse(spawned.some((vector) => vector.startsWith("git clone")))
-      assert.include(spawned, `git -C ${clone} fetch --no-tags --force origin refs/pull/28/head`)
+      assert.include(spawned, `git ${fetched}`)
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
   })
 
@@ -106,7 +120,7 @@ describe("the tool's own clone and its throwaway worktree", () => {
 
   it.effect("hands on what git said when git refuses", () => {
     const spawned: Array<string> = []
-    const refuses = { argv: `-C ${clone} fetch --no-tags --force origin refs/pull/28/head`, detail: said.conflict }
+    const refuses = { argv: fetched, detail: said.conflict }
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(withWorktree("dominikwozniak/dw-mc", 28, () => Effect.void))

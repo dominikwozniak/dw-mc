@@ -38,13 +38,18 @@ export interface Worktree {
  * finished there, and a run that left a worktree behind would grow the state
  * directory by a copy of the repository per run.
  *
- * The clone is made once and fetched on every run after that. The head comes
- * from the pull request's own ref rather than from what a sweep last saw, so
- * what the run is recorded against is the commit it actually read. The worktree
- * is removed before it is cut as well as after, because the run before this one
- * may have been killed rather than ended.
+ * The clone is made once and fetched on every run after that. The fetch brings
+ * the branch heads with the pull request's own, because a bare clone is made
+ * with no refspec at all: without them the base branch stays at whatever it was
+ * the day the clone was made, and a review that diffs against it would report
+ * every commit since as the pull request's.
+ *
+ * The head comes from the pull request's ref rather than from what a sweep last
+ * saw, so what the run is recorded against is the commit it actually read. The
+ * worktree is removed before it is cut as well as after, because the run before
+ * this one may have been killed rather than ended.
  */
-export const withWorktree = Effect.fnUntraced(function* <A, E, R>(
+export const withWorktree = Effect.fn("git.withWorktree")(function* <A, E, R>(
   repo: string,
   number: number,
   use: (worktree: Worktree) => Effect.Effect<A, E, R>
@@ -59,8 +64,18 @@ export const withWorktree = Effect.fnUntraced(function* <A, E, R>(
     yield* git(["clone", "--bare", "--filter=blob:none", `https://github.com/${repo}.git`, clone])
   }
 
-  yield* git(["-C", clone, "fetch", "--no-tags", "--force", "origin", `refs/pull/${number}/head`])
-  const head = yield* git(["-C", clone, "rev-parse", "FETCH_HEAD"])
+  const pullRef = `refs/dw-mc/pr/${number}`
+  yield* git([
+    "-C",
+    clone,
+    "fetch",
+    "--no-tags",
+    "--force",
+    "origin",
+    `+refs/pull/${number}/head:${pullRef}`,
+    "+refs/heads/*:refs/heads/*"
+  ])
+  const head = yield* git(["-C", clone, "rev-parse", pullRef])
 
   // A worktree that is not there cannot be removed, and that is the ordinary
   // case rather than a problem: both ends of the run ask for the same thing.

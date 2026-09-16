@@ -79,6 +79,35 @@ describe("the built-in runner", () => {
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(success) })))
   })
 
+  it.effect("keeps every word the runner said, not only its last one", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    // What a repository whose review command fans out to subagents really ends
+    // on: the report, then a remark about the notification that followed it.
+    const remark = "That's the completion notification for the Spec agent. Nothing further to add."
+    const stdout = [
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: report }] } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: remark }] } }),
+      JSON.stringify({ ...success, result: remark })
+    ].join("\n")
+
+    return Effect.gen(function* () {
+      const turn = yield* builtinReview({ directory: "/worktree", effort: "low", onTool: nothing })
+
+      assert.strictEqual(turn.report, `${report}\n\n${remark}`)
+    }).pipe(Effect.provide(claude({ spawned, stdout })))
+  })
+
+  it.effect("falls back to the last word when the runner said nothing before it", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const stdout = JSON.stringify(success)
+
+    return Effect.gen(function* () {
+      const turn = yield* builtinReview({ directory: "/worktree", effort: "low", onTool: nothing })
+
+      assert.strictEqual(turn.report, report)
+    }).pipe(Effect.provide(claude({ spawned, stdout })))
+  })
+
   it.effect("never passes --comment, because the built-in review comments only when it is", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 

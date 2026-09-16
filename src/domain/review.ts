@@ -49,3 +49,14 @@ export const reportDocument = (run: ReviewRun, title: string, prose: string): st
     prose.trim(),
     ""
   ].join("\n")
+
+/**
+ * The runner a review run executes on, or null while none of the configured
+ * ones is built.
+ *
+ * `builtin` is the only runner there is so far. A repository configured for
+ * another is told so rather than quietly reviewed on this one: which runner
+ * read the code is half of what a review run means.
+ */
+export const runnerFor = (runners: ReadonlyArray<Runner>): Runner | null =>
+  runners.includes("builtin") ? "builtin" : null
