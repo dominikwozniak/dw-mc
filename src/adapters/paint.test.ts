@@ -45,4 +45,21 @@ describe("the ink", () => {
     // `ink` is what one colour adds to a line that the screen never shows.
     assert.strictEqual(coloured.red("mine").length - "mine".length, ink)
   })
+
+  it("hands the terminal a URL to open, with the text it shows left alone", () => {
+    const link = coloured.link("dominikwozniak/dw-mc#28", "https://github.com/dominikwozniak/dw-mc/pull/28")
+
+    assert.strictEqual(
+      link,
+      "\x1b]8;;https://github.com/dominikwozniak/dw-mc/pull/28\x1b\\dominikwozniak/dw-mc#28\x1b]8;;\x1b\\"
+    )
+    assert.include(link, "dominikwozniak/dw-mc#28")
+  })
+
+  it("writes the word and nothing else where nothing can follow a link", () => {
+    assert.strictEqual(
+      plain.link("dominikwozniak/dw-mc#28", "https://github.com/dominikwozniak/dw-mc/pull/28"),
+      "dominikwozniak/dw-mc#28"
+    )
+  })
 })

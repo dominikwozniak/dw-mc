@@ -13,6 +13,11 @@ import type { Bucket, Placed } from "#domain/bucket.ts"
  * it waits on. Everything else on the row is either `dim`, because it is
  * context rather than state, or left alone. A row read with no colour at all
  * says the same, which is what the marker is for.
+ *
+ * On a table, the pull request opens itself: the reference carries the URL for
+ * the terminal to follow, and nothing else on the row does. What it leads to is
+ * where the row already says it is, so a row read where no link can be followed
+ * - a pipe, a paste, a terminal that ignores the sequence - loses nothing.
  */
 
 /** The glossary's name for each bucket, which is what the heading says. */
@@ -77,10 +82,12 @@ export type Lead = "marker" | "named"
  * around it.
  *
  * A named lead carries the colour for the whole row. It is the one place a
- * prompt's row is coloured: a prompt counts the lines it has to erase from the
- * length of what it drew, escape sequences and all, so every colour on a row
- * costs the title characters it could have shown. The table has no such
- * arithmetic to keep straight, so its rows say it in more than one place.
+ * prompt's row is coloured, and it carries no link at all: a prompt counts the
+ * lines it has to erase from the length of what it drew, escape sequences and
+ * all, so every colour on a row costs the title characters it could have shown,
+ * and a link costs it the whole URL. The table has no such arithmetic to keep
+ * straight, so its rows say it in more than one place and open the pull request
+ * besides.
  */
 export const cells = (
   placed: Placed,
@@ -92,11 +99,13 @@ export const cells = (
   const { facts } = placed
   const { bucket } = placed.placement
   const say = tint(paint, bucket)
-  const pr = `${facts.repo}#${facts.number}${facts.draft ? paint.dim(" (draft)") : ""}${
-    stamped ? ` ${paint.green("✓")}` : ""
-  }`
+  const reference = `${facts.repo}#${facts.number}`
+  const named = lead === "named"
+  const pr = `${named ? reference : paint.link(reference, facts.url)}${
+    facts.draft ? paint.dim(" (draft)") : ""
+  }${stamped ? ` ${paint.green("✓")}` : ""}`
 
-  return lead === "named"
+  return named
     ? [say(`${marker[bucket]} ${heading[bucket]}`), pr, truncate(facts.title, room), placed.placement.reason]
     : [`${say(marker[bucket])} ${pr}`, paint.dim(truncate(facts.title, room)), say(placed.placement.reason)]
 }
