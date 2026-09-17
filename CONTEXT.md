@@ -45,6 +45,14 @@ The bucket for a PR that is approved, green and mergeable. Only my merge is left
 Bringing a tracked PR's branch up to date with its base: rebased onto the base and pushed with a lease, in a throwaway worktree. Off until a repository turns it on, never while CI is running, and the only place mission control writes to GitHub.
 _Avoid_: update branch, sync, merge base
 
+**Conflict record**:
+What a rebase that conflicted wrote down: the head it happened at and the files it stopped on. It is scoped to that head, so a branch that moved is one nothing has tried to rebase yet, and it is what puts the PR in Needs me.
+_Avoid_: conflict state, merge marker
+
+**Resolve session**:
+An interactive agent session mission control opens for me on a conflict record, in a worktree that stands on a branch of the tool's own and outlives the session. The rebase is redone there and left stopped on the conflict; finishing it, committing and pushing are mine. It is not a rebase: it writes nothing to GitHub.
+_Avoid_: conflict fix, auto-merge
+
 **Stack**:
 Pull requests built on each other, where one's branch is another's base. Mission control recognises one, reports where a tracked PR sits in it, and never drives it.
 _Avoid_: chain, train

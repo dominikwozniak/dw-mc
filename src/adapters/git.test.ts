@@ -1,13 +1,14 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, Path } from "effect"
 
-import { fixWorktree, rebaseOnto, withWorktree } from "#adapters/git.ts"
+import { rebaseInPlace, rebaseOnto, standingWorktree, withWorktree } from "#adapters/git.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const state = "/home/dw/.local/state/dw-mc"
 const clone = `${state}/repos/dominikwozniak/dw-mc.git`
 const worktree = `${state}/worktrees/dominikwozniak/dw-mc/28`
 const fix = `${state}/fixes/dominikwozniak/dw-mc/28`
+const standing = `${state}/rebases/dominikwozniak/dw-mc/28`
 const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
 const rebased = "9f2b0c1d4e5a6b7c8d9e0f1a2b3c4d5e6f708192"
 const fetched = `-C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`
@@ -57,6 +58,12 @@ const git = (options: {
     }
     if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
       return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
+    }
+    if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/rebase/28`) {
+      return Effect.succeed(fakeHandle({ exitCode: 1 }))
+    }
+    if (argv === `-C ${standing} diff --name-only --diff-filter=U`) {
+      return Effect.succeed(fakeHandle({ stdout: (options.unmerged ?? []).map((path) => `${path}\n`).join("") }))
     }
     if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/fix/28`) {
       return options.ahead === undefined
@@ -177,7 +184,7 @@ describe("the worktree a fix session opens in", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      const cut = yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+      const cut = yield* standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix")
 
       assert.deepStrictEqual(cut, { directory: fix, head })
       assert.deepStrictEqual(spawned, [
@@ -201,7 +208,7 @@ describe("the worktree a fix session opens in", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+      yield* standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix")
 
       // Verified by running it: `git` refuses to fetch into a branch a worktree
       // has checked out, and this clone fetches every branch on every run.
@@ -215,7 +222,7 @@ describe("the worktree a fix session opens in", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+      yield* standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix")
 
       assert.include(spawned, `git -C ${fix} config --worktree push.default upstream`)
       assert.isFalse(spawned.some((vector) => vector === `git -C ${clone} config push.default upstream`))
@@ -226,7 +233,7 @@ describe("the worktree a fix session opens in", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+      yield* standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix")
 
       assert.include(spawned, `git -C ${clone} worktree remove ${fix}`)
       assert.isFalse(spawned.some((vector) => vector.includes("worktree remove --force")))
@@ -241,7 +248,7 @@ describe("the worktree a fix session opens in", () => {
     }
 
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch"))
+      const error = yield* Effect.flip(standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix"))
 
       assert.strictEqual(error._tag, "GitFailed")
       assert.include(error.message, "contains modified or untracked files")
@@ -253,7 +260,7 @@ describe("the worktree a fix session opens in", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch"))
+      const error = yield* Effect.flip(standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix"))
 
       if (error._tag !== "WorktreeHeld") {
         return assert.fail(`expected a WorktreeHeld, got ${error._tag}`)
@@ -271,7 +278,7 @@ describe("the worktree a fix session opens in", () => {
     return Effect.gen(function* () {
       // The directory can be pruned or removed by hand; the branch that holds
       // the commits stays, and `worktree add -B` would reset it to the head.
-      const error = yield* Effect.flip(fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch"))
+      const error = yield* Effect.flip(standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix"))
 
       if (error._tag !== "WorktreeHeld") {
         return assert.fail(`expected a WorktreeHeld, got ${error._tag}`)
@@ -400,5 +407,82 @@ describe("rebasing a branch onto its base", () => {
         spawned.join("\n")
       )
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true, behind: 3 }))))
+  })
+})
+
+describe("a standing worktree for a session on a conflict", () => {
+  it.effect("stands on dw-mc/rebase/28, which no fix session's worktree can be holding", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const cut = yield* standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "rebase")
+
+      assert.deepStrictEqual(cut, { directory: standing, head })
+      assert.include(spawned, `git -C ${clone} worktree add -B dw-mc/rebase/28 ${standing} ${head}`)
+      assert.include(spawned, `git -C ${clone} config branch.dw-mc/rebase/28.merge refs/heads/feat/28-a-branch`)
+      assert.include(spawned, `git -C ${standing} config --worktree push.default upstream`)
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("turns rerere on in the clone, so a conflict I resolve once replays by itself", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "rebase")
+
+      // The clone is shared, so the recording made here is what the next
+      // throwaway rebase replays from.
+      assert.include(spawned, `git -C ${clone} config rerere.enabled true`)
+      assert.include(spawned, `git -C ${clone} config rerere.autoUpdate true`)
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("leaves rerere alone for a fix session, which is about no conflict at all", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "fix")
+
+      assert.isFalse(spawned.some((vector) => vector.includes("rerere")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+})
+
+describe("replaying onto the base in a worktree that stands", () => {
+  it.effect("stops on the conflict and leaves the rebase in progress for me to finish", () => {
+    const spawned: Array<string> = []
+    const refuses = { argv: `-C ${standing} rebase refs/heads/main`, detail: said.rebaseConflict }
+
+    return Effect.gen(function* () {
+      const stopped = yield* rebaseInPlace(standing, "main")
+
+      assert.deepStrictEqual(stopped, { _tag: "conflicted", paths: ["src/cli/rebase.ts"] })
+      assert.isFalse(spawned.some((vector) => vector.includes("rebase --abort")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, refuses, unmerged: ["src/cli/rebase.ts"] }))))
+  })
+
+  it.effect("says a replay that went through for what it is, having nothing to resolve", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const stopped = yield* rebaseInPlace(standing, "main")
+
+      assert.deepStrictEqual(stopped, { _tag: "replayed" })
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("aborts a replay that never started, so the worktree is left as it was found", () => {
+    const spawned: Array<string> = []
+    const refuses = { argv: `-C ${standing} rebase refs/heads/main`, detail: said.noIdentity }
+
+    return Effect.gen(function* () {
+      // Nothing is unmerged, so the replay never stopped on a conflict: it
+      // never began, and a standing worktree must not be left mid-rebase.
+      const error = yield* Effect.flip(rebaseInPlace(standing, "main"))
+
+      assert.strictEqual(error._tag, "GitFailed")
+      assert.include(error.message, "empty ident name")
+      assert.include(spawned, `git -C ${standing} rebase --abort`)
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, refuses }))))
   })
 })

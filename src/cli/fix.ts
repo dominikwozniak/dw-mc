@@ -4,7 +4,7 @@ import { CliError, Command, Flag } from "effect/unstable/cli"
 import type { ConfigFile } from "#adapters/config.ts"
 import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { prView } from "#adapters/gh.ts"
-import { fixWorktree } from "#adapters/git.ts"
+import { standingWorktree } from "#adapters/git.ts"
 import { choose, note, width } from "#adapters/picker.ts"
 import { fixSession } from "#adapters/runner.ts"
 import { currentRun, header, lines, whatItFound } from "#cli/findings.ts"
@@ -116,7 +116,7 @@ export const fix = Command.make(
         return
       }
 
-      const worktree = yield* fixWorktree(repo, number, view.headRefName)
+      const worktree = yield* standingWorktree(repo, number, view.headRefName, "fix")
       yield* Console.log(
         `  ${chosen.length} of ${found.findings.length} findings, ${commits ? "committing" : "not committing"}`
       )
