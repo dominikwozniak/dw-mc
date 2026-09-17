@@ -53,11 +53,40 @@ const writes: ReadonlyArray<Write> = [
 /** What turns `gh api` from a read into a write, whatever endpoint it names. */
 const apiWriteFlags = ["-X", "--method", "-f", "--field", "-F", "--raw-field", "--input"]
 
+/**
+ * What turns `gh api graphql` into a write.
+ *
+ * GraphQL is one endpoint reached by POST whether it is asked to read or to
+ * write, so the field flags that carry the document and its variables cannot be
+ * what decides: a `reviewThreads` query and a `resolveReviewThread` mutation are
+ * the same call but for the document. The document is what this rule reads
+ * instead, and these are the flags that would put a body under it that this rule
+ * cannot.
+ */
+const graphqlWriteFlags = ["-X", "--method", "--input"]
+
+/** The flag value that carries the GraphQL document itself. */
+const document = "query="
+
 /** What a vector that does not spell its verb out is called in a diagnostic. */
 const unreadable = "A `gh` argument vector this rule cannot read"
 
-const stringValue = (node: ESTree.Node): string | undefined =>
-  node.type === "Literal" && typeof node.value === "string" ? node.value : undefined
+/**
+ * A spelled-out string, whichever way it is quoted.
+ *
+ * A template literal with nothing substituted into it is as readable as a
+ * quoted string and is how a document that runs over lines is written, so it
+ * counts as spelled out. One with an expression in it does not: what it comes
+ * to is decided at runtime.
+ */
+const stringValue = (node: ESTree.Node): string | undefined => {
+  if (node.type === "Literal" && typeof node.value === "string") {
+    return node.value
+  }
+  return node.type === "TemplateLiteral" && node.expressions.length === 0
+    ? (node.quasis[0]?.value.cooked ?? undefined)
+    : undefined
+}
 
 /**
  * The leading words a vector spells out.
@@ -143,6 +172,12 @@ export const noGhWritesRule = defineRule({
         "{{invocation}} is not one of the calls dw-mc makes. Mission control never comments, replies, resolves a thread, labels, reviews, approves or changes a status (ADR 0002), and the only writes it sends through `gh` are re-running my own failed jobs and merging a pull request I author (ADR 0008). A call that belongs here is a line in `reads` or `writes` in this rule.",
       apiWrite:
         "`gh api` carrying `{{flag}}` sends a write ADR 0002 does not admit. The REST endpoint is not a way around the boundary.",
+      graphqlBody:
+        "`gh api graphql` carrying a method or a body of its own sends something this rule has not read. The one GraphQL call dw-mc makes spells its query out and passes its variables as fields.",
+      graphqlUnreadable:
+        "`gh api graphql` has to spell its document out here, as `query=...`, or this rule cannot tell a read from a write: every GraphQL call is a POST, so the document is the only thing that says which one it is.",
+      graphqlMutation:
+        "`gh api graphql` may only send a query. A mutation is a write ADR 0002 does not admit, and GraphQL is not a way around the boundary.",
       writeForbidsFlag:
         "{{invocation}} carrying `{{flag}}` is not the write dw-mc makes. A deferred merge happens at a head nothing here has read, and every verdict in this tool is about one head (ADR 0008).",
       writeNeedsFlag:
@@ -150,6 +185,42 @@ export const noGhWritesRule = defineRule({
     }
   },
   createOnce(context) {
+    /**
+     * A GraphQL call, judged by the document it sends.
+     *
+     * The document is the whole question here. It has to be spelled out, it has
+     * to be a query, and nothing may put a body under it that this rule has not
+     * read.
+     */
+    const checkGraphql = (vector: ESTree.ArrayExpression) => {
+      const forbidden = vector.elements.some((element) => {
+        if (element === null) {
+          return false
+        }
+        const word = stringValue(element)
+        return (
+          word !== undefined &&
+          graphqlWriteFlags.some((flag) => word === flag || word.startsWith(`${flag}=`) || word.startsWith("-X"))
+        )
+      })
+      if (forbidden) {
+        context.report({ node: vector, messageId: "graphqlBody" })
+        return
+      }
+
+      const sent = vector.elements
+        .map((element) => (element === null ? undefined : stringValue(element)))
+        .find((word) => word !== undefined && word.startsWith(document))
+      if (sent === undefined) {
+        context.report({ node: vector, messageId: "graphqlUnreadable" })
+        return
+      }
+      const query = sent.slice(document.length).trim()
+      if (!/^query[\s({]/.test(query) || /\bmutation\b/.test(query)) {
+        context.report({ node: vector, messageId: "graphqlMutation" })
+      }
+    }
+
     const checkVector = (vector: ESTree.ArrayExpression) => {
       const words = leadingWords(vector)
       const write = writeFor(words)
@@ -181,6 +252,10 @@ export const noGhWritesRule = defineRule({
         return
       }
       if (words[0] !== "api") {
+        return
+      }
+      if (words[1] === "graphql") {
+        checkGraphql(vector)
         return
       }
       const flag = writeFlag(vector)

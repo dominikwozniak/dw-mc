@@ -3,10 +3,8 @@ import { Command, Flag } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig } from "#adapters/config.ts"
-import { prKey, storeFor } from "#adapters/store.ts"
-import { named, prArgument } from "#cli/pr.ts"
+import { named, prArgument, swept } from "#cli/pr.ts"
 import { asUserError } from "#cli/sweep.ts"
-import { Facts } from "#domain/bucket.ts"
 import { short } from "#domain/review.ts"
 import { stampOf, withdraw } from "#domain/stamp.ts"
 
@@ -14,26 +12,6 @@ const withdrawFlag = Flag.Boolean("withdraw").pipe(
   Flag.withDefault(false),
   Flag.withDescription("Take the stamp off this pull request, until its head changes")
 )
-
-/**
- * What the last sweep learned about one pull request, or the sentence sending
- * me to a sweep.
- *
- * The stamp is computed from the facts a sweep wrote down, so this command
- * reads them rather than GitHub: a mark that asked GitHub again would be a
- * different mark from the one `dw-mc status` prints.
- *
- * Facts this version cannot read are facts another version of them wrote, and a
- * sweep can write them again, so both cases say the same thing.
- */
-const sweptFacts = Effect.fn("stamp.sweptFacts")(function* (repo: string, number: number) {
-  const store = yield* storeFor("prs", Facts)
-  const facts = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Facts>())
-  if (Option.isNone(facts)) {
-    return yield* asUserError(`Nothing is known about ${repo}#${number} yet. Run dw-mc sweep first.`)
-  }
-  return facts.value
-})
 
 /**
  * The stamp of one pull request, and the one way to take it off by hand.
@@ -60,7 +38,7 @@ export const stampCommand = Command.make(
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
 
-      const facts = yield* sweptFacts(repo, number)
+      const facts = yield* swept(repo, number)
       const where = `${repo}#${number}  ${short(facts.head)}`
 
       if (byHand) {

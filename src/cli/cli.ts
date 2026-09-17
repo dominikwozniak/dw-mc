@@ -1,5 +1,6 @@
 import { Command } from "effect/unstable/cli"
 
+import { comments } from "#cli/comments.ts"
 import { findings } from "#cli/findings.ts"
 import { fix } from "#cli/fix.ts"
 import { init } from "#cli/init.ts"
@@ -29,6 +30,7 @@ export const projectUrl = "github.com/dominikwozniak/dw-mc"
 const subcommands = [
   init,
   review,
+  comments,
   findings,
   fix,
   rebase,

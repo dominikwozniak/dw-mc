@@ -39,6 +39,7 @@ The commands behind it, each usable on its own:
 | --------------------- | --------------------------------------------------------------------------------------- |
 | `dw-mc sweep`         | Refreshes what mission control knows about every tracked pull request. It only reads.   |
 | `dw-mc status`        | Shows which bucket every tracked pull request sits in, and which ones you have stamped. |
+| `dw-mc comments <pr>` | Prints the conversation on a pull request, and what in it is waiting on you.            |
 | `dw-mc review <pr>`   | Reviews one pull request on the configured runners, in a throwaway worktree.            |
 | `dw-mc findings <pr>` | Prints what the current review run found.                                               |
 | `dw-mc fix <pr>`      | Opens a session on the findings you pick, in a worktree that outlives it.               |

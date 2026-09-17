@@ -7,6 +7,9 @@ const notARead = { messageId: "notARead" }
 const apiWrite = { messageId: "apiWrite" }
 const writeNeedsFlag = { messageId: "writeNeedsFlag" }
 const writeForbidsFlag = { messageId: "writeForbidsFlag" }
+const graphqlUnreadable = { messageId: "graphqlUnreadable" }
+const graphqlBody = { messageId: "graphqlBody" }
+const graphqlMutation = { messageId: "graphqlMutation" }
 
 tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
   valid: [
@@ -25,6 +28,10 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
     {
       name: "the write ADR 0008 admits",
       code: `capture("gh", ["pr", "merge", String(number), "--repo", repo, "--squash", "--delete-branch"])`
+    },
+    {
+      name: "the GraphQL read a thread's resolution only arrives through",
+      code: 'readJson("api graphql", "gh", ["api", "graphql", "-f", `query=query($n:Int!){x}`, "-F", `n=${n}`], C)'
     },
     {
       name: "another program's vector is not this rule's business",
@@ -72,6 +79,26 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
       name: "--raw-field",
       code: `capture("gh", ["api", "repos/o/r/issues/1/comments", "--raw-field", "body=no"])`,
       errors: [apiWrite]
+    },
+    {
+      name: "a GraphQL mutation, which resolves the thread ADR 0002 says nothing here resolves",
+      code: 'readJson("api graphql", "gh", ["api", "graphql", "-f", `query=mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){clientMutationId}}`], C)',
+      errors: [graphqlMutation]
+    },
+    {
+      name: "a GraphQL document assembled at runtime, which this rule cannot read",
+      code: 'readJson("api graphql", "gh", ["api", "graphql", "-f", `query=${document}`], C)',
+      errors: [graphqlUnreadable]
+    },
+    {
+      name: "a GraphQL call with no document at all",
+      code: 'readJson("api graphql", "gh", ["api", "graphql", "-F", `number=${number}`], C)',
+      errors: [graphqlUnreadable]
+    },
+    {
+      name: "a GraphQL call carrying a body this rule has not read",
+      code: 'capture("gh", ["api", "graphql", "--input", "-"])',
+      errors: [graphqlBody]
     },
     {
       name: "--input",

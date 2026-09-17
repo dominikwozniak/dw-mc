@@ -68,6 +68,17 @@ export interface Placed {
 export const order: ReadonlyArray<Bucket> = ["needs-me", "needs-review-run", "waiting-on-others", "ready"]
 
 /**
+ * Why a PR is mine to move when somebody has said something I have not
+ * answered.
+ *
+ * It is named because it is read twice: here, where it puts the PR in Needs me,
+ * and by `dw-mc comments`, which says what settles that one branch of the
+ * bucket. A sentence matched from the other side of the tool is a rule that
+ * breaks on a reword.
+ */
+export const unanswered = "a comment I have not answered"
+
+/**
  * The first of the rules that makes a PR mine to move, or null when none
  * does. The order is the order I would fix them in: a conflict makes every
  * other signal on the PR stale, and a red build is worth more than a comment.
@@ -89,7 +100,7 @@ const needsMe = (facts: Facts): string | null => {
     return `${facts.blockingFindings} blocking finding${facts.blockingFindings === 1 ? "" : "s"}`
   }
   if (isAfter(facts.newestHumanCommentAt, later(facts.myLastCommentAt, facts.myLastCommitAt))) {
-    return "a comment I have not answered"
+    return unanswered
   }
   return null
 }
