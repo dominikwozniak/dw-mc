@@ -76,6 +76,8 @@ Every command that takes a pull request takes it as `62` inside the repository, 
 | `dw-mc resolve <pr>`  | `--print`                                   | Opens a session on the conflict that stopped a rebase.                                            |
 | `dw-mc rerun <pr>`    | —                                           | Runs a flaky red CI again, once per head.                                                         |
 | `dw-mc merge <pr>`    | —                                           | Squash-merges a Ready, stamped pull request of yours and deletes its branch.                      |
+| `dw-mc cleanup`       | `--yes`                                     | Takes back the disk spent on clones and review worktrees, and keeps everything you decided.       |
+| `dw-mc uninstall`     | `--config`, `--force`, `--yes`              | Removes everything the tool wrote on this machine, and says how to remove the binary.             |
 
 `dw-mc <command> --help` prints the flags and what each one is worth.
 
@@ -131,6 +133,18 @@ repos:
   owner/name:
     # the same keys, overriding defaults
 ```
+
+## Taking it back
+
+Removing the package removes the binary and nothing else — a package manager runs no uninstall script, so the two directories above would stay where they are. The tool takes them back itself.
+
+```sh
+dw-mc cleanup   # the bare clones and the worktrees a review run left: disk the tool spends on itself
+dw-mc uninstall # every record, report, clone and worktree
+pnpm remove -g dw-mc
+```
+
+Both print what they would take, with its weight, and ask before taking it; `--yes` answers for a machine with no terminal. `cleanup` keeps your configuration and every record, and keeps the clone of a repository a `fix` or `resolve` session still stands on, because that session's history lives inside it. `uninstall` keeps the configuration file too unless `--config` asks for it. A worktree a `fix` or `resolve` session left standing is yours: `cleanup` never touches one, and `uninstall` names what it still holds — uncommitted changes, or a commit your pull request's head does not have — and removes nothing until `--force`.
 
 ## The skill
 

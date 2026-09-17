@@ -1,9 +1,18 @@
 import { NodeServices } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
+import { ByteSize, ConfigProvider, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-import { layer, layerTest, stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
+import {
+  discard,
+  inventory,
+  layer,
+  layerTest,
+  sessionOf,
+  stateDirectory,
+  storeFor,
+  textStoreFor
+} from "#adapters/store.ts"
 
 class ReviewRun extends Schema.Class<ReviewRun>("dw-mc/test/ReviewRun")({
   pr: Schema.Int,
@@ -112,6 +121,100 @@ describe("store", () => {
       assert.isTrue(yield* fs.exists(path.join(home, "dw-mc")))
     }).pipe(Effect.provide(NodeServices.layer))
   )
+
+  /** A state directory with a clone, a review worktree, a fix worktree and a record. */
+  const laidOut = Effect.fnUntraced(function* (state: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const put = (where: ReadonlyArray<string>, contents: string) =>
+      Effect.gen(function* () {
+        const file = path.join(state, ...where)
+        yield* fs.makeDirectory(path.dirname(file), { recursive: true })
+        yield* fs.writeFileString(file, contents)
+      })
+
+    yield* put(["repos", "dw", "one.git", "HEAD"], "ref: refs/heads/main\n")
+    yield* put(["worktrees", "dw", "one", "28", "README.md"], "cut for a review run\n")
+    yield* put(["fixes", "dw", "one", "28", "README.md"], "cut for a fix session\n")
+    yield* put(["repos", "dw", "two.git", "HEAD"], "ref: refs/heads/main\n")
+    yield* put(["prs%2Fdw%2Fone%2328"], `{"number":28}`)
+    yield* put(["runs%2Fdw%2Fone%2328.md"], "# One finding\n")
+  })
+
+  const inventoryOf = (state: string) =>
+    inventory.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          ConfigProvider.layer(
+            ConfigProvider.fromEnvRecord({
+              XDG_STATE_HOME: state
+            })
+          )
+        )
+      )
+    )
+
+  it.effect("the inventory names the clones, the checkouts and the records it finds", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const home = yield* fs.makeTempDirectoryScoped()
+      const state = path.join(home, "dw-mc")
+      yield* laidOut(state)
+
+      const found = yield* inventoryOf(home)
+
+      assert.strictEqual(found.directory, state)
+      assert.deepStrictEqual(
+        found.clones.map((one) => one.repo),
+        ["dw/one", "dw/two"]
+      )
+      assert.deepStrictEqual(
+        found.cuttings.map((one) => `${one.cut}/${one.repo}#${one.number}`),
+        ["worktrees/dw/one#28", "fixes/dw/one#28"]
+      )
+      assert.strictEqual(found.records.keys, 2)
+      assert.isTrue(ByteSize.toBigInt(found.records.size) > BigInt(0))
+      assert.isTrue(ByteSize.toBigInt(found.clones[0]?.size ?? ByteSize.bytes(0)) > BigInt(0))
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
+
+  it.effect("the inventory of a machine that has run nothing is empty rather than an error", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const home = yield* fs.makeTempDirectoryScoped()
+
+      const found = yield* inventoryOf(home)
+
+      assert.deepStrictEqual(found.clones, [])
+      assert.deepStrictEqual(found.cuttings, [])
+      assert.strictEqual(found.records.keys, 0)
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
+
+  it.effect("what is discarded is gone, and discarding it twice is not an error", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const home = yield* fs.makeTempDirectoryScoped()
+      const state = path.join(home, "dw-mc")
+      yield* laidOut(state)
+      const clone = path.join(state, "repos", "dw", "one.git")
+
+      yield* discard(clone)
+      yield* discard(clone)
+
+      assert.isFalse(yield* fs.exists(clone))
+      assert.isTrue(yield* fs.exists(path.join(state, "repos", "dw", "two.git")))
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
+
+  it("a review worktree stands for no session, where the two session directories do", () => {
+    assert.strictEqual(sessionOf("worktrees"), undefined)
+    assert.strictEqual(sessionOf("fixes"), "fix")
+    assert.strictEqual(sessionOf("rebases"), "rebase")
+  })
 
   it.effect("the in-memory layer forgets between builds, where the one on disk remembers", () =>
     Effect.gen(function* () {

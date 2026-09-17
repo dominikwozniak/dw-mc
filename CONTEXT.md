@@ -141,3 +141,17 @@ _Avoid_: icon, badge, glyph
 **Block**:
 How a command that reports rather than tabulates writes: a heading, an indented body, and a blank line before the next one. What each command says is its own; the shape is not.
 _Avoid_: section, panel, group
+
+### Housekeeping
+
+**Clone**:
+The bare copy of a repository mission control keeps for itself, and cuts every worktree from. It is never my checkout, and nothing in it is mine: a run that needs it again makes it again.
+_Avoid_: cache, mirror, checkout
+
+**Cleanup**:
+Taking back the disk mission control spends on itself: the clones, and the worktrees a review run left behind. It keeps what I decided and what it recorded, and it leaves a clone a session stands on where it is, because that session's history lives inside it.
+_Avoid_: prune, gc, purge
+
+**Uninstall**:
+Removing everything mission control wrote on this machine, which no package manager does. The state goes in full and the configuration file only when I ask; the binary is the one step it cannot take and prints instead.
+_Avoid_: remove, reset, wipe
