@@ -1,6 +1,6 @@
 {
   "name": "dw-mc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local CLI that keeps the state of my open pull requests on disk, reads GitHub through gh, runs code reviews through local agent CLIs, and shows what every PR waits on.",
   "license": "MIT",
   "author": "Dominik Woźniak",
