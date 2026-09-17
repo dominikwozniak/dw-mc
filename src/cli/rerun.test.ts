@@ -252,33 +252,7 @@ describe("dw-mc rerun", () => {
     }).pipe(Effect.provide(machine({ spawned, author: "someone-else", log: flakyLog })), recording(printed))
   })
 
-  it.effect("says so where nothing red is a workflow run it can re-run", () => {
-    const spawned: Array<string> = []
-    const printed: Array<string> = []
-    // A check of a workflow that reports somewhere other than an Actions job:
-    // the default-branch signal still excuses it, and there is still no run id
-    // to hand `gh run rerun`.
-    const checks = [
-      {
-        name: "build",
-        workflowName: "Quality gate",
-        status: "COMPLETED",
-        conclusion: "FAILURE",
-        detailsUrl: "https://buildkite.com/dw/dw-mc/builds/1"
-      }
-    ]
-
-    return Effect.gen(function* () {
-      yield* registered
-
-      const error = yield* Effect.flip(dwmc("rerun", "28"))
-
-      assert.include(String(error.cause), "workflow run")
-      assert.deepStrictEqual(reruns(spawned), [])
-    }).pipe(Effect.provide(machine({ spawned, checks, redOnDefault: true })), recording(printed))
-  })
-
-  it.effect("calls a red CI it has no evidence about mine to fix", () => {
+  it.effect("says so where nothing red is a workflow run it can re-run, before asking the classifier", () => {
     const spawned: Array<string> = []
     const printed: Array<string> = []
     const checks = [{ context: "ci/circleci", state: "FAILURE", detailsUrl: "https://circleci.com/gh/dw/1" }]
@@ -288,8 +262,32 @@ describe("dw-mc rerun", () => {
 
       const error = yield* Effect.flip(dwmc("rerun", "28"))
 
-      assert.include(String(error.cause), "yours to fix")
+      assert.include(String(error.cause), "workflow run")
       assert.deepStrictEqual(reruns(spawned), [])
+      // The classifier costs reads of GitHub, and no verdict it could reach
+      // would give this command a run id to hand `gh run rerun`.
+      assert.deepStrictEqual(
+        spawned.filter((vector) => vector.startsWith("gh api repos")),
+        []
+      )
     }).pipe(Effect.provide(machine({ spawned, checks })), recording(printed))
+  })
+
+  it.effect("refuses a head it has already re-run without paying for a second verdict", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered
+      yield* recordRerun(repo, 28, head)
+
+      const error = yield* Effect.flip(dwmc("rerun", "28"))
+
+      assert.include(String(error.cause), "already")
+      assert.deepStrictEqual(
+        spawned.filter((vector) => vector.startsWith("gh api repos")),
+        []
+      )
+    }).pipe(Effect.provide(machine({ spawned, log: flakyLog })), recording(printed))
   })
 })

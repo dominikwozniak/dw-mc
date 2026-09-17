@@ -59,16 +59,24 @@ export const failedChecks = (
   ignore: ReadonlyArray<string>
 ): ReadonlyArray<CheckEntry> => checksThatCount(entries, ignore).filter(hasFailed)
 
+/** Where a check run reports: the workflow run it belongs to, and its job in it. */
+export interface Reported {
+  readonly run: string
+  readonly job: string
+}
+
 /**
- * The job a check reports on, out of the URL it reports at.
+ * What a check reports on, out of the URL it reports at.
  *
- * A check run details URL ends `/actions/runs/<run>/job/<job>`, and the job id
- * is what the logs endpoint takes. A commit status points somewhere else
- * entirely, which is null: there is no log of ours to read.
+ * A check run details URL ends `/actions/runs/<run>/job/<job>`. The job id is
+ * what the logs endpoint takes and the run id is what `gh run rerun` takes, so
+ * the two ids the tool needs are the two halves of one URL and are read
+ * together. A commit status points somewhere else entirely, which is null:
+ * there is no log of ours to read and no run of ours to re-run.
  */
-export const jobIdOf = (detailsUrl: string | undefined): string | null => {
-  const found = detailsUrl?.match(/\/job\/(\d+)/)
-  return found?.[1] ?? null
+export const reportedAt = (detailsUrl: string | undefined): Reported | null => {
+  const found = detailsUrl?.match(/\/actions\/runs\/(\d+)\/job\/(\d+)/)
+  return found?.[1] === undefined || found[2] === undefined ? null : { run: found[1], job: found[2] }
 }
 
 const RepoDefaultBranch = Schema.fromJsonString(
@@ -178,24 +186,15 @@ export const jobLog = Effect.fnUntraced(function* (repo: string, jobId: string) 
 })
 
 /**
- * The workflow run a check reports on, out of the URL it reports at.
- *
- * A check run details URL ends `/actions/runs/<run>/job/<job>`, and the run id
- * is what `gh run rerun` takes. A commit status points somewhere else entirely,
- * which is null: there is no run of ours to re-run.
- */
-export const runIdOf = (detailsUrl: string | undefined): string | null => {
-  const found = detailsUrl?.match(/\/actions\/runs\/(\d+)/)
-  return found?.[1] ?? null
-}
-
-/**
  * The workflow runs behind the failing checks that count, each named once.
  *
  * One broken run usually fails several jobs, and re-running it once per failing
- * job would start the same run over and over. `ci.ignore` applies here for the
- * reason it applies to the classifier: a check that cannot hold a PR out of
- * Ready is not one to spend CI minutes on.
+ * job would start the same run over and over.
+ *
+ * `ci.ignore` decides which checks get a run into this list, and no more than
+ * that: a run is re-run whole, so an ignored job sharing a run with a counted
+ * one is re-run beside it. What the setting buys is that an ignored check is
+ * never on its own a reason to spend CI minutes.
  */
 export const failedRuns = (
   entries: ReadonlyArray<CheckEntry> | null,
@@ -203,8 +202,8 @@ export const failedRuns = (
 ): ReadonlyArray<string> => [
   ...new Set(
     failedChecks(entries, ignore).flatMap((check) => {
-      const run = runIdOf(check.detailsUrl)
-      return run === null ? [] : [run]
+      const reported = reportedAt(check.detailsUrl)
+      return reported === null ? [] : [reported.run]
     })
   )
 ]

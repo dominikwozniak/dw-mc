@@ -29,3 +29,13 @@ export const named = (pr: string, registered: ReadonlyArray<string>) => {
     ? Effect.succeed(reference)
     : Effect.fail(new CliError.UserError({ cause: whyNothingNamed(reference) }))
 }
+
+/**
+ * A domain guard's word, as the command's own failure.
+ *
+ * Every guard in the tool answers the same shape - the sentence saying why not,
+ * or null - so turning that answer into a refusal is spelled once here rather
+ * than beside each command that asks one.
+ */
+export const refuse = (why: string | null): Effect.Effect<void, CliError.UserError> =>
+  why === null ? Effect.void : Effect.fail(new CliError.UserError({ cause: why }))

@@ -36,7 +36,7 @@ These change something, so run one only when I ask for it by name.
 
 `dw-mc review` runs a model and takes minutes.
 
-`dw-mc rebase` and `dw-mc rerun` are the two commands that write to GitHub (ADR 0002): a `--force-with-lease` push to a branch I author, and the failed jobs of a workflow run on a pull request I author. `dw-mc rerun` refuses a failure the classifier calls legitimate, and refuses a head it has already re-run, so running it on a red CI is never a way to hide one.
+`dw-mc rebase` and `dw-mc rerun` are the only commands that write to GitHub (ADR 0002): a `--force-with-lease` push to a branch I author, and the failed jobs of a workflow run on a pull request I author. `dw-mc rerun` refuses a failure the classifier calls legitimate, and refuses a head it has already re-run, so running it on a red CI is never a way to hide one.
 
 ## Sessions
 

@@ -1,32 +1,26 @@
 import { Console, Effect, Option } from "effect"
-import { CliError, Command } from "effect/unstable/cli"
+import { Command } from "effect/unstable/cli"
 
 import { rollupState } from "#adapters/ci.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseOnto } from "#adapters/git.ts"
-import { named, prArgument } from "#cli/pr.ts"
+import { named, prArgument, refuse } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { count } from "#cli/table.ts"
-import type { Situation } from "#domain/rebase.ts"
 import { decide, recordConflict, stackOf } from "#domain/rebase.ts"
 import { short } from "#domain/review.ts"
-
-/** The domain's word on a branch that is not one to rebase, as the command's own failure. */
-const allowed = (situation: Situation) => {
-  const refused = decide(situation)
-  return refused === null ? Effect.void : Effect.fail(new CliError.UserError({ cause: refused }))
-}
 
 /**
  * Brings one branch up to date with its base, with the guards that matter more
  * than the rebase does.
  *
- * This is the larger of the two writes the tool makes to GitHub, and it writes
- * one thing: a push to a branch I author, in the repository the branch is in,
- * with a lease, onto the head this run read (ADR 0002). Who opened the pull request and where
- * its branch lives are read from GitHub and checked before anything is cut. No comment, reply, thread resolve, label, review, approval, status or
+ * This is the heavier of the two writes v1 makes to GitHub, and it writes one
+ * thing: a push to a branch I author, in the repository the branch is in, with
+ * a lease, onto the head this run read (ADR 0002). Who opened the pull request
+ * and where its branch lives are read from GitHub and checked before anything
+ * is cut. No comment, reply, thread resolve, label, review, approval, status or
  * merge, here or anywhere.
  *
  * Every guard is read live rather than off the last sweep, because each of them
@@ -58,17 +52,19 @@ export const rebase = Command.make(
       const open = yield* openPrs(repo)
       const me = yield* viewer
 
-      yield* allowed({
-        repo,
-        number,
-        base: view.baseRefName,
-        enabled: settings.rebase.enabled,
-        mine: view.author?.login === me,
-        fromFork: view.isCrossRepository,
-        listed: open.some((it) => it.number === number),
-        checks: rollupState(view.statusCheckRollup, settings.ci.ignore),
-        stack: stackOf(number, open)
-      })
+      yield* refuse(
+        decide({
+          repo,
+          number,
+          base: view.baseRefName,
+          enabled: settings.rebase.enabled,
+          mine: view.author?.login === me,
+          fromFork: view.isCrossRepository,
+          listed: open.some((it) => it.number === number),
+          checks: rollupState(view.statusCheckRollup, settings.ci.ignore),
+          stack: stackOf(number, open)
+        })
+      )
 
       const where = `${repo}#${number}`
       const done = yield* rebaseOnto(repo, number, view.baseRefName, view.headRefName)

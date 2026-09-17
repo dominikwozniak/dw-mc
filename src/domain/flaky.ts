@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 
-import { defaultBranch, failedChecks, jobIdOf, jobLog, prFiles, workflowFailsOn } from "#adapters/ci.ts"
+import { defaultBranch, failedChecks, jobLog, prFiles, reportedAt, workflowFailsOn } from "#adapters/ci.ts"
 import type { CheckEntry } from "#adapters/gh.ts"
 
 /**
@@ -151,7 +151,7 @@ export const evidenceFor = Effect.fn("flaky.evidenceFor")(function* (
 ) {
   const failed = failedChecks(entries, ignore)
   const workflows = [...new Set(filterMap(failed, (check) => check.workflowName ?? null))]
-  const jobs = filterMap(failed, (check) => jobIdOf(check.detailsUrl)).slice(0, loggedJobs)
+  const jobs = filterMap(failed, (check) => reportedAt(check.detailsUrl)?.job ?? null).slice(0, loggedJobs)
 
   const branch = yield* Effect.orElseSucceed(defaultBranch(repo), () => null)
   if (branch === null) {
@@ -173,4 +173,23 @@ export const evidenceFor = Effect.fn("flaky.evidenceFor")(function* (
   )
 
   return { alsoRedOnDefaultBranch: alsoRed.flat(), changedFiles, log: logs.join("\n") } satisfies Evidence
+})
+
+/**
+ * Why a red CI is excused, or null where it is mine to fix.
+ *
+ * Reading the evidence and classifying it is one act, so it is one function:
+ * a sweep writes what it returns down as `ciFlaky`, and `dw-mc rerun` asks it
+ * again live. Two callers asking the same question have to get the same answer,
+ * which they cannot if each of them spells the question out.
+ */
+export const flakyReason = Effect.fn("flaky.flakyReason")(function* (
+  repo: string,
+  number: number,
+  entries: ReadonlyArray<CheckEntry> | null,
+  ignore: ReadonlyArray<string>,
+  patterns: ReadonlyArray<string>
+) {
+  const verdict = classify(yield* evidenceFor(repo, number, entries, ignore), patterns)
+  return verdict.classification === "flaky" ? verdict.reason : null
 })

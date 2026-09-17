@@ -5,7 +5,7 @@ import {
   defaultBranch,
   failedChecks,
   failedRuns,
-  jobIdOf,
+  reportedAt,
   jobLog,
   prFiles,
   rerunFailed,
@@ -77,16 +77,23 @@ describe("what the classifier reads", () => {
     assert.deepStrictEqual(failedChecks(null, []), [])
   })
 
-  it("reads the job a check run reports at out of its URL", () => {
-    assert.strictEqual(
-      jobIdOf("https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203/job/104772538303"),
-      "104772538303"
+  it("reads the run and the job a check run reports at out of its URL", () => {
+    assert.deepStrictEqual(
+      reportedAt("https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203/job/104772538303"),
+      {
+        run: "35089608203",
+        job: "104772538303"
+      }
     )
   })
 
-  it("has no job for a commit status, which reports somewhere else", () => {
-    assert.strictEqual(jobIdOf("https://circleci.com/gh/dominikwozniak/dw-mc/1"), null)
-    assert.strictEqual(jobIdOf(undefined), null)
+  it("has neither for a commit status, which reports somewhere else", () => {
+    assert.strictEqual(reportedAt("https://circleci.com/gh/dominikwozniak/dw-mc/1"), null)
+    assert.strictEqual(reportedAt(undefined), null)
+  })
+
+  it("has neither for a workflow run that names no job", () => {
+    assert.strictEqual(reportedAt("https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203"), null)
   })
 
   it.effect("asks gh which branch a repository merges into", () => {

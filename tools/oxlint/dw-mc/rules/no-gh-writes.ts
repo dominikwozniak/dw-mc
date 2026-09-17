@@ -78,7 +78,7 @@ const writeFor = (words: ReadonlyArray<string>) => writes.find((write) => matche
  * A flag sits after the arguments a write names, which are computed in every
  * call here, so this reads every spelled-out element rather than the prefix.
  */
-const spells = (vector: ESTree.ArrayExpression, flag: string): boolean =>
+const carriesFlag = (vector: ESTree.ArrayExpression, flag: string): boolean =>
   vector.elements.some((element) => element !== null && stringValue(element) === flag)
 
 /**
@@ -136,7 +136,7 @@ export const noGhWritesRule = defineRule({
       const words = leadingWords(vector)
       const write = writeFor(words)
       if (write !== undefined) {
-        if (!spells(vector, write.requires)) {
+        if (!carriesFlag(vector, write.requires)) {
           context.report({
             node: vector,
             messageId: "writeNeedsFlag",
