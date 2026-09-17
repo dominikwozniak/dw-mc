@@ -6,11 +6,11 @@ import { matchesGlob } from "node:path"
 
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import type { Settings, Severity } from "#adapters/config.ts"
-import { Effort } from "#adapters/config.ts"
-import { storeFor } from "#adapters/store.ts"
+import { prKey, storeFor } from "#adapters/store.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Finding, Verdict } from "#domain/findings.ts"
+import type { Severity } from "#terms/review.ts"
+import { Effort } from "#terms/review.ts"
 
 /**
  * What a review run came to, which is what its second turn reported.
@@ -63,7 +63,7 @@ export const short = (head: string): string => head.slice(0, 7)
  * Where a run is kept: one key per head, so a run and the code it read cannot
  * drift apart, and a re-review replaces the run before it.
  */
-export const runKey = (repo: string, number: number, head: string): string => `${repo}#${number}@${head}`
+export const runKey = (repo: string, number: number, head: string): string => `${prKey(repo, number)}@${head}`
 
 /** Where the run's report is kept: beside the run, as the Markdown it is. */
 export const reportKey = (repo: string, number: number, head: string): string => `${runKey(repo, number, head)}.md`
@@ -81,7 +81,7 @@ export const LastReviewed = Schema.Struct({ head: Schema.String })
 export type LastReviewed = typeof LastReviewed.Type
 
 /** Where that head is kept. No head is spelled `latest`, so nothing collides. */
-export const latestKey = (repo: string, number: number): string => `${repo}#${number}@latest`
+export const latestKey = (repo: string, number: number): string => `${prKey(repo, number)}@latest`
 
 /**
  * The run at one head, or none where nothing has reviewed it.
@@ -228,11 +228,11 @@ export const reviewedAt = Effect.fn("review.reviewedAt")(function* (
   repo: string,
   number: number,
   head: string,
-  settings: Settings
+  blocksOn: Severity
 ) {
   const run = Option.getOrNull(yield* runAt(repo, number, head))
   return {
     reviewRunHead: reviewedBy(run) ? head : null,
-    blockingFindings: blockingIn(run, settings.stamp.blocks_on).length
+    blockingFindings: blockingIn(run, blocksOn).length
   } satisfies Reviewed
 })

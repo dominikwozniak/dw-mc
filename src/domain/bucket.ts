@@ -1,18 +1,7 @@
 import { Schema } from "effect"
 
 import { isAfter, later } from "#domain/moment.ts"
-
-/** How far GitHub has got towards letting a tracked PR merge. */
-export const Mergeability = Schema.Literals(["mergeable", "conflicting", "unknown"])
-export type Mergeability = typeof Mergeability.Type
-
-/** What the reviewers have decided, or that nobody is required to. */
-export const ReviewDecision = Schema.Literals(["approved", "changes-requested", "review-required", "none"])
-export type ReviewDecision = typeof ReviewDecision.Type
-
-/** What CI says about the current head. */
-export const ChecksState = Schema.Literals(["green", "red", "pending", "none"])
-export type ChecksState = typeof ChecksState.Type
+import { ChecksState, Mergeability, ReviewDecision } from "#terms/pr.ts"
 
 /**
  * Everything the bucket rules are allowed to know about a tracked PR.

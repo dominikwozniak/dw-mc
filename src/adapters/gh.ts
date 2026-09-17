@@ -2,6 +2,7 @@ import { DateTime, Effect, Match, PlatformError, Schema } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process"
 
 import { capture } from "#adapters/spawner.ts"
+import type { Mergeability, ReviewDecision } from "#terms/pr.ts"
 
 /** `gh` is on the machine but would not run. */
 export class GhUnavailable extends Schema.TaggedError<GhUnavailable>()("GhUnavailable", {
@@ -393,8 +394,6 @@ export const prCommits = Effect.fnUntraced(function* (repo: string, number: numb
   }))
 })
 
-type Mergeability = "mergeable" | "conflicting" | "unknown"
-
 /**
  * What `gh` says about merging, in our words. Anything else is `unknown`:
  * GitHub answers that too, for a PR whose mergeability it is still computing.
@@ -409,8 +408,6 @@ export const mergeabilityOf = (raw: string): Mergeability =>
     Match.when("CONFLICTING", () => "conflicting"),
     Match.orElse(() => "unknown")
   )
-
-type ReviewDecision = "approved" | "changes-requested" | "review-required" | "none"
 
 /**
  * What `gh` says the reviewers decided, in our words. A repository that requires

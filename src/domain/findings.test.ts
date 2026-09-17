@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
 
-import type { Severity } from "#adapters/config.ts"
 import { blocking, jsonSchema, Reported } from "#domain/findings.ts"
+import type { Severity } from "#terms/review.ts"
 
 const read = Schema.decodeUnknownEffect(Reported)
 

@@ -1,11 +1,12 @@
 import { Console, Effect, Option } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 
-import type { ConfigFile, Effort, SettingsPatch } from "#adapters/config.ts"
+import type { ConfigFile, SettingsPatch } from "#adapters/config.ts"
 import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, write } from "#adapters/config.ts"
 import { currentRepo, requireAuth } from "#adapters/gh.ts"
 import { stateDirectory } from "#adapters/store.ts"
 import { asUserError } from "#cli/sweep.ts"
+import type { Effort } from "#terms/review.ts"
 
 const effortFlag = Flag.Literals("effort", ["low", "medium", "high", "xhigh", "max"]).pipe(
   Flag.withDescription("How much a review run spends on this repository"),

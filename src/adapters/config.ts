@@ -6,20 +6,7 @@ import { KeyValueStore } from "effect/unstable/persistence"
 import { xdgDirectory } from "#adapters/xdg.ts"
 import type { Value } from "#adapters/yaml.ts"
 import { encodeYaml } from "#adapters/yaml.ts"
-
-/**
- * How much a review run spends, in the words the slash command takes.
- *
- * The set is Claude Code's and not this tool's, so it is wider than the three
- * words a review used to be held to: a run that would be worth `max` is one I
- * should be able to ask for without spelling the whole command out.
- */
-export const Effort = Schema.Literals(["low", "medium", "high", "xhigh", "max"])
-export type Effort = typeof Effort.Type
-
-/** How much a finding weighs. */
-export const Severity = Schema.Literals(["error", "warning", "info"])
-export type Severity = typeof Severity.Type
+import { Effort, Severity } from "#terms/review.ts"
 
 /**
  * What one section of the file may say. Every key is optional: what the file
