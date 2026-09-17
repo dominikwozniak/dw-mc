@@ -23,15 +23,31 @@ const reads: ReadonlyArray<ReadonlyArray<string>> = [
 ]
 
 /**
- * Every `gh` write dw-mc is allowed to make, and the flag that keeps it inside
- * the boundary.
+ * Every `gh` write dw-mc is allowed to make, and the flags that keep each one
+ * inside the boundary.
  *
- * ADR 0002 admits one: re-running the failed jobs of a workflow run on a pull
- * request I author. `--failed` is what makes it that write rather than a rerun
- * of everything, so the flag is part of the entry and not an afterthought.
+ * There are two. ADR 0002 admits re-running the failed jobs of a workflow run
+ * on a pull request I author; ADR 0008 admits squash-merging a pull request I
+ * author and deleting the branch it stood on.
+ *
+ * The flags are part of the entry rather than an afterthought, because each of
+ * them is what makes the call the write that was admitted: `--failed` is what
+ * keeps a re-run off the jobs that passed, and `--squash --delete-branch` is
+ * the merge this repository lands, spelled out.
+ *
+ * `--auto` is refused outright rather than left unlisted. It turns a merge into
+ * one GitHub makes later, at a head nothing here has read, and every verdict in
+ * this tool is about one head (ADR 0008).
  */
-const writes: ReadonlyArray<{ readonly prefix: ReadonlyArray<string>; readonly requires: string }> = [
-  { prefix: ["run", "rerun"], requires: "--failed" }
+interface Write {
+  readonly prefix: ReadonlyArray<string>
+  readonly requires: ReadonlyArray<string>
+  readonly forbids?: ReadonlyArray<string>
+}
+
+const writes: ReadonlyArray<Write> = [
+  { prefix: ["run", "rerun"], requires: ["--failed"] },
+  { prefix: ["pr", "merge"], requires: ["--squash", "--delete-branch"], forbids: ["--auto"] }
 ]
 
 /** What turns `gh api` from a read into a write, whatever endpoint it names. */
@@ -124,11 +140,13 @@ export const noGhWritesRule = defineRule({
     },
     messages: {
       notARead:
-        "{{invocation}} is not one of the calls dw-mc makes. Mission control never comments, replies, resolves a thread, labels, reviews, approves, changes a status or merges (ADR 0002), and the only write it sends through `gh` is re-running my own failed jobs. A call that belongs here is a line in `reads` or `writes` in this rule.",
+        "{{invocation}} is not one of the calls dw-mc makes. Mission control never comments, replies, resolves a thread, labels, reviews, approves or changes a status (ADR 0002), and the only writes it sends through `gh` are re-running my own failed jobs and merging a pull request I author (ADR 0008). A call that belongs here is a line in `reads` or `writes` in this rule.",
       apiWrite:
         "`gh api` carrying `{{flag}}` sends a write ADR 0002 does not admit. The REST endpoint is not a way around the boundary.",
+      writeForbidsFlag:
+        "{{invocation}} carrying `{{flag}}` is not the write dw-mc makes. A deferred merge happens at a head nothing here has read, and every verdict in this tool is about one head (ADR 0008).",
       writeNeedsFlag:
-        "{{invocation}} is the write ADR 0002 admits only with `{{requires}}`. Without it this re-runs jobs that passed, which spends CI minutes the boundary was drawn around."
+        "{{invocation}} is a write dw-mc admits only with `{{missing}}`. The flags are what make it the call that was admitted, so without them it is a different write from the one the boundary was drawn around."
     }
   },
   createOnce(context) {
@@ -136,11 +154,18 @@ export const noGhWritesRule = defineRule({
       const words = leadingWords(vector)
       const write = writeFor(words)
       if (write !== undefined) {
-        if (!carriesFlag(vector, write.requires)) {
+        const invocation = `\`gh ${words.join(" ")}\``
+        const forbidden = (write.forbids ?? []).find((flag) => carriesFlag(vector, flag))
+        if (forbidden !== undefined) {
+          context.report({ node: vector, messageId: "writeForbidsFlag", data: { invocation, flag: forbidden } })
+          return
+        }
+        const missing = write.requires.filter((flag) => !carriesFlag(vector, flag))
+        if (missing.length > 0) {
           context.report({
             node: vector,
             messageId: "writeNeedsFlag",
-            data: { invocation: `\`gh ${words.join(" ")}\``, requires: write.requires }
+            data: { invocation, missing: missing.join("` and `") }
           })
         }
         return

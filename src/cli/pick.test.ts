@@ -4,7 +4,7 @@ import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { ConfigStore, write } from "#adapters/config.ts"
-import { key, layerScripted } from "#adapters/picker.ts"
+import { key, layerScripted, typed } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
 import { storeFor } from "#adapters/store.ts"
@@ -363,6 +363,105 @@ describe("dw-mc with no arguments", () => {
       assert.deepStrictEqual(printed, ["No open pull requests."])
     }).pipe(Effect.provide(machine({ prs: [], keys: [] })), recording(printed))
   })
+})
+
+/**
+ * The one offer that cannot be taken back, and the question standing in front
+ * of it (ADR 0008).
+ */
+describe("the picker's merge", () => {
+  /** Down to the merge offer, which is the last one a Ready, stamped PR carries. */
+  const toMerge = [key("enter"), ...Array.from({ length: 5 }, () => key("down")), key("enter")]
+
+  /** What the picker dispatched after I answered the confirmation with `answer`. */
+  const answering = (answer: ReadonlyArray<Terminal.UserInput>, printed: Array<string>) => {
+    const argv: Array<ReadonlyArray<string>> = []
+    return Effect.gen(function* () {
+      yield* registered({ [repo]: { rebase: { enabled: true } } })
+      yield* reviewed(1)
+      yield* picker((args: ReadonlyArray<string>) => Effect.sync(() => argv.push(args)))()
+      return argv
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1, reviewDecision: "APPROVED" }], keys: [...toMerge, ...answer] })),
+      recording(printed)
+    )
+  }
+
+  it.effect("offers it on a Ready, stamped pull request, and offers it last", () => {
+    const drawn: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* reviewed(1)
+      yield* run()
+
+      const offers = frame(drawn)
+      assert.include(offers, "Squash-merge it and delete the branch")
+      assert.isAbove(
+        offers.indexOf("Squash-merge it"),
+        offers.indexOf("Withdraw the stamp"),
+        "the cursor rests on the first row, and this is the offer no reflog undoes"
+      )
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1, reviewDecision: "APPROVED" }], keys: [key("enter")], drawn })),
+      recording(printed)
+    )
+  })
+
+  it.effect("offers nothing to merge where the pull request is not Ready", () => {
+    const drawn: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* reviewed(1)
+      yield* run()
+
+      assert.notInclude(frame(drawn), "Squash-merge")
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1, reviewDecision: "REVIEW_REQUIRED" }], keys: [key("enter")], drawn })),
+      recording(printed)
+    )
+  })
+
+  it.effect("offers nothing to merge where nothing stamps it", () => {
+    const drawn: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* reviewed(1)
+      yield* withdraw(repo, 1, head)
+      yield* run()
+
+      assert.notInclude(frame(drawn), "Squash-merge")
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1, reviewDecision: "APPROVED" }], keys: [key("enter")], drawn })),
+      recording(printed)
+    )
+  })
+
+  it.effect("dispatches it once I have answered the question it carries", () =>
+    Effect.gen(function* () {
+      const printed: Array<string> = []
+
+      assert.deepStrictEqual(yield* answering(typed("y"), printed), [["merge", "dominikwozniak/dw-mc#1"]])
+    })
+  )
+
+  it.effect("dispatches nothing where I answer it with anything else", () =>
+    Effect.gen(function* () {
+      const printed: Array<string> = []
+      // Enter is the answer the prompt starts on, and it starts on no: the one
+      // keystroke too many must not merge a pull request and delete its branch.
+      assert.deepStrictEqual(yield* answering([key("enter")], printed), [])
+      assert.include(printed.join("\n"), "Nothing done to dominikwozniak/dw-mc#1.")
+
+      const walked: Array<string> = []
+      assert.deepStrictEqual(yield* answering([], walked), [])
+    })
+  )
 })
 
 /** The stamp the picker offers to withdraw is the one a sweep computed. */

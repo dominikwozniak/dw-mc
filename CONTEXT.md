@@ -25,6 +25,10 @@ _Avoid_: menu, dashboard, TUI
 My local mark that a tracked PR has passed my own bar. Computed from review runs and CI, and I can withdraw it by hand, at the head I read, until that head changes. It lives only on this machine and is never a GitHub approval, label, comment or status.
 _Avoid_: approval, label, status
 
+**Merge**:
+Landing a tracked PR of mine: squashed, with its branch deleted, on a PR that is both Ready and stamped at the head the command reads. The one write no reflog of mine undoes, so it is never taken by a sweep and never one keystroke in the picker.
+_Avoid_: ship, close, auto-merge
+
 ### Buckets
 
 **Bucket**:

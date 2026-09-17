@@ -6,7 +6,7 @@ import { matchesGlob } from "node:path"
 
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import type { Severity } from "#adapters/config.ts"
+import type { Settings, Severity } from "#adapters/config.ts"
 import { Effort, Runner, runners } from "#adapters/config.ts"
 import { storeFor } from "#adapters/store.ts"
 import type { Findings } from "#domain/findings.ts"
@@ -268,3 +268,42 @@ export const blockingIn = (
       const found = reportedBy(run)
       return found === null ? [] : blocking(found.findings, blocksOn)
     })
+
+/** What the stamp rule reads out of the review runs this machine holds on one head. */
+export interface Reviewed {
+  /** The head a review run has already covered, or null where none has. */
+  readonly reviewRunHead: string | null
+  /** Findings on that head that withhold the stamp, at the bar `stamp.blocks_on` sets. */
+  readonly blockingFindings: number
+}
+
+/**
+ * What the review runs on `head` say about it, for the stamp to rest on.
+ *
+ * Whether a head has been reviewed is the runs' to say and no sweep's: a run is
+ * recorded against one head, and a head with no run of its own has not been
+ * reviewed however many sweeps have seen the pull request. A run that could not
+ * report findings does not count either: its verdict is what takes a pull
+ * request out of Needs review run, and it reached none.
+ *
+ * A head may carry a run from each configured runner, and it is reviewed once
+ * every runner that decides my bar has reported on it. A second opinion's
+ * findings are read here only where `stamp.supporting_blocks` lets them block.
+ *
+ * It is one function because the two callers are a sweep and `dw-mc merge`, and
+ * the second exists to land what the first only describes: two spellings of
+ * this would be two answers to whether a head has been reviewed.
+ */
+export const reviewedAt = Effect.fn("review.reviewedAt")(function* (
+  repo: string,
+  number: number,
+  head: string,
+  settings: Settings
+) {
+  const deciding = decidingIn(settings.review.runners, settings.stamp.supporting_blocks)
+  const runs = yield* runsAt(repo, number, head)
+  return {
+    reviewRunHead: reviewedBy(runs, deciding) ? head : null,
+    blockingFindings: blockingIn(runs, deciding, settings.stamp.blocks_on).length
+  } satisfies Reviewed
+})

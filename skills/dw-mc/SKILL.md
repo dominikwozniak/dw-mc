@@ -1,6 +1,6 @@
 ---
 name: dw-mc
-description: Read mission control's state on my open pull requests from inside an agent session - which bucket a pull request sits in, what a review run found, whether it carries my stamp - and run the command that moves one forward. Use when I ask about my open PRs, a review run, its findings, my stamp, a rebase, a rebase conflict or a flaky CI.
+description: Read mission control's state on my open pull requests from inside an agent session - which bucket a pull request sits in, what a review run found, whether it carries my stamp - and run the command that moves one forward. Use when I ask about my open PRs, a review run, its findings, my stamp, a rebase, a rebase conflict, a flaky CI or merging a pull request of mine.
 ---
 
 # dw-mc
@@ -33,10 +33,15 @@ These change something, so run one only when I ask for it by name.
 | the stamp off, until the head changes       | `dw-mc stamp <pr> --withdraw` |
 | the branch rebased onto its base and pushed | `dw-mc rebase <pr>`           |
 | a flaky red CI run again, once              | `dw-mc rerun <pr>`            |
+| a Ready, stamped pull request landed        | `dw-mc merge <pr>`            |
 
 `dw-mc review` runs a model and takes minutes.
 
-`dw-mc rebase` and `dw-mc rerun` are the only commands that write to GitHub (ADR 0002): a `--force-with-lease` push to a branch I author, and the failed jobs of a workflow run on a pull request I author. `dw-mc rerun` refuses a failure the classifier calls legitimate, and refuses a head it has already re-run, so running it on a red CI is never a way to hide one.
+Three commands write to GitHub, and nothing else does.
+
+`dw-mc rebase` and `dw-mc rerun` are ADR 0002's: a `--force-with-lease` push to a branch I author, and the failed jobs of a workflow run on a pull request I author. `dw-mc rerun` refuses a failure the classifier calls legitimate, and refuses a head it has already re-run, so running it on a red CI is never a way to hide one.
+
+`dw-mc merge` is ADR 0008's, and it is the one no reflog of mine undoes: a squash merge that deletes the branch. It lands nothing that is not both Ready and stamped at the head it reads, and it refuses everything else with the command that earns the stamp. Run it only when I name the pull request and ask for it merged.
 
 ## Sessions
 
@@ -47,5 +52,5 @@ Run them with `--print` instead. That prints the prompt the session would have o
 ## What this skill never does
 
 - It never opens the picker. `dw-mc` with no arguments wants a keyboard and a screen.
-- It never writes to GitHub itself. No comment, review, label, approval or merge, on any pull request (ADR 0002). The push and the re-run are the CLI's, not yours.
+- It never writes to GitHub itself. No comment, review, label, approval or status, on any pull request (ADR 0002). The push, the re-run and the merge are the CLI's, not yours.
 - It never retells findings from memory. Print them again rather than repeating what an earlier turn said they were.

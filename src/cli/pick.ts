@@ -4,7 +4,7 @@ import type { Prompt } from "effect/unstable/cli"
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { Paint, ink, plain } from "#adapters/paint.ts"
-import { pick, width } from "#adapters/picker.ts"
+import { confirm, pick, width } from "#adapters/picker.ts"
 import { prKey } from "#adapters/store.ts"
 import { cells, rule } from "#cli/row.ts"
 import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
@@ -100,8 +100,11 @@ const where = (facts: Facts): string => `${facts.repo}#${facts.number}`
  * command, so there is one implementation of every action and the picker is
  * only a way of reaching it without remembering the flags.
  *
- * Walking away at either prompt is an answer rather than a failure, and it
- * leaves nothing behind: nothing has been dispatched until I have picked both.
+ * Walking away at any prompt is an answer rather than a failure, and it leaves
+ * nothing behind: nothing has been dispatched until every question is answered.
+ * An action that carries its own question is asked it here, between the choice
+ * and the dispatch, because the picker is where an action costs one keystroke
+ * and a merge must never cost only that (ADR 0008).
  */
 export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.Effect<void, E, R>) =>
   Effect.fn("pick")(
@@ -141,6 +144,12 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
       const facts = chosen.value.placed.facts
       const offer = yield* pick(`What do I do with ${where(facts)}?`, actionChoices(actionsFor(chosen.value)))
       if (Option.isNone(offer)) {
+        return
+      }
+
+      const question = offer.value.confirm
+      if (question !== undefined && !(yield* confirm(question))) {
+        yield* Console.log(`Nothing done to ${where(facts)}.`)
         return
       }
 

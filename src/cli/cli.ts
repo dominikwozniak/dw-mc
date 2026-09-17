@@ -3,6 +3,7 @@ import { Command } from "effect/unstable/cli"
 import { findings } from "#cli/findings.ts"
 import { fix } from "#cli/fix.ts"
 import { init } from "#cli/init.ts"
+import { merge } from "#cli/merge.ts"
 import { picker } from "#cli/pick.ts"
 import { rebase } from "#cli/rebase.ts"
 import { rerun } from "#cli/rerun.ts"
@@ -25,7 +26,19 @@ export const version: string = typeof __VERSION__ === "string" ? __VERSION__ : "
 /** Where the project lives, printed beside the version in the header. */
 export const projectUrl = "github.com/dominikwozniak/dw-mc"
 
-const subcommands = [init, review, findings, fix, rebase, rerun, resolve, sweepCommand, status, stampCommand] as const
+const subcommands = [
+  init,
+  review,
+  findings,
+  fix,
+  rebase,
+  rerun,
+  resolve,
+  merge,
+  sweepCommand,
+  status,
+  stampCommand
+] as const
 
 /**
  * The same subcommands under a root that opens no picker, which is what the
