@@ -22,6 +22,18 @@ const reads: ReadonlyArray<ReadonlyArray<string>> = [
   ["search", "prs"]
 ]
 
+/**
+ * Every `gh` write dw-mc is allowed to make, and the flag that keeps it inside
+ * the boundary.
+ *
+ * ADR 0002 admits one: re-running the failed jobs of a workflow run on a pull
+ * request I author. `--failed` is what makes it that write rather than a rerun
+ * of everything, so the flag is part of the entry and not an afterthought.
+ */
+const writes: ReadonlyArray<{ readonly prefix: ReadonlyArray<string>; readonly requires: string }> = [
+  { prefix: ["run", "rerun"], requires: "--failed" }
+]
+
 /** What turns `gh api` from a read into a write, whatever endpoint it names. */
 const apiWriteFlags = ["-X", "--method", "-f", "--field", "-F", "--raw-field", "--input"]
 
@@ -53,8 +65,21 @@ const leadingWords = (vector: ESTree.ArrayExpression): ReadonlyArray<string> => 
   return words
 }
 
-const isRead = (words: ReadonlyArray<string>): boolean =>
-  reads.some((read) => read.every((word, index) => words[index] === word))
+const matches = (prefix: ReadonlyArray<string>, words: ReadonlyArray<string>): boolean =>
+  prefix.every((word, index) => words[index] === word)
+
+const isRead = (words: ReadonlyArray<string>): boolean => reads.some((read) => matches(read, words))
+
+const writeFor = (words: ReadonlyArray<string>) => writes.find((write) => matches(write.prefix, words))
+
+/**
+ * Whether the vector spells `flag` out anywhere.
+ *
+ * A flag sits after the arguments a write names, which are computed in every
+ * call here, so this reads every spelled-out element rather than the prefix.
+ */
+const spells = (vector: ESTree.ArrayExpression, flag: string): boolean =>
+  vector.elements.some((element) => element !== null && stringValue(element) === flag)
 
 /**
  * The first write flag the vector carries, in the spelling it was written in.
@@ -99,14 +124,27 @@ export const noGhWritesRule = defineRule({
     },
     messages: {
       notARead:
-        "{{invocation}} is not one of the reads dw-mc makes. Mission control never comments, replies, resolves a thread, labels, reviews, approves, changes a status or merges (ADR 0002), and v1 makes no GitHub write at all. A read that belongs here is a line in `reads` in this rule.",
+        "{{invocation}} is not one of the calls dw-mc makes. Mission control never comments, replies, resolves a thread, labels, reviews, approves, changes a status or merges (ADR 0002), and the only write it sends through `gh` is re-running my own failed jobs. A call that belongs here is a line in `reads` or `writes` in this rule.",
       apiWrite:
-        "`gh api` carrying `{{flag}}` sends a write, and ADR 0002 leaves dw-mc none to send. The REST endpoint is not a way around the boundary."
+        "`gh api` carrying `{{flag}}` sends a write ADR 0002 does not admit. The REST endpoint is not a way around the boundary.",
+      writeNeedsFlag:
+        "{{invocation}} is the write ADR 0002 admits only with `{{requires}}`. Without it this re-runs jobs that passed, which spends CI minutes the boundary was drawn around."
     }
   },
   createOnce(context) {
     const checkVector = (vector: ESTree.ArrayExpression) => {
       const words = leadingWords(vector)
+      const write = writeFor(words)
+      if (write !== undefined) {
+        if (!spells(vector, write.requires)) {
+          context.report({
+            node: vector,
+            messageId: "writeNeedsFlag",
+            data: { invocation: `\`gh ${words.join(" ")}\``, requires: write.requires }
+          })
+        }
+        return
+      }
       if (!isRead(words)) {
         context.report({
           node: vector,

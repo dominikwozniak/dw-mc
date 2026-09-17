@@ -5,6 +5,7 @@ import { noGhWritesRule } from "./no-gh-writes.ts"
 const tester = new RuleTester({ languageOptions: { parserOptions: { lang: "ts" } } })
 const notARead = { messageId: "notARead" }
 const apiWrite = { messageId: "apiWrite" }
+const writeNeedsFlag = { messageId: "writeNeedsFlag" }
 
 tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
   valid: [
@@ -17,12 +18,21 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
     `readJson("api user", "gh", ["api", "user"], User)`,
     'capture("gh", ["api", `repos/${repo}/actions/jobs/${jobId}/logs`, "--allow-escape-sequences"])',
     {
+      name: "the one write ADR 0002 admits",
+      code: `capture("gh", ["run", "rerun", runId, "--repo", repo, "--failed"])`
+    },
+    {
       name: "another program's vector is not this rule's business",
       code: `capture("git", ["push", "--force-with-lease"])`
     }
   ],
   invalid: [
     { name: "a write verb", code: `capture("gh", ["pr", "merge", "27"])`, errors: [notARead] },
+    {
+      name: "a re-run of the whole workflow run, which is not the failed jobs",
+      code: `capture("gh", ["run", "rerun", runId, "--repo", repo])`,
+      errors: [writeNeedsFlag]
+    },
     { name: "a read nobody has admitted", code: `capture("gh", ["label", "list"])`, errors: [notARead] },
     { name: "a verb built at runtime", code: `capture("gh", [verb, "view"])`, errors: [notARead] },
     { name: "a vector assembled elsewhere", code: `capture("gh", args)`, errors: [notARead] },

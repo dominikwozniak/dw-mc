@@ -46,7 +46,7 @@ The bucket for a PR that is approved, green and mergeable. Only my merge is left
 ### Rebase
 
 **Rebase**:
-Bringing a tracked PR's branch up to date with its base: rebased onto the base and pushed with a lease, in a throwaway worktree. Off until a repository turns it on, never while CI is running, and the only place mission control writes to GitHub.
+Bringing a tracked PR's branch up to date with its base: rebased onto the base and pushed with a lease, in a throwaway worktree. Off until a repository turns it on, and never while CI is running.
 _Avoid_: update branch, sync, merge base
 
 **Conflict record**:
@@ -68,8 +68,12 @@ A red CI that is not mine to fix, decided from three signals a sweep reads: the 
 _Avoid_: intermittent, transient
 
 **Legitimate failure**:
-A red CI that is mine to fix. It is the answer whenever the evidence does not excuse the failure, so an unexplained red is mine.
+A red CI that is mine to fix. It is the answer whenever the evidence does not excuse the failure, so an unexplained red is mine. It is reported and never re-run.
 _Avoid_: real, genuine
+
+**CI re-run**:
+Asking GitHub to run the failed jobs of a flaky failure again. One per head, so a job that fails twice at the same code is not flaky, and asked for by hand: a sweep only reads.
+_Avoid_: retry, restart
 
 ### Reviews
 

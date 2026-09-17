@@ -87,7 +87,7 @@ export const currentRepo: Effect.Effect<
   return view.nameWithOwner
 }).pipe(Effect.withSpan("gh.currentRepo"))
 
-/** A read of GitHub that `gh` itself refused. */
+/** A call to GitHub that `gh` itself refused, whether it was reading or writing. */
 export class GhReadFailed extends Schema.TaggedError<GhReadFailed>()("GhReadFailed", {
   command: Schema.String,
   detail: Schema.String

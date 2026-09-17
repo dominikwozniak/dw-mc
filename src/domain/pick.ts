@@ -7,7 +7,7 @@ import type { Facts, Placed } from "#domain/bucket.ts"
  * front door rather than a second implementation: what it does with my answer
  * is run the command I would have typed.
  */
-export type Action = "resolve" | "review" | "findings" | "fix" | "rebase" | "withdraw"
+export type Action = "resolve" | "rerun" | "review" | "findings" | "fix" | "rebase" | "withdraw"
 
 /** An action on offer, with the words the picker shows for it. */
 export interface Offer {
@@ -22,6 +22,8 @@ export interface Standing {
   readonly stamped: boolean
   /** Whether its repository turned rebase on. */
   readonly rebasing: boolean
+  /** The head its flaky CI was already re-run at, or null where none has been. */
+  readonly rerunAt: string | null
 }
 
 /**
@@ -40,13 +42,16 @@ export interface Standing {
  * Resolving a conflict comes first for the reason a conflict is the first thing
  * that makes a PR mine: it makes every other signal on the PR stale.
  */
-export const actionsFor = ({ placed, rebasing, stamped }: Standing): ReadonlyArray<Offer> => {
+export const actionsFor = ({ placed, rebasing, rerunAt, stamped }: Standing): ReadonlyArray<Offer> => {
   const { facts } = placed
   const reviewed = facts.reviewRunHead === facts.head
 
   return [
     facts.rebaseConflictAt === facts.head
       ? { action: "resolve" as const, title: "Open a session on the rebase conflict" }
+      : null,
+    facts.checks === "red" && facts.ciFlaky !== null && rerunAt !== facts.head
+      ? { action: "rerun" as const, title: "Run the flaky CI again, once" }
       : null,
     { action: "review" as const, title: reviewed ? "Review this head again" : "Run a review" },
     reviewed ? { action: "findings" as const, title: "Show the review-run report" } : null,

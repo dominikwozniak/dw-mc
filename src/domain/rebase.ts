@@ -137,8 +137,8 @@ export interface Situation extends Branch {
  * Why this branch is not one to rebase, or null where it is.
  *
  * This is the single place the guards live, and they matter more than the
- * rebase itself: a force push is the only write the tool makes to GitHub, and
- * every rule here is about it never being a surprise.
+ * rebase itself: a force push is the one write the tool makes that can lose
+ * work, and every rule here is about it never being a surprise.
  *
  * Being off is said first, because a repository that has not turned rebase on
  * has decided the question and nothing else about the pull request changes it.

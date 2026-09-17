@@ -35,6 +35,7 @@ const placed = (over: Partial<Facts> = {}): Placed => {
 const standing = (over: Partial<Standing> & { readonly placed: Placed }): Standing => ({
   stamped: false,
   rebasing: false,
+  rerunAt: null,
   ...over
 })
 
@@ -94,5 +95,30 @@ describe("the picker's actions", () => {
 
   it("withdraws the stamp through the stamp command's own flag", () => {
     assert.deepStrictEqual(argvFor("withdraw", facts()), ["stamp", "dominikwozniak/dw-mc#28", "--withdraw"])
+  })
+})
+
+describe("the re-run the picker offers", () => {
+  const flaky = { checks: "red" as const, ciFlaky: 'the log matches "timed out"' }
+
+  it("offers a re-run on a red CI the classifier excused", () => {
+    assert.include(offered(standing({ placed: placed(flaky) })), "rerun")
+  })
+
+  it("offers no re-run on a red CI that is mine to fix", () => {
+    assert.notInclude(offered(standing({ placed: placed({ checks: "red" }) })), "rerun")
+  })
+
+  it("offers no second re-run at a head that has had one", () => {
+    assert.notInclude(offered(standing({ placed: placed(flaky), rerunAt: head })), "rerun")
+  })
+
+  it("offers a re-run again once the branch has moved", () => {
+    const moved = standing({ placed: placed(flaky), rerunAt: "9f2b0c1d4e5a6b7c8d9e0f1a2b3c4d5e6f708192" })
+    assert.include(offered(moved), "rerun")
+  })
+
+  it("runs the re-run as the command I would have typed", () => {
+    assert.deepStrictEqual(argvFor("rerun", facts()), ["rerun", "dominikwozniak/dw-mc#28"])
   })
 })

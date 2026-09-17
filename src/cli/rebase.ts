@@ -23,9 +23,9 @@ const allowed = (situation: Situation) => {
  * Brings one branch up to date with its base, with the guards that matter more
  * than the rebase does.
  *
- * This is the only place the tool writes to GitHub, and it writes one thing: a
- * push to a branch I author, in the repository the branch is in, with a lease,
- * onto the head this run read (ADR 0002). Who opened the pull request and where
+ * This is the larger of the two writes the tool makes to GitHub, and it writes
+ * one thing: a push to a branch I author, in the repository the branch is in,
+ * with a lease, onto the head this run read (ADR 0002). Who opened the pull request and where
  * its branch lives are read from GitHub and checked before anything is cut. No comment, reply, thread resolve, label, review, approval, status or
  * merge, here or anywhere.
  *
