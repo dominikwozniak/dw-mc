@@ -102,7 +102,7 @@ const needsMe = (facts: Facts): string | null => {
  * pull request with no CI at all is not green.
  *
  * A red CI the classifier excused is said out loud, because GitHub does not
- * excuse it: the merge button is mine to press and that check is still red.
+ * excuse it: the check is still red, and Ready is what `dw-mc merge` reads.
  */
 const readyReason = (facts: Facts): string => {
   const held = [

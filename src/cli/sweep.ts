@@ -25,7 +25,7 @@ import { flakyReason } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
 import { conflictFor } from "#domain/rebase.ts"
-import { blockingIn, decidingIn, reviewedBy, runsAt } from "#domain/review.ts"
+import { reviewedAt } from "#domain/review.ts"
 
 /** Something a sweep could not read, and what GitHub said about it. */
 export interface Trouble {
@@ -72,17 +72,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
   // facts, and these facts are a cache of GitHub: reading them again costs a
   // sweep some calls, where failing here would cost the PR its row for good.
   const previous = Option.getOrUndefined(yield* Effect.orElseSucceed(store.get(key), () => Option.none<Facts>()))
-  // Whether this head has been reviewed is the run's to say, not a previous
-  // sweep's: a run is recorded against one head, and a head with no run of its
-  // own has not been reviewed however many sweeps have seen the pull request.
-  // A run that could not report findings does not count, either: its verdict is
-  // what takes a pull request out of Needs review run, and it reached none.
-  // A head may carry a run from each configured runner, and it is reviewed once
-  // every runner that decides my bar has reported on it. A second opinion's
-  // findings are read here only where the configuration lets them block.
-  const deciding = decidingIn(settings.review.runners, settings.stamp.supporting_blocks)
-  const atHead = yield* runsAt(found.repo, found.number, view.headRefOid)
-  const reviewed = reviewedBy(atHead, deciding)
+  const reviewed = yield* reviewedAt(found.repo, found.number, view.headRefOid, settings)
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
       ? previous
@@ -129,8 +119,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
-    reviewRunHead: reviewed ? view.headRefOid : null,
-    blockingFindings: blockingIn(atHead, deciding, settings.stamp.blocks_on).length
+    ...reviewed
   }
 
   yield* store.set(key, facts)

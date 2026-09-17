@@ -7,12 +7,21 @@ import type { Facts, Placed } from "#domain/bucket.ts"
  * front door rather than a second implementation: what it does with my answer
  * is run the command I would have typed.
  */
-export type Action = "resolve" | "rerun" | "review" | "findings" | "fix" | "rebase" | "withdraw"
+export type Action = "resolve" | "rerun" | "review" | "findings" | "fix" | "rebase" | "withdraw" | "merge"
 
 /** An action on offer, with the words the picker shows for it. */
 export interface Offer {
   readonly action: Action
   readonly title: string
+  /**
+   * The question asked before this one runs, where a keystroke is not enough.
+   *
+   * It rides on the offer rather than being a rule the picker keeps, so what
+   * gets confirmed is decided beside what gets offered. Everything without one
+   * is cheap or reversible, and asking about those would teach me to answer
+   * without reading.
+   */
+  readonly confirm?: string
 }
 
 /** A tracked PR as the picker sees it: where it sits, and what is true of it now. */
@@ -41,6 +50,14 @@ export interface Standing {
  *
  * Resolving a conflict comes first for the reason a conflict is the first thing
  * that makes a PR mine: it makes every other signal on the PR stale.
+ *
+ * Merging comes last, and not because it is the least likely. The cursor rests
+ * on the first row, and the one action here that no reflog undoes should not be
+ * the one a stray return key reaches. It carries a confirmation of its own on
+ * top of that. What it is offered on is the bucket and the mark a sweep already
+ * computed; the threshold itself is `dw-mc merge`'s, read live when I pick it
+ * (ADR 0008), and a draft is left out here because a sweep shows one without
+ * ever acting on it.
  */
 export const actionsFor = ({ placed, rebasing, rerunAt, stamped }: Standing): ReadonlyArray<Offer> => {
   const { facts } = placed
@@ -57,7 +74,14 @@ export const actionsFor = ({ placed, rebasing, rerunAt, stamped }: Standing): Re
     reviewed ? { action: "findings" as const, title: "Show the review-run report" } : null,
     reviewed ? { action: "fix" as const, title: "Open a fix session on the findings" } : null,
     rebasing ? { action: "rebase" as const, title: "Rebase onto the base and push" } : null,
-    stamped ? { action: "withdraw" as const, title: "Withdraw the stamp, until the head changes" } : null
+    stamped ? { action: "withdraw" as const, title: "Withdraw the stamp, until the head changes" } : null,
+    placed.placement.bucket === "ready" && stamped && !facts.draft
+      ? {
+          action: "merge" as const,
+          title: "Squash-merge it and delete the branch",
+          confirm: `Squash-merge ${facts.repo}#${facts.number} and delete its branch? Nothing here undoes that.`
+        }
+      : null
   ].filter((offer) => offer !== null)
 }
 

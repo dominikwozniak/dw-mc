@@ -6,6 +6,7 @@ const tester = new RuleTester({ languageOptions: { parserOptions: { lang: "ts" }
 const notARead = { messageId: "notARead" }
 const apiWrite = { messageId: "apiWrite" }
 const writeNeedsFlag = { messageId: "writeNeedsFlag" }
+const writeForbidsFlag = { messageId: "writeForbidsFlag" }
 
 tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
   valid: [
@@ -18,8 +19,12 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
     `readJson("api user", "gh", ["api", "user"], User)`,
     'capture("gh", ["api", `repos/${repo}/actions/jobs/${jobId}/logs`, "--allow-escape-sequences"])',
     {
-      name: "the one write ADR 0002 admits",
+      name: "the write ADR 0002 admits",
       code: `capture("gh", ["run", "rerun", runId, "--repo", repo, "--failed"])`
+    },
+    {
+      name: "the write ADR 0008 admits",
+      code: `capture("gh", ["pr", "merge", String(number), "--repo", repo, "--squash", "--delete-branch"])`
     },
     {
       name: "another program's vector is not this rule's business",
@@ -27,7 +32,17 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
     }
   ],
   invalid: [
-    { name: "a write verb", code: `capture("gh", ["pr", "merge", "27"])`, errors: [notARead] },
+    {
+      name: "a merge that leaves the branch behind, which is not the write that was admitted",
+      code: `capture("gh", ["pr", "merge", "27", "--squash"])`,
+      errors: [writeNeedsFlag]
+    },
+    {
+      name: "a merge GitHub makes later, at a head nothing here has read",
+      code: `capture("gh", ["pr", "merge", "27", "--auto", "--squash", "--delete-branch"])`,
+      errors: [writeForbidsFlag]
+    },
+    { name: "a write verb", code: `capture("gh", ["pr", "close", "27"])`, errors: [notARead] },
     {
       name: "a re-run of the whole workflow run, which is not the failed jobs",
       code: `capture("gh", ["run", "rerun", runId, "--repo", repo])`,

@@ -15,10 +15,11 @@ import { short } from "#domain/review.ts"
 /**
  * Runs a flaky CI again, once, and never a CI that is mine to fix.
  *
- * This is the lighter of the two writes v1 makes to GitHub (ADR 0002): `gh run
- * rerun --failed` starts the jobs that failed over on a workflow run of a pull
- * request I author. No comment, reply, thread
- * resolve, label, review, approval, status or merge, here or anywhere.
+ * This is the lighter of the two writes ADR 0002 admits: `gh run rerun
+ * --failed` starts the jobs that failed over on a workflow run of a pull
+ * request I author. No comment, reply, thread resolve, label, review, approval
+ * or status, here or anywhere. The merge is a write of its own and lives in
+ * `dw-mc merge` alone (ADR 0008).
  *
  * Every signal is read live rather than off the last sweep, for the reason the
  * rebase guards are: a verdict from ten minutes ago can be about a head that

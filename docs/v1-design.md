@@ -121,7 +121,8 @@ Each item is one tracer bullet: end to end, thin, observable.
 6. `dw-mc rebase <pr>` for a single branch, and the flaky re-run.
 7. The `prompt` runner with the persona body, on Claude Code and Codex, and Codex as the second opinion.
 8. The `/dw-mc` skill and the no-argument picker.
+9. `dw-mc merge <pr>` behind the Ready-and-stamped threshold, in the picker behind a confirmation.
 
 ## Out of scope for v1
 
-Summaries and repository graphs, PR body edits, driving stacks, automatic fixes of findings or CI, a watch mode or background discovery, a web UI, a full-screen TUI, a headless security review, and posting anything to GitHub beyond ADR 0002.
+Summaries and repository graphs, PR body edits, driving stacks, automatic fixes of findings or CI, a watch mode or background discovery, a web UI, a full-screen TUI, a headless security review, and posting anything to GitHub beyond ADR 0002 and ADR 0008.

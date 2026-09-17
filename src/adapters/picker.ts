@@ -71,6 +71,22 @@ export const choose = <A>(
   )
 
 /**
+ * Asks a yes-or-no question about something that cannot be taken back.
+ *
+ * It starts on no, and walking away is no as well: the answer this returns is
+ * the one I typed, and every other way out of the prompt leaves the thing
+ * undone. A confirmation that defaulted to yes would be one keystroke, which is
+ * exactly what it exists to stop being.
+ */
+export const confirm = (message: string): Effect.Effect<boolean, never, Prompt.Environment> =>
+  Effect.flatMap(Paint, (paint) =>
+    Effect.map(
+      orNone(Effect.asSome(Prompt.Confirm({ message, initial: false, theme: theme(paint) }))),
+      Option.getOrElse(() => false)
+    )
+  )
+
+/**
  * Asks for a line of prose, where having nothing to say is the ordinary answer.
  *
  * An empty line is no note, and that is not a failure: the prompt is optional

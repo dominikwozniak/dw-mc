@@ -60,7 +60,7 @@ describe("stampFor", () => {
     assert.strictEqual(stampFor(facts({ checks: "none" }), null).reason, "no CI ran on this head")
   })
 
-  it("withholds the stamp from a red CI the classifier excused, because the merge button is mine", () => {
+  it("withholds the stamp from a red CI the classifier excused, because the check is still red", () => {
     assert.strictEqual(
       stampFor(facts({ checks: "red", ciFlaky: "Quality gate is red on the default branch too" }), null).stamped,
       false

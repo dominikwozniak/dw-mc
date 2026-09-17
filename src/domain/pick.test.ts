@@ -122,3 +122,52 @@ describe("the re-run the picker offers", () => {
     assert.deepStrictEqual(argvFor("rerun", facts()), ["rerun", "dominikwozniak/dw-mc#28"])
   })
 })
+
+describe("the merge the picker offers", () => {
+  const landable = standing({ placed: placed({ reviewRunHead: head, reviewDecision: "approved" }), stamped: true })
+
+  it("offers it on a Ready pull request that carries the stamp", () => {
+    assert.include(offered(landable), "merge")
+  })
+
+  it("offers it last, because the cursor rests on the first row", () => {
+    assert.strictEqual(offered(landable).at(-1), "merge")
+  })
+
+  it("offers it on nothing that is not Ready", () => {
+    const waiting = standing({
+      placed: placed({ reviewRunHead: head, reviewDecision: "review-required" }),
+      stamped: true
+    })
+    assert.notInclude(offered(waiting), "merge")
+  })
+
+  it("offers it on nothing the stamp is off", () => {
+    assert.notInclude(offered(standing({ placed: placed({ reviewRunHead: head }) })), "merge")
+  })
+
+  it("carries a question of its own, where no other offer does", () => {
+    const merge = actionsFor(landable).find((offer) => offer.action === "merge")
+    assert.include(merge?.confirm, "delete its branch?")
+    assert.deepStrictEqual(
+      actionsFor(landable)
+        .filter((offer) => offer.confirm !== undefined)
+        .map((offer) => offer.action),
+      ["merge"]
+    )
+  })
+
+  it("runs the merge as the command I would have typed", () => {
+    assert.deepStrictEqual(argvFor("merge", facts()), ["merge", "dominikwozniak/dw-mc#28"])
+  })
+})
+
+describe("the picker and a draft", () => {
+  it("offers no merge on a draft, which a sweep shows and never acts on", () => {
+    const draft = standing({
+      placed: placed({ reviewRunHead: head, reviewDecision: "approved", draft: true }),
+      stamped: true
+    })
+    assert.notInclude(offered(draft), "merge")
+  })
+})

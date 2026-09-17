@@ -425,3 +425,25 @@ export const reviewDecisionOf = (raw: string): ReviewDecision =>
     Match.when("REVIEW_REQUIRED", () => "review-required"),
     Match.orElse(() => "none")
   )
+
+/**
+ * Squash-merges a pull request and deletes the branch it stood on.
+ *
+ * The one write the tool makes that no reflog of mine undoes, and the whole of
+ * it: a squash, because that is how the repository lands a pull request and the
+ * squash subject is its title, and the branch, because squashing kills it
+ * anyway. No `--auto`, which would hand GitHub a merge to make at a head
+ * nothing here has read (ADR 0008).
+ *
+ * Whether this pull request is one to merge is decided before we get here, and
+ * `gh` still has the last word: a branch protection this machine cannot see
+ * comes back as a failure and is printed as one.
+ */
+export const mergePr = Effect.fnUntraced(function* (repo: string, number: number) {
+  yield* capture("gh", ["pr", "merge", String(number), "--repo", repo, "--squash", "--delete-branch"]).pipe(
+    Effect.catchTags({
+      PlatformError: (error) => Effect.fail(unavailable(error)),
+      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: "pr merge", detail: error.stderr }))
+    })
+  )
+})

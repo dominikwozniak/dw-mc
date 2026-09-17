@@ -16,12 +16,13 @@ import { short } from "#domain/review.ts"
  * Brings one branch up to date with its base, with the guards that matter more
  * than the rebase does.
  *
- * This is the heavier of the two writes v1 makes to GitHub, and it writes one
+ * This is the heavier of the two writes ADR 0002 admits, and it writes one
  * thing: a push to a branch I author, in the repository the branch is in, with
- * a lease, onto the head this run read (ADR 0002). Who opened the pull request
- * and where its branch lives are read from GitHub and checked before anything
- * is cut. No comment, reply, thread resolve, label, review, approval, status or
- * merge, here or anywhere.
+ * a lease, onto the head this run read. Who opened the pull request and where
+ * its branch lives are read from GitHub and checked before anything is cut. No
+ * comment, reply, thread resolve, label, review, approval or status, here or
+ * anywhere. The merge is a write of its own and lives in `dw-mc merge` alone
+ * (ADR 0008).
  *
  * Every guard is read live rather than off the last sweep, because each of them
  * is about the branch as it is now: a sweep from ten minutes ago cannot say

@@ -20,11 +20,21 @@ export interface Stamp {
 export const Withdrawal = Schema.Struct({ head: Schema.String })
 export type Withdrawal = typeof Withdrawal.Type
 
+/**
+ * The facts a stamp rests on, which are fewer than a sweep writes down.
+ *
+ * It is spelled out because the stamp is asked for in two places that know
+ * different amounts: `dw-mc status` has the whole of a swept `Facts`, and
+ * `dw-mc merge` has what it just read off GitHub and out of the state
+ * directory. Both compute the same mark from the same five facts.
+ */
+export type Stampable = Pick<Facts, "head" | "reviewRunHead" | "blockingFindings" | "checks" | "mergeable">
+
 /** The stamp a pull request has not earned, and the first reason it has not. */
 const withheld = (reason: string): Stamp => ({ stamped: false, reason })
 
 /** What CI has to say before the stamp will rest on it, which is green and nothing else. */
-const whyNotGreen: Record<Facts["checks"], string | null> = {
+export const whyNotGreen: Record<Facts["checks"], string | null> = {
   green: null,
   red: "CI is red",
   pending: "CI is still running",
@@ -32,7 +42,7 @@ const whyNotGreen: Record<Facts["checks"], string | null> = {
 }
 
 /** What GitHub has to say about merging, which is that it would. */
-const whyNotMergeable: Record<Facts["mergeable"], string | null> = {
+export const whyNotMergeable: Record<Facts["mergeable"], string | null> = {
   mergeable: null,
   conflicting: "merge conflict",
   unknown: "GitHub has not said whether it merges"
@@ -44,8 +54,9 @@ const whyNotMergeable: Record<Facts["mergeable"], string | null> = {
  * The mark is computed rather than clicked, so it means the same thing every
  * time: a review run on this head that found nothing blocking, CI green as the
  * repository's `ci.ignore` defines green, and a pull request GitHub would
- * merge. A red CI the flaky classifier excused is still not green here - the
- * merge button is mine to press and that check is still red.
+ * merge. A red CI the flaky classifier excused is still not green here: an
+ * excuse is a reason not to fix a check, not a reason to land code behind one,
+ * and this mark is what clears `dw-mc merge` (ADR 0008).
  *
  * Nothing about this rests on a previous stamp, which is what makes a head
  * change clear it: facts are about one head, and a run is recorded against one.
@@ -53,7 +64,7 @@ const whyNotMergeable: Record<Facts["mergeable"], string | null> = {
  * A withdrawal comes first, because it is the one thing here I decided rather
  * than computed.
  */
-export const stampFor = (facts: Facts, withdrawnAt: string | null): Stamp => {
+export const stampFor = (facts: Stampable, withdrawnAt: string | null): Stamp => {
   if (withdrawnAt === facts.head) {
     return withheld("withdrawn by hand")
   }
