@@ -7,7 +7,7 @@ description: Read mission control's state on my open pull requests from inside a
 
 `dw-mc` is my local mission control: it keeps the state of my open pull requests on disk, reads GitHub through `gh`, and runs code reviews through local agent CLIs. This skill is a way into that state from a session I am already steering. It has no state of its own: every answer comes from running the CLI.
 
-Use mission control's words: tracked PR, bucket, stamp, review run, finding, fix session, conflict record, resolve session, flaky failure, legitimate failure. They are defined in `CONTEXT.md`, two directories above this file, in the clone this skill is installed from.
+Use mission control's words: tracked PR, bucket, stamp, review run, finding, fix session, conflict record, resolve session, flaky failure, legitimate failure. They are defined in [`CONTEXT.md`](https://github.com/dominikwozniak/dw-mc/blob/main/CONTEXT.md), so a copy of this skill installed anywhere still reaches it.
 
 ## Reads
 
