@@ -14,7 +14,7 @@ My own instructions ride on `--append-system-prompt` rather than on the slash co
 
 - The persona in `src/domain/persona.ts` belongs to the promptless shapes alone. A slash command is already a review, and putting a second set of review instructions behind it would be two reviewers arguing inside one turn.
 - `review.effort` widens to Claude Code's own set — `low`, `medium`, `high`, `xhigh`, `max` — and may be null. A repository that spells its own arguments into `review.command` has no word left to append.
-- A configuration file from an earlier version fails to read, and `read` names each removed key and what replaced it. `review.skill` became `review.prompt`, and a file quietly stripped of it is a review brief lost; the check exists for that one case and is meant to be deleted once no file carries those keys.
+- A configuration file from an earlier version fails to read, and names the three keys to change. Why a file this version cannot read stops every command rather than being tolerated is [ADR 0010](./0010-configuration-that-cannot-be-read.md).
 - Storage keys lose their runner suffix, which returns them to the shape they had before runners existed. A record an earlier version wrote carries no `command` field and therefore does not decode, and every reader already turns that into "no run" — so a stale record is forgotten rather than read as current. The cost is one re-review per pull request.
 - `dw-mc init` asks nothing at all. The only choice it used to make was the runner; a slash command line and a review brief belong in the file, where I can edit them, and not in a terminal prompt.
 - `dw-mc findings` loses `--runner`. There is one run at a head, so there is nothing to choose between.
