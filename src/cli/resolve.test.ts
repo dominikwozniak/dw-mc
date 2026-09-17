@@ -214,6 +214,26 @@ describe("dw-mc resolve", () => {
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
   })
 
+  it.effect("ends on the three lines that finish the job, ready to paste", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered
+      yield* conflicted()
+
+      yield* run("resolve", "28")
+
+      // The rebase stands and finishing it is mine, so what is left to run is
+      // on screen as itself rather than described in a sentence.
+      const at = printed.indexOf(`  cd ${worktree}`)
+      assert.deepStrictEqual(printed.slice(at, at + 3), [`  cd ${worktree}`, "  git rebase --continue", "  git push"])
+      assert.include(printed.join("\n"), "The session is over.")
+      assert.include(printed.join("\n"), "the rebase stands where it stopped")
+      assert.include(printed.at(-1), "dw-mc review 28")
+    }).pipe(Effect.provide(machine({ spawned })), recording(printed))
+  })
+
   it.effect("commits nothing and pushes nothing on my behalf", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
     const printed: Array<string> = []

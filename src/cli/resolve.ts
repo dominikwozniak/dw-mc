@@ -99,7 +99,9 @@ export const resolve = Command.make(
           `The replay went through, so there is nothing to resolve: git replayed a resolution you made before, ` +
             `or the conflict is gone.`
         )
-        yield* Console.log(`The worktree stands at ${worktree.directory}; the push onto ${view.headRefName} is yours.`)
+        yield* Console.log(`The worktree stands where it replayed, and the push onto ${view.headRefName} is yours:`)
+        yield* Effect.forEach([``, `  cd ${worktree.directory}`, `  git push`, ``], (line) => Console.log(line))
+        yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
         return
       }
 
@@ -113,9 +115,13 @@ export const resolve = Command.make(
       })
 
       yield* Console.log(ended === 0 ? "The session is over." : `The session ended with ${ended}.`)
-      yield* Console.log(
-        `Nothing was committed or pushed for you; the rebase stands in ${worktree.directory}. ` +
-          `git rebase --continue there, then push onto ${view.headRefName}.`
+      yield* Console.log("Nothing was committed or pushed for you; the rebase stands where it stopped.")
+
+      // What is left to do is what is left to run, so it is on screen as
+      // itself: the rebase is finished and pushed by me, from the worktree,
+      // and a sentence about it is one more thing to translate.
+      yield* Effect.forEach([``, `  cd ${worktree.directory}`, `  git rebase --continue`, `  git push`, ``], (line) =>
+        Console.log(line)
       )
       yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
     },
