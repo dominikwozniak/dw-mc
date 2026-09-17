@@ -47,7 +47,7 @@ _Avoid_: column, lane, status
 The bucket for a PR only I can move: a conflict, red CI that is not flaky, changes requested, a human comment newer than my last activity, or a blocking finding.
 
 **Needs review run**:
-The bucket for a PR whose current head has no review run from every deciding runner.
+The bucket for a PR whose current head has no review run behind it.
 
 **Waiting on others**:
 The bucket for a PR with nothing left for me: a human review is pending.
@@ -90,27 +90,19 @@ _Avoid_: retry, restart
 ### Reviews
 
 **Review run**:
-One execution of one runner against a tracked PR at a specific head commit, recorded with its verdict and findings. Every configured runner reviews in the one worktree, so a second opinion reads the same code. GitHub's CI checks are not review runs.
+One review of a tracked PR at a specific head commit, recorded with its verdict and findings. It runs in a throwaway worktree cut at that head, and a head carries one. GitHub's CI checks are not review runs.
 _Avoid_: check, audit, scan
 
-**Runner**:
-What a review run executes. `builtin` is Claude Code's own review command; `prompt` is the tool's own review prompt on Claude Code; `codex` is that same prompt on the Codex CLI. A repository configures one or more, and a head carries one run per runner.
-_Avoid_: reviewer, provider, model
-
-**Deciding runner**:
-A configured runner whose findings are my bar: every configured runner but the supporting one, and every one of them where `stamp.supporting_blocks` is set. A head is reviewed once every deciding runner has reported on it.
-_Avoid_: primary, blocking, real
-
-**Supporting runner**:
-A runner whose findings inform me without gating my bar: Codex, wherever a review of my own runs beside it. Its findings withhold no stamp until `stamp.supporting_blocks` says they may. Configured alone it is not supporting - it is the review.
-_Avoid_: secondary, advisory, optional
+**Review turn**:
+What a review run opens on: the slash command `review.command` names with `review.effort` after it, my own instructions from `review.prompt`, or both. A slash command is the review, so it takes two turns - the review, then the same review asked for as findings - and my instructions ride beside it on the system prompt. Without one the review is the tool's own persona with my instructions in front of it, in a single turn.
+_Avoid_: runner, invocation, mode
 
 **Launcher**:
-The programs this machine starts a runner with, and the arguments they take before mission control's own. Their defaults are `claude` and `codex` themselves; a machine that reaches either through another program - `cswap run --`, a multi-account manager - names that program here. It carries the sessions I steer too - the one on findings and the one on a conflict - which are no review run.
+The program this machine starts Claude Code with, and the arguments it takes before mission control's own. Its default is `claude` itself; a machine that reaches it through another program - `cswap run --`, a multi-account manager - names that program here. It carries the sessions I steer too - the one on findings and the one on a conflict - which are no review run.
 _Avoid_: wrapper, executable, shim
 
 **Finding**:
-One problem a review run reports, at a file and line, with a severity of error, warning or info. A finding at or above `stamp.blocks_on`, an error unless I configure otherwise, is a blocking finding: it withholds the stamp until the head changes, unless a supporting runner found it.
+One problem a review run reports, at a file and line, with a severity of error, warning or info. A finding at or above `stamp.blocks_on`, an error unless I configure otherwise, is a blocking finding: it withholds the stamp until the head changes.
 _Avoid_: issue, comment, violation
 
 **Outcome**:
@@ -118,7 +110,7 @@ What a review run came to: the verdict and findings it reported, or the failure 
 _Avoid_: result, status
 
 **Failure**:
-A review run that reached no verdict: the runner exited badly, ran out of patience, or answered in a shape that does not validate. Recorded as what it is, never as a clean verdict.
+A review run that reached no verdict: the run exited badly, ran out of patience, or answered in a shape that does not validate. Recorded as what it is, never as a clean verdict.
 _Avoid_: error, crash
 
 **Re-run rule**:

@@ -7,11 +7,11 @@
 [![license](https://img.shields.io/npm/l/dw-mc.svg?color=0b7285)](./LICENSE)
 [![node](https://img.shields.io/node/v/dw-mc.svg?color=0b7285)](https://nodejs.org)
 
-`dw-mc` keeps what it knows about each of your open pull requests on disk, reads GitHub through your own `gh`, runs code reviews through local agent CLIs, and sorts every pull request into the one bucket that says what it waits on.
+`dw-mc` keeps what it knows about each of your open pull requests on disk, reads GitHub through your own `gh`, runs code reviews through your local Claude Code, and sorts every pull request into the one bucket that says what it waits on.
 
 - **One bucket per pull request** — _needs me_, _needs review run_, _waiting on others_, _ready_. Never two at once.
-- **Reviews on the agent CLIs you already have** — Claude Code, the Codex CLI, or one as your bar and the other as a second opinion.
-- **Nothing leaves the machine** — no server, no GitHub App, no webhooks. Only the GitHub calls you would have made yourself, and whatever the agent CLIs send their own providers.
+- **Reviews on the Claude Code you already have** — its own `/code-review`, your own review brief, or both at once.
+- **Nothing leaves the machine** — no server, no GitHub App, no webhooks. Only the GitHub calls you would have made yourself, and whatever Claude Code sends Anthropic.
 - **State in plain files** — JSON and Markdown under XDG paths, readable without the tool.
 - **A prompt, not a TUI** — the picker runs the command you would have typed, so nothing it does is hidden from you.
 
@@ -45,7 +45,7 @@ To look before installing, `pnpm dlx dw-mc --help` runs the same binary from a t
 - Node 24 or newer
 - [`gh`](https://cli.github.com), authenticated: `gh auth login`
 - `git`
-- [Claude Code](https://claude.com/claude-code) as `claude`, or the [Codex CLI](https://developers.openai.com/codex/cli) as `codex` — at least one, for review runs and the sessions they open
+- [Claude Code](https://claude.com/claude-code) as `claude`, for review runs and the sessions they open
 
 ## Quick start
 
@@ -55,35 +55,35 @@ dw-mc           # the picker: every tracked PR under its bucket, and the command
 dw-mc review 62 # or drive any command straight
 ```
 
-`init` asks which runner is your bar and whether Codex should give a second opinion beside it, then writes both answers to one file you can keep in your dotfiles.
+`init` asks nothing: it writes the defaults to one file you can keep in your dotfiles, and what a review opens on is two keys in it — `review.command` and `review.prompt`.
 
 Every command that takes a pull request takes it as `62` inside the repository, or as `owner/name#62` from anywhere.
 
 ## Commands
 
-| Command               | Flags                                       | What it does                                                                                      |
-| --------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `dw-mc`               | —                                           | Opens the picker: every tracked pull request under its bucket, and what moves the one you choose. |
-| `dw-mc init`          | `--runner`, `--codex`, `--effort`, `--base` | Sets this machine up and registers the repository you are in.                                     |
-| `dw-mc sweep`         | —                                           | Refreshes what mission control knows about every tracked pull request. It only reads.             |
-| `dw-mc status`        | —                                           | Shows which bucket every tracked pull request sits in, and which ones you have stamped.           |
-| `dw-mc comments <pr>` | `--all`                                     | Prints the conversation on a pull request, and what in it is waiting on you.                      |
-| `dw-mc review <pr>`   | `--effort`, `--force`                       | Reviews one pull request on the configured runners, in a throwaway worktree.                      |
-| `dw-mc findings <pr>` | `--runner`, `--json`                        | Prints what the current review run found.                                                         |
-| `dw-mc fix <pr>`      | `--print`, `--commit`                       | Opens a session on the findings you pick, in a worktree that outlives it.                         |
-| `dw-mc stamp <pr>`    | `--withdraw`                                | Prints your stamp on a pull request, or withdraws it by hand.                                     |
-| `dw-mc rebase <pr>`   | —                                           | Rebases a branch onto its base and pushes it with a lease.                                        |
-| `dw-mc resolve <pr>`  | `--print`                                   | Opens a session on the conflict that stopped a rebase.                                            |
-| `dw-mc rerun <pr>`    | —                                           | Runs a flaky red CI again, once per head.                                                         |
-| `dw-mc merge <pr>`    | —                                           | Squash-merges a Ready, stamped pull request of yours and deletes its branch.                      |
-| `dw-mc cleanup`       | `--yes`                                     | Takes back the disk spent on clones and review worktrees, and keeps everything you decided.       |
-| `dw-mc uninstall`     | `--config`, `--force`, `--yes`              | Removes everything the tool wrote on this machine, and says how to remove the binary.             |
+| Command               | Flags                                                                                        | What it does                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `dw-mc`               | —                                                                                            | Opens the picker: every tracked pull request under its bucket, and what moves the one you choose. |
+| `dw-mc init`          | `--effort`, `--base`                                                                         | Sets this machine up and registers the repository you are in.                                     |
+| `dw-mc sweep`         | —                                                                                            | Refreshes what mission control knows about every tracked pull request. It only reads.             |
+| `dw-mc status`        | —                                                                                            | Shows which bucket every tracked pull request sits in, and which ones you have stamped.           |
+| `dw-mc comments <pr>` | `--all`                                                                                      | Prints the conversation on a pull request, and what in it is waiting on you.                      |
+| `dw-mc review <pr>`   | `--command`, `--prompt`, `--effort`, `--model`, `--prompt-only`, `--command-only`, `--force` | Reviews one pull request on Claude Code, in a throwaway worktree.                                 |
+| `dw-mc findings <pr>` | `--json`                                                                                     | Prints what the current review run found.                                                         |
+| `dw-mc fix <pr>`      | `--print`, `--commit`                                                                        | Opens a session on the findings you pick, in a worktree that outlives it.                         |
+| `dw-mc stamp <pr>`    | `--withdraw`                                                                                 | Prints your stamp on a pull request, or withdraws it by hand.                                     |
+| `dw-mc rebase <pr>`   | —                                                                                            | Rebases a branch onto its base and pushes it with a lease.                                        |
+| `dw-mc resolve <pr>`  | `--print`                                                                                    | Opens a session on the conflict that stopped a rebase.                                            |
+| `dw-mc rerun <pr>`    | —                                                                                            | Runs a flaky red CI again, once per head.                                                         |
+| `dw-mc merge <pr>`    | —                                                                                            | Squash-merges a Ready, stamped pull request of yours and deletes its branch.                      |
+| `dw-mc cleanup`       | `--yes`                                                                                      | Takes back the disk spent on clones and review worktrees, and keeps everything you decided.       |
+| `dw-mc uninstall`     | `--config`, `--force`, `--yes`                                                               | Removes everything the tool wrote on this machine, and says how to remove the binary.             |
 
 `dw-mc <command> --help` prints the flags and what each one is worth.
 
 ## How it works
 
-A **bucket** is the one place a pull request sits at a time, named for what it waits on. The rules are tried in order and the first that claims the pull request wins, so a pull request that both needs a review run and has changes requested is yours to move, not the runner's.
+A **bucket** is the one place a pull request sits at a time, named for what it waits on. The rules are tried in order and the first that claims the pull request wins, so a pull request that both needs a review run and has changes requested is yours to move, not the review's.
 
 | Bucket            | Marker | It waits on                                                                             |
 | ----------------- | ------ | --------------------------------------------------------------------------------------- |
@@ -109,16 +109,14 @@ Every other word this tool uses is defined in [`CONTEXT.md`](./CONTEXT.md), and 
 launcher:
   command: [claude] # program + argument prefix that starts Claude Code
   fix_args: [] # flags only a fix session gets
-  codex: [codex] # program + argument prefix that starts the Codex CLI
 defaults:
   base: null # the default branch from gh when null
   review:
-    runners: [builtin] # one or more of builtin | prompt | codex
-    effort: low # builtin only
-    model: null # prompt and codex only
-    skill: null # passed through as the first line of the tool's own prompt
+    command: /code-review # the slash command a run opens on; null for none
+    effort: low # the word after the command: low | medium | high | xhigh | max
+    prompt: null # your own review brief
+    model: null
     docs_only: ["**/*.md", "docs/**"]
-    path_instructions: [] # [{ path: glob, instructions: text }]
   ci:
     ignore: [] # check names that do not count towards green
     flaky_patterns: []
@@ -128,7 +126,6 @@ defaults:
     enabled: false
   stamp:
     blocks_on: error
-    supporting_blocks: false # whether a supporting runner's findings block
 repos:
   owner/name:
     # the same keys, overriding defaults

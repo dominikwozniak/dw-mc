@@ -13,18 +13,17 @@ Every command here names the pull request it acts on, because `dw-mc` with no ar
 
 ## Reads
 
-| I want                                                               | run                                     |
-| -------------------------------------------------------------------- | --------------------------------------- |
-| what every tracked PR waits on                                       | `dw-mc status`                          |
-| what mission control knows refreshed, and no table                   | `dw-mc sweep`                           |
-| the conversation on a pull request, and what in it waits on me       | `dw-mc comments <pr>`                   |
-| the whole conversation, resolved and answered threads included       | `dw-mc comments <pr> --all`             |
-| what the current review run found                                    | `dw-mc findings <pr>`                   |
-| what one runner found, over the first the repository configured      | `dw-mc findings <pr> --runner <runner>` |
-| those findings as the JSON a fix session is handed                   | `dw-mc findings <pr> --json`            |
-| whether a pull request carries my stamp, and what the stamp rests on | `dw-mc stamp <pr>`                      |
+| I want                                                               | run                          |
+| -------------------------------------------------------------------- | ---------------------------- |
+| what every tracked PR waits on                                       | `dw-mc status`               |
+| what mission control knows refreshed, and no table                   | `dw-mc sweep`                |
+| the conversation on a pull request, and what in it waits on me       | `dw-mc comments <pr>`        |
+| the whole conversation, resolved and answered threads included       | `dw-mc comments <pr> --all`  |
+| what the current review run found                                    | `dw-mc findings <pr>`        |
+| those findings as the JSON a fix session is handed                   | `dw-mc findings <pr> --json` |
+| whether a pull request carries my stamp, and what the stamp rests on | `dw-mc stamp <pr>`           |
 
-`<pr>` is `28` where one repository is registered, and `owner/name#28` otherwise. `<runner>` is `builtin`, `prompt` or `codex`.
+`<pr>` is `28` where one repository is registered, and `owner/name#28` otherwise.
 
 `dw-mc status` sweeps before it prints, so it costs a round of `gh` calls and is never stale. The other reads answer from what the last sweep wrote down; `dw-mc sweep` refreshes that and prints what it swept.
 

@@ -7,7 +7,7 @@ contact_links:
     about: Report it privately instead. Do not open a public issue.
   - name: What a word means
     url: https://github.com/dominikwozniak/dw-mc/blob/main/CONTEXT.md
-    about: Bucket, stamp, runner, review run, sweep — the glossary defines them all.
+    about: Bucket, stamp, review run, review turn, sweep — the glossary defines them all.
   - name: Why it works this way
     url: https://github.com/dominikwozniak/dw-mc/tree/main/docs/adr
     about: The decisions behind the boundaries, each one recorded.

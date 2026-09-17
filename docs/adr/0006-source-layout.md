@@ -2,7 +2,7 @@
 
 A module in `src/` belongs to a layer chosen by what it talks to, not by the feature it serves. There are three, and imports cross them in one direction only: `cli` → `domain` → `adapters`.
 
-**`adapters/`** is where the outside world is reached: GitHub and the runners through the spawner, state through the key-value store, the keyboard and the screen through the terminal. An adapter owns that boundary, and it exports the double its callers' tests need alongside the thing itself.
+**`adapters/`** is where the outside world is reached: GitHub and the agent CLI through the spawner, state through the key-value store, the keyboard and the screen through the terminal. An adapter owns that boundary, and it exports the double its callers' tests need alongside the thing itself.
 
 **`domain/`** is the deterministic core: the buckets, the stamp, the flaky classifier, the re-run rule, the decision to rebase. It takes facts and returns decisions, so a test over it needs no layer at all.
 

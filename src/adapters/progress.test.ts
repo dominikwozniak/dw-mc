@@ -62,9 +62,9 @@ describe("spinning", () => {
     const printed: Array<string> = []
 
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(spinning(reads, () => Effect.fail("the runner gave up" as const)))
+      const error = yield* Effect.flip(spinning(reads, () => Effect.fail("the run gave up" as const)))
 
-      assert.strictEqual(error, "the runner gave up")
+      assert.strictEqual(error, "the run gave up")
       assert.match(drawn.at(-1) ?? "", /^\r +\r$/)
     }).pipe(Effect.provide(layerScripted([], drawn)), recording(printed))
   })

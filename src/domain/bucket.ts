@@ -133,7 +133,7 @@ const readyReason = (facts: Facts): string => {
  * This is the single place the bucket rules exist. Every tracked PR lands in
  * exactly one bucket, so the rules are tried in priority order and the first
  * that claims the PR wins: a PR that both needs a review run and has changes
- * requested is mine to move, not the runner's.
+ * requested is mine to move, not the review's.
  *
  * Ready does not insist on an approval, because a repository that requires no
  * reviewer never produces one. What it insists on is that nobody else has been

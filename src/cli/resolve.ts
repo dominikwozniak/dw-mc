@@ -1,11 +1,11 @@
 import { Console, Effect, Option } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
+import { steeredSession } from "#adapters/claude.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { launcherOf, read as readConfig } from "#adapters/config.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseInPlace, standingWorktree } from "#adapters/git.ts"
-import { steeredSession } from "#adapters/runner.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { count } from "#cli/table.ts"
@@ -125,6 +125,6 @@ export const resolve = Command.make(
       )
       yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
     },
-    Effect.catchTag([...userFacing, "GitFailed", "WorktreeHeld", "RunnerFailed"], asUserError)
+    Effect.catchTag([...userFacing, "GitFailed", "WorktreeHeld", "AgentFailed"], asUserError)
   )
 ).pipe(Command.withDescription("Open a session on the conflict that stopped a rebase, in a worktree of my own"))

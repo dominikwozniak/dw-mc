@@ -1,12 +1,12 @@
 import { Console, Effect, Option } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
+import { steeredSession } from "#adapters/claude.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { prView } from "#adapters/gh.ts"
 import { standingWorktree } from "#adapters/git.ts"
 import { choose, note, width } from "#adapters/picker.ts"
-import { steeredSession } from "#adapters/runner.ts"
 import { currentRun, header, lines, whatItFound } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
@@ -88,7 +88,7 @@ export const fix = Command.make(
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
 
-      const run = yield* currentRun(repo, number, settings.review.runners)
+      const run = yield* currentRun(repo, number)
       const found = yield* whatItFound(run)
       yield* Console.log(header(run, found, settings.stamp.blocks_on))
       if (found.findings.length === 0) {
@@ -135,6 +135,6 @@ export const fix = Command.make(
       )
       yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
     },
-    Effect.catchTag([...userFacing, "GitFailed", "WorktreeHeld", "RunnerFailed"], asUserError)
+    Effect.catchTag([...userFacing, "GitFailed", "WorktreeHeld", "AgentFailed"], asUserError)
   )
 ).pipe(Command.withDescription("Pick findings from the current review run and open a fix session on them"))

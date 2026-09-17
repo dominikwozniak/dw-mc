@@ -32,26 +32,26 @@ describe("encodeYaml", () => {
 
   it("writes an empty collection inline and a full one as a block", () => {
     assert.strictEqual(
-      encodeYaml({ ignore: [], runners: ["builtin"], repos: {} }),
-      "ignore: []\nrunners:\n  - builtin\nrepos: {}\n"
+      encodeYaml({ ignore: [], reviewers: ["builtin"], repos: {} }),
+      "ignore: []\nreviewers:\n  - builtin\nrepos: {}\n"
     )
   })
 
   it("writes a sequence of mappings the parser reads back whole", () => {
     const value = {
-      path_instructions: [
-        { path: "src/**", instructions: "Prefer Effect.gen" },
-        { path: "docs/**", instructions: "Present tense" }
+      reviewers: [
+        { path: "src/**", note: "Prefer Effect.gen" },
+        { path: "docs/**", note: "Present tense" }
       ]
     }
 
     assert.strictEqual(
       encodeYaml(value),
-      "path_instructions:\n" +
+      "reviewers:\n" +
         `  - path: "src/**"\n` +
-        '    instructions: "Prefer Effect.gen"\n' +
+        '    note: "Prefer Effect.gen"\n' +
         `  - path: "docs/**"\n` +
-        '    instructions: "Present tense"\n'
+        '    note: "Present tense"\n'
     )
     assert.deepStrictEqual(roundTrip(value), value)
   })
@@ -67,12 +67,11 @@ describe("encodeYaml", () => {
       defaults: {
         base: null,
         review: {
-          runners: ["builtin"],
+          command: "/code-review",
           effort: "low",
+          prompt: null,
           model: null,
-          skill: null,
-          docs_only: ["**/*.md", "docs/**"],
-          path_instructions: []
+          docs_only: ["**/*.md", "docs/**"]
         },
         ci: { ignore: [], flaky_patterns: [] },
         rebase: { enabled: false },

@@ -1,24 +1,25 @@
 /**
- * How one turn of an agent CLI is spawned and given up on, and what a turn of
- * the tool's own review prompt comes back with.
+ * How one turn of Claude Code is spawned and given up on, and what a turn that
+ * answers against a schema comes back with.
  *
- * Both agent CLIs are reached this way, so the spawn, the patience and the one
- * failure they can end in live here rather than once per CLI.
+ * Every turn is reached this way, so the spawn, the patience and the one failure
+ * they can end in live here rather than once per turn.
  */
 import { Duration, Effect, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 /** A review run that would not start, would not finish, or finished badly. */
-export class RunnerFailed extends Schema.TaggedError<RunnerFailed>()("RunnerFailed", {
-  runner: Schema.String,
+export class AgentFailed extends Schema.TaggedError<AgentFailed>()("AgentFailed", {
+  /** The program that was spawned, which is what a search for it has to name. */
+  program: Schema.String,
   detail: Schema.String
 }) {
   override get message(): string {
-    return `The ${this.runner} review run failed: ${this.detail}`
+    return `The ${this.program} review run failed: ${this.detail}`
   }
 }
 
-/** What one `prompt` review run came back with, on either CLI. */
+/** What a review turn held to a schema came back with. */
 export interface Reported {
   /** What the run validated against the schema, handed on unread. */
   readonly findings: unknown
@@ -35,13 +36,13 @@ export interface Reported {
  * program that would not start or exited badly, and saying `claude` sends the
  * search to the wrong process.
  */
-export const failedBy = (program: string) => (detail: string) => new RunnerFailed({ runner: program, detail })
+export const failedBy = (program: string) => (detail: string) => new AgentFailed({ program, detail })
 
 /**
  * How long each turn gets before it is given up on.
  *
  * The review is the turn that thinks, and a high-effort one that fans out to
- * subagents takes real minutes, so its limit is there to catch a runner that has
+ * subagents takes real minutes, so its limit is there to catch a run that has
  * stopped rather than one that is slow. The second turn reads no code and
  * decides nothing - the review it reports on is already in the session it
  * resumes - and every run of it by hand came back in seconds.
@@ -59,24 +60,18 @@ export const patience = {
  *
  * The launcher's own arguments go in front of the turn's, because they are what
  * gets `claude` started at all. The two output streams are drained together,
- * because draining one to the end first can block a runner that is still writing
- * to the other. Every way a turn can fail to finish comes back from here as a
- * `RunnerFailed`, so a caller is left with the turn's own answer and nothing else
+ * because draining one to the end first can block a run that is still writing to
+ * the other. Every way a turn can fail to finish comes back from here as a
+ * `AgentFailed`, so a caller is left with the turn's own answer and nothing else
  * to translate - a turn that never comes back included.
  */
 export const turn = Effect.fnUntraced(function* <A, E extends { readonly message: string }, R>(options: {
-  /** The program and the prefix that starts this turn's CLI. */
+  /** The program and the prefix that starts Claude Code. */
   readonly command: readonly [string, ...Array<string>]
   readonly directory: string
   readonly args: ReadonlyArray<string>
   /** What this turn is called when it is late, and how long it has. */
   readonly patience: { readonly turn: string; readonly duration: Duration.Duration }
-  /**
-   * What the turn's standard input is. The default pipe suits a CLI that never
-   * reads it; `codex exec` reads standard input to the end and appends it to
-   * the prompt, so a pipe nothing closes is a run that never starts thinking.
-   */
-  readonly stdin?: "pipe" | "ignore" | undefined
   readonly read: (stdout: ChildProcessSpawner.ChildProcessHandle["stdout"]) => Effect.Effect<A, E, R>
 }) {
   const [program, ...prefix] = options.command
@@ -86,10 +81,7 @@ export const turn = Effect.fnUntraced(function* <A, E extends { readonly message
   const running = Effect.gen(function* () {
     const handle = yield* Effect.mapError(
       spawner.spawn(
-        ChildProcess.make(program, [...prefix, ...options.args], {
-          cwd: options.directory,
-          stdin: options.stdin ?? "pipe"
-        })
+        ChildProcess.make(program, [...prefix, ...options.args], { cwd: options.directory, stdin: "pipe" })
       ),
       (error) => failed(error.message)
     )

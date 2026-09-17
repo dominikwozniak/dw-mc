@@ -13,7 +13,7 @@ import { dwMc, version } from "#cli/cli.ts"
 import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
 
-/** The program a runner is spawned as, which the launcher names and the default spells `claude`. */
+/** The program a run is spawned as, which the launcher names and the default spells `claude`. */
 const launching = builtInLauncher.command[0]
 
 const repo = "dominikwozniak/dw-mc"
@@ -125,17 +125,17 @@ const ran = (outcome: Outcome) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
     const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, head, "builtin"), {
+    yield* runs.set(runKey(repo, 28, head), {
       repo,
       number: 28,
       head,
-      runner: "builtin",
+      command: "/code-review",
       effort: "low",
       sessionId: session,
       ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
       outcome
     })
-    yield* latest.set(latestKey(repo, 28, "builtin"), { head })
+    yield* latest.set(latestKey(repo, 28), { head })
   })
 
 /** The prompt the session was opened on, or nothing where no session was opened. */

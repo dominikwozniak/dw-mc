@@ -54,22 +54,22 @@ const registered = (...repos: ReadonlyArray<string>) =>
 
 const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
-/** The review run `dw-mc review` would have left behind, on `runner`. */
-const ran = (outcome: Outcome, runner: ReviewRun["runner"] = "builtin") =>
+/** The review run `dw-mc review` would have left behind. */
+const ran = (outcome: Outcome) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
     const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, head, runner), {
+    yield* runs.set(runKey(repo, 28, head), {
       repo,
       number: 28,
       head,
-      runner,
+      command: "/code-review",
       effort: "low",
       sessionId: session,
       ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
       outcome
     })
-    yield* latest.set(latestKey(repo, 28, runner), { head })
+    yield* latest.set(latestKey(repo, 28), { head })
   })
 
 describe("dw-mc findings", () => {
@@ -100,7 +100,7 @@ describe("dw-mc findings", () => {
       yield* run("findings", "28")
 
       assert.deepStrictEqual(printed, [
-        `${repo}#28  284d599  builtin  2 findings, 1 blocking`,
+        `${repo}#28  284d599  2 findings, 1 blocking`,
         "  src/cli/review.ts:88 │ error │ The run is never recorded.",
         "  docs/v1-design.md:3  │ info  │ The build order is out of date."
       ])
@@ -116,49 +116,7 @@ describe("dw-mc findings", () => {
 
       yield* run("findings", "28")
 
-      assert.deepStrictEqual(printed, [`${repo}#28  284d599  builtin  clean, nothing to fix`])
-    }).pipe(Effect.provide(machine), recording(printed))
-  })
-
-  it.effect("prints the first configured runner's findings where a head carries two", () => {
-    const printed: Array<string> = []
-    const second: Outcome = {
-      _tag: "reported",
-      verdict: "findings",
-      findings: [{ file: "src/cli/fix.ts", line: 12, severity: "warning", summary: "Codex saw this one." }]
-    }
-
-    return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["builtin", "codex"] } } } } satisfies ConfigFile)
-      yield* ran(found)
-      yield* ran(second, "codex")
-
-      yield* run("findings", "28")
-
-      assert.include(printed[0] ?? "", "builtin")
-      assert.include(printed.join("\n"), "The run is never recorded.")
-      assert.notInclude(printed.join("\n"), "Codex saw this one.")
-    }).pipe(Effect.provide(machine), recording(printed))
-  })
-
-  it.effect("prints the second opinion when I name it, so a cross-check is one flag away", () => {
-    const printed: Array<string> = []
-    const second: Outcome = {
-      _tag: "reported",
-      verdict: "findings",
-      findings: [{ file: "src/cli/fix.ts", line: 12, severity: "warning", summary: "Codex saw this one." }]
-    }
-
-    return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["builtin", "codex"] } } } } satisfies ConfigFile)
-      yield* ran(found)
-      yield* ran(second, "codex")
-
-      yield* run("findings", "28", "--runner", "codex")
-
-      assert.include(printed[0] ?? "", "codex")
-      assert.include(printed.join("\n"), "Codex saw this one.")
-      assert.notInclude(printed.join("\n"), "The run is never recorded.")
+      assert.deepStrictEqual(printed, [`${repo}#28  284d599  clean, nothing to fix`])
     }).pipe(Effect.provide(machine), recording(printed))
   })
 

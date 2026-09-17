@@ -111,7 +111,7 @@ describe("dw-mc init", () => {
       yield* init()
 
       assert.deepStrictEqual(printed, [
-        "runner      builtin",
+        "review      /code-review low",
         "config      /home/dw/.config/dw-mc/config.yaml",
         "state       /home/dw/.local/state/dw-mc",
         "repository  dominikwozniak/dw-mc (registered)"
@@ -120,31 +120,25 @@ describe("dw-mc init", () => {
         defaults: {
           base: null,
           review: {
-            runners: ["builtin"],
+            command: "/code-review",
             effort: "low",
+            prompt: null,
             model: null,
-            skill: null,
-            docs_only: ["**/*.md", "docs/**"],
-            path_instructions: []
+            docs_only: ["**/*.md", "docs/**"]
           },
           ci: { ignore: [], flaky_patterns: [] },
           fix: { commits: false },
           rebase: { enabled: false },
-          stamp: { blocks_on: "error", supporting_blocks: false }
+          stamp: { blocks_on: "error" }
         },
         repos: { "dominikwozniak/dw-mc": {} }
       })
-    }).pipe(
-      Effect.provide(
-        machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }), keys: [key("enter"), key("enter")] })
-      ),
-      recording(printed)
-    )
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
   })
 
   it.effect("writes the defaults out as YAML I can read and edit", () =>
     Effect.gen(function* () {
-      yield* init("--runner", "prompt")
+      yield* init()
 
       const config = yield* ConfigStore
       assert.strictEqual(
@@ -153,15 +147,13 @@ describe("dw-mc init", () => {
           "defaults:\n" +
           "  base: null\n" +
           "  review:\n" +
-          "    runners:\n" +
-          "      - prompt\n" +
+          `    command: "/code-review"\n` +
           "    effort: low\n" +
+          "    prompt: null\n" +
           "    model: null\n" +
-          "    skill: null\n" +
           "    docs_only:\n" +
           `      - "**/*.md"\n` +
           `      - "docs/**"\n` +
-          "    path_instructions: []\n" +
           "  ci:\n" +
           "    ignore: []\n" +
           "    flaky_patterns: []\n" +
@@ -171,71 +163,11 @@ describe("dw-mc init", () => {
           "    enabled: false\n" +
           "  stamp:\n" +
           "    blocks_on: error\n" +
-          "    supporting_blocks: false\n" +
           "repos:\n" +
           "  dominikwozniak/dw-mc: {}\n"
       )
     }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
-
-  it.effect("takes the runner from a flag rather than asking for it", () => {
-    const printed: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* init("--runner", "prompt")
-
-      const file = Option.getOrThrow(yield* read)
-      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["prompt"])
-      assert.strictEqual(printed[0], "runner      prompt")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
-  })
-
-  it.effect("puts Codex beside the runner that is my bar when I ask for a second opinion", () => {
-    const printed: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* init("--runner", "builtin", "--codex")
-
-      const file = Option.getOrThrow(yield* read)
-      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["builtin", "codex"])
-      assert.strictEqual(printed[0], "runner      builtin, codex")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
-  })
-
-  it.effect("keeps the second opinion when a later run names only the bar", () => {
-    const printed: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* init("--runner", "builtin", "--codex")
-      yield* init("--runner", "prompt")
-
-      const file = Option.getOrThrow(yield* read)
-      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["prompt", "codex"])
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
-  })
-
-  it.effect("keeps the bar when a later run names only the second opinion", () => {
-    const printed: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* init("--runner", "prompt")
-      yield* init("--codex")
-
-      const file = Option.getOrThrow(yield* read)
-      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["prompt", "codex"])
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
-  })
-
-  it.effect("names Codex once where Codex is the bar, because then it is the review", () => {
-    const printed: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* init("--runner", "codex", "--codex")
-
-      const file = Option.getOrThrow(yield* read)
-      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["codex"])
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
-  })
 
   it.effect("stops with somewhere to get gh when gh is not installed", () =>
     Effect.gen(function* () {
@@ -260,23 +192,13 @@ describe("dw-mc init", () => {
   it.effect("stops on a configuration file that is there and is wrong", () =>
     Effect.gen(function* () {
       const config = yield* ConfigStore
-      yield* config.store.set("config.yaml", "defaults:\n  review:\n    runner: builtin\n")
+      yield* config.store.set("config.yaml", "defaults:\n  review:\n    commnad: /code-review\n")
 
       const error = yield* Effect.flip(init())
 
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
-      assert.include(error.message, "runner")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
-  )
-
-  it.effect("says what to pass when there is no terminal to answer the prompt", () =>
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(init())
-
-      assert.strictEqual(error._tag, "UserError")
-      assert.include(error.message, "--runner builtin")
-      assert.deepStrictEqual(yield* read, Option.none())
+      assert.include(error.message, "commnad")
     }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
@@ -288,10 +210,7 @@ describe("dw-mc init", () => {
 
       assert.strictEqual(printed[3], "repository  none here - run dw-mc init inside a repository to register it")
       assert.isUndefined(Option.getOrThrow(yield* read).repos)
-    }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }), keys: [key("enter"), key("enter")] })),
-      recording(printed)
-    )
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }) })), recording(printed))
   })
 
   it.effect("leaves the state directory behind on the first run", () => {
@@ -302,7 +221,7 @@ describe("dw-mc init", () => {
       const path = yield* Path.Path
       const xdg = yield* fs.makeTempDirectoryScoped()
 
-      yield* init("--runner", "builtin").pipe(
+      yield* init().pipe(
         Effect.provide(
           machine({
             spawner: gh({ auth: said.loggedIn, repo: said.repo }),
@@ -322,7 +241,7 @@ describe("dw-mc init", () => {
 
 describe("dw-mc init, run again", () => {
   const registered: ConfigFile = {
-    defaults: { review: { effort: "medium", runners: ["builtin"] } },
+    defaults: { review: { effort: "medium", command: "/code-review" } },
     repos: {
       "dominikwozniak/dw-mc": {
         base: "develop",
@@ -376,40 +295,17 @@ describe("dw-mc init, run again", () => {
     }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
-  it.effect("spells the defaults out over a file that only set some of them", () =>
+  it.effect("leaves a defaults block that only set some of them exactly as it is", () =>
     Effect.gen(function* () {
       yield* write({ defaults: { review: { effort: "high" }, rebase: { enabled: true } } })
 
-      yield* init("--runner", "prompt")
-
-      const defaults = Option.getOrThrow(yield* read).defaults
-      assert.strictEqual(defaults?.review?.effort, "high")
-      assert.strictEqual(defaults?.rebase?.enabled, true)
-      assert.deepStrictEqual(defaults?.review?.runners, ["prompt"])
-      assert.deepStrictEqual(defaults?.stamp, { blocks_on: "error", supporting_blocks: false })
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
-  )
-
-  it.effect("does not ask for the runner a second time", () =>
-    Effect.gen(function* () {
-      yield* write(registered)
-
       yield* init()
 
-      const file = Option.getOrThrow(yield* read)
-      assert.deepStrictEqual(file.defaults?.review?.runners, ["builtin"])
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
-  )
-
-  it.effect("sends a new runner to the global defaults, not to the repository", () =>
-    Effect.gen(function* () {
-      yield* write(registered)
-
-      yield* init("--runner", "prompt")
-
-      const file = Option.getOrThrow(yield* read)
-      assert.deepStrictEqual(file.defaults?.review?.runners, ["prompt"])
-      assert.isUndefined(file.repos?.["dominikwozniak/dw-mc"]?.review?.runners)
+      const defaults = Option.getOrThrow(yield* read).defaults
+      assert.deepStrictEqual(defaults, { review: { effort: "high" }, rebase: { enabled: true } })
+      // What the file leaves out is inherited rather than reset, so a block I
+      // wrote by hand is not filled in behind me.
+      assert.strictEqual(settingsFor({ defaults }, "dominikwozniak/dw-mc").review.command, "/code-review")
     }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
