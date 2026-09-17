@@ -74,19 +74,23 @@ _Avoid_: real, genuine
 ### Reviews
 
 **Review run**:
-One execution of a runner against a tracked PR at a specific head commit, recorded with its verdict and findings. GitHub's CI checks are not review runs.
+One execution of one runner against a tracked PR at a specific head commit, recorded with its verdict and findings. Every configured runner reviews in the one worktree, so a second opinion reads the same code. GitHub's CI checks are not review runs.
 _Avoid_: check, audit, scan
 
 **Runner**:
-A local agent CLI that a review run executes on. Claude Code is the primary runner; Codex is a supporting second opinion.
+What a review run executes. `builtin` is Claude Code's own review command; `prompt` is the tool's own review prompt on Claude Code; `codex` is that same prompt on the Codex CLI. A repository configures one or more, and a head carries one run per runner.
 _Avoid_: reviewer, provider, model
 
+**Supporting runner**:
+A runner whose findings inform me without gating my bar: Codex, wherever a review of my own runs beside it. Its findings withhold no stamp until `stamp.supporting_blocks` says they may. Configured alone it is not supporting - it is the review.
+_Avoid_: secondary, advisory, optional
+
 **Launcher**:
-The program this machine starts a runner with, and the arguments it takes before mission control's own. Its default is `claude` itself; a machine that reaches Claude Code through another program - `cswap run --`, a multi-account manager - names that program here. It carries the sessions I steer too - the one on findings and the one on a conflict - which are no review run.
+The programs this machine starts a runner with, and the arguments they take before mission control's own. Their defaults are `claude` and `codex` themselves; a machine that reaches either through another program - `cswap run --`, a multi-account manager - names that program here. It carries the sessions I steer too - the one on findings and the one on a conflict - which are no review run.
 _Avoid_: wrapper, executable, shim
 
 **Finding**:
-One problem a review run reports, at a file and line, with a severity of error, warning or info. A finding at or above `stamp.blocks_on`, an error unless I configure otherwise, is a blocking finding: it withholds the stamp until the head changes.
+One problem a review run reports, at a file and line, with a severity of error, warning or info. A finding at or above `stamp.blocks_on`, an error unless I configure otherwise, is a blocking finding: it withholds the stamp until the head changes, unless a supporting runner found it.
 _Avoid_: issue, comment, violation
 
 **Outcome**:

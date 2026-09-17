@@ -7,8 +7,16 @@ import { xdgDirectory } from "#adapters/xdg.ts"
 import type { Value } from "#adapters/yaml.ts"
 import { encodeYaml } from "#adapters/yaml.ts"
 
-/** A local agent CLI a review run executes on. */
-export const Runner = Schema.Literals(["builtin", "prompt"])
+/**
+ * What a review run executes: the agent's own review command, or the tool's own
+ * review prompt on one of the two agent CLIs.
+ *
+ * `builtin` and `prompt` run on the launcher, which is Claude Code. `codex`
+ * runs the same prompt on the Codex CLI, and is the second opinion: configured
+ * beside one of the others, its findings inform me without gating my bar.
+ */
+export const runners = ["builtin", "prompt", "codex"] as const
+export const Runner = Schema.Literals(runners)
 export type Runner = typeof Runner.Type
 
 /** How much a built-in review run spends. */
@@ -59,7 +67,8 @@ const SettingsPatch = Schema.Struct({
   ),
   stamp: Schema.optionalKey(
     Schema.Struct({
-      blocks_on: Schema.optionalKey(Severity)
+      blocks_on: Schema.optionalKey(Severity),
+      supporting_blocks: Schema.optionalKey(Schema.Boolean)
     })
   )
 })
@@ -76,7 +85,16 @@ const LauncherPatch = Schema.Struct({
       Schema.check(Schema.isMinLength(1, { message: "Expected the launcher command to name a program" }))
     )
   ),
-  fix_args: Schema.optionalKey(Schema.Array(Schema.String))
+  fix_args: Schema.optionalKey(Schema.Array(Schema.String)),
+  // The second agent CLI, named the same way and for the same reason: which
+  // program reaches Codex is a fact of this machine. It sits beside `command`
+  // rather than replacing it, because a machine that asks Codex for a second
+  // opinion is a machine that has both CLIs.
+  codex: Schema.optionalKey(
+    Schema.Array(Schema.String).pipe(
+      Schema.check(Schema.isMinLength(1, { message: "Expected the codex command to name a program" }))
+    )
+  )
 })
 
 /** A repository, as `gh` spells it: `owner/name`. */
@@ -118,7 +136,7 @@ export const builtIn: Settings = {
   ci: { ignore: [], flaky_patterns: [] },
   fix: { commits: false },
   rebase: { enabled: false },
-  stamp: { blocks_on: "error" }
+  stamp: { blocks_on: "error", supporting_blocks: false }
 }
 
 /** What this machine spawns a runner with, once the file has been read. */
@@ -127,10 +145,12 @@ export interface Launcher {
   readonly command: readonly [string, ...Array<string>]
   /** The flags only a fix session gets, the one run that is no review run. */
   readonly fix_args: ReadonlyArray<string>
+  /** The program, then its prefix, that reaches the Codex CLI. */
+  readonly codex: readonly [string, ...Array<string>]
 }
 
-/** `claude` itself, which is what a machine that spawns it directly needs. */
-export const builtInLauncher: Launcher = { command: ["claude"], fix_args: [] }
+/** `claude` and `codex` themselves, which is what a machine that spawns them directly needs. */
+export const builtInLauncher: Launcher = { command: ["claude"], fix_args: [], codex: ["codex"] }
 
 /**
  * The patch's value where it has one, the inherited value otherwise. A key the
@@ -158,7 +178,10 @@ const apply = (settings: Settings, patch: SettingsPatch | undefined): Settings =
         },
         fix: { commits: over(patch.fix?.commits, settings.fix.commits) },
         rebase: { enabled: over(patch.rebase?.enabled, settings.rebase.enabled) },
-        stamp: { blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on) }
+        stamp: {
+          blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on),
+          supporting_blocks: over(patch.stamp?.supporting_blocks, settings.stamp.supporting_blocks)
+        }
       }
 
 /**
@@ -211,7 +234,12 @@ export const withRepo = (file: ConfigFile, repo: string, patch: SettingsPatch): 
  */
 export const launcherOf = (file: ConfigFile): Launcher => {
   const [program = builtInLauncher.command[0], ...prefix] = file.launcher?.command ?? []
-  return { command: [program, ...prefix], fix_args: file.launcher?.fix_args ?? builtInLauncher.fix_args }
+  const [codex = builtInLauncher.codex[0], ...codexPrefix] = file.launcher?.codex ?? []
+  return {
+    command: [program, ...prefix],
+    fix_args: file.launcher?.fix_args ?? builtInLauncher.fix_args,
+    codex: [codex, ...codexPrefix]
+  }
 }
 
 /** What `repo` is worth: its own overrides over the global defaults. */
@@ -354,7 +382,15 @@ const settingsDocument = (patch: SettingsPatch): Value =>
     ],
     ["fix", patch.fix === undefined ? undefined : mapping([["commits", patch.fix.commits]])],
     ["rebase", patch.rebase === undefined ? undefined : mapping([["enabled", patch.rebase.enabled]])],
-    ["stamp", patch.stamp === undefined ? undefined : mapping([["blocks_on", patch.stamp.blocks_on]])]
+    [
+      "stamp",
+      patch.stamp === undefined
+        ? undefined
+        : mapping([
+            ["blocks_on", patch.stamp.blocks_on],
+            ["supporting_blocks", patch.stamp.supporting_blocks]
+          ])
+    ]
   ])
 
 /**
@@ -371,7 +407,8 @@ const fileDocument = (file: ConfigFile): Value =>
         ? undefined
         : mapping([
             ["command", file.launcher.command],
-            ["fix_args", file.launcher.fix_args]
+            ["fix_args", file.launcher.fix_args],
+            ["codex", file.launcher.codex]
           ])
     ],
     ["defaults", file.defaults === undefined ? undefined : settingsDocument(file.defaults)],

@@ -6,7 +6,7 @@ import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, writ
 import { currentRepo, requireAuth } from "#adapters/gh.ts"
 import { stateDirectory } from "#adapters/store.ts"
 
-const runnerFlag = Flag.Literals("runner", ["builtin", "prompt"]).pipe(
+const runnerFlag = Flag.Literals("runner", ["builtin", "prompt", "codex"]).pipe(
   Flag.withDescription("Which runner review runs execute on, on this machine"),
   Flag.optional
 )
@@ -28,14 +28,19 @@ const askRunner: Prompt.Prompt<Runner> = Prompt.Select({
     {
       title: "prompt",
       value: "prompt",
-      description: "The tool's own review prompt, on Claude Code or Codex"
+      description: "The tool's own review prompt, on Claude Code"
+    },
+    {
+      title: "codex",
+      value: "codex",
+      description: "The same prompt on the Codex CLI, as a second opinion"
     }
   ]
 })
 
 const noRunnerChosen =
   "No runner chosen, so nothing was written. " +
-  "Pass --runner builtin or --runner prompt to choose without the prompt."
+  "Pass --runner builtin, --runner prompt or --runner codex to choose without the prompt."
 
 /** The settings the flags asked for, and only those. */
 const asked = (base: Option.Option<string>, effort: Option.Option<"low" | "medium" | "high">): SettingsPatch => ({

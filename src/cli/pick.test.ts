@@ -127,7 +127,7 @@ const reviewed = (number: number, findings: ReadonlyArray<Finding> = []) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
     const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, number, head), {
+    yield* runs.set(runKey(repo, number, head, "builtin"), {
       repo,
       number,
       head,
@@ -137,7 +137,7 @@ const reviewed = (number: number, findings: ReadonlyArray<Finding> = []) =>
       ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
       outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings }
     })
-    yield* latest.set(latestKey(repo, number), { head })
+    yield* latest.set(latestKey(repo, number, "builtin"), { head })
   })
 
 const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)

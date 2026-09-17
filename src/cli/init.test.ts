@@ -130,7 +130,7 @@ describe("dw-mc init", () => {
           ci: { ignore: [], flaky_patterns: [] },
           fix: { commits: false },
           rebase: { enabled: false },
-          stamp: { blocks_on: "error" }
+          stamp: { blocks_on: "error", supporting_blocks: false }
         },
         repos: { "dominikwozniak/dw-mc": {} }
       })
@@ -169,6 +169,7 @@ describe("dw-mc init", () => {
           "    enabled: false\n" +
           "  stamp:\n" +
           "    blocks_on: error\n" +
+          "    supporting_blocks: false\n" +
           "repos:\n" +
           "  dominikwozniak/dw-mc: {}\n"
       )
@@ -333,7 +334,7 @@ describe("dw-mc init, run again", () => {
       assert.strictEqual(defaults?.review?.effort, "high")
       assert.strictEqual(defaults?.rebase?.enabled, true)
       assert.deepStrictEqual(defaults?.review?.runners, ["prompt"])
-      assert.deepStrictEqual(defaults?.stamp, { blocks_on: "error" })
+      assert.deepStrictEqual(defaults?.stamp, { blocks_on: "error", supporting_blocks: false })
     }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
