@@ -2,35 +2,12 @@ import { Console, Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { prKey } from "#adapters/store.ts"
+import { cells, heading, rule, titleWidth } from "#cli/row.ts"
 import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
-import { table, truncate } from "#cli/table.ts"
-import type { Bucket, Grouped, Placed } from "#domain/bucket.ts"
+import { table } from "#cli/table.ts"
+import type { Grouped } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 import { stampedAmong } from "#domain/stamp.ts"
-
-/** The glossary's name for each bucket, which is what the heading says. */
-const heading: Record<Bucket, string> = {
-  "needs-me": "Needs me",
-  "needs-review-run": "Needs review run",
-  "waiting-on-others": "Waiting on others",
-  ready: "Ready"
-}
-
-/** Long enough for a conventional-commit subject, short enough to keep a row on one line. */
-const titleWidth = 56
-
-/**
- * One row: which pull request, what it is, and what it waits on.
- *
- * A stamp is a mark beside the pull request rather than a column of its own, so
- * a table where nothing is stamped is exactly the table it was before: the
- * stamp is a thing I look for, not a thing I read every row of.
- */
-const cells = (placed: Placed, stamped: boolean): ReadonlyArray<string> => [
-  `${placed.facts.repo}#${placed.facts.number}${placed.facts.draft ? " (draft)" : ""}${stamped ? " ✓" : ""}`,
-  truncate(placed.facts.title, titleWidth),
-  placed.placement.reason
-]
 
 /**
  * Every tracked PR under the bucket it sits in, in the order I act on them.
@@ -43,9 +20,9 @@ const cells = (placed: Placed, stamped: boolean): ReadonlyArray<string> => [
 const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>): ReadonlyArray<string> => {
   const rows = table(
     grouped.flatMap((it) =>
-      it.placed.map((placed) => cells(placed, stamped.has(prKey(placed.facts.repo, placed.facts.number))))
+      it.placed.map((placed) => cells(placed, stamped.has(prKey(placed.facts.repo, placed.facts.number)), titleWidth))
     ),
-    " │ "
+    rule
   )
   let taken = 0
   return grouped.flatMap((it, index) => {

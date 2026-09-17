@@ -13,7 +13,8 @@
     "dw-mc": "./dist/cli/bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "type": "module",
   "imports": {
