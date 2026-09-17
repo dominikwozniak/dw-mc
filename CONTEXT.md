@@ -13,6 +13,14 @@ _Avoid_: ticket, task, item
 **Draft**:
 A tracked PR that GitHub marks as a draft. Shown, never acted on unless I ask.
 
+**Conversation**:
+Everything said on a tracked PR: its own comments, the bodies of its reviews, and every thread on its diff. Mission control reads it and never writes to it.
+_Avoid_: discussion, feedback
+
+**Thread**:
+One strand of a conversation: a review thread on a line of the diff, or the pull request's own comments, which hang off no path. A thread somebody resolved and one against code that is gone are settled - read on request, never counted as waiting on me.
+_Avoid_: discussion, note
+
 **Sweep**:
 One pass over every tracked PR that refreshes what mission control knows about it. A sweep only reads.
 _Avoid_: poll, refresh, sync

@@ -15,6 +15,8 @@ Use mission control's words: tracked PR, bucket, stamp, review run, finding, fix
 | -------------------------------------------------------------------- | ---------------------------- |
 | what every tracked PR waits on                                       | `dw-mc status`               |
 | the same, without the table                                          | `dw-mc sweep`                |
+| the conversation on a pull request, and what in it waits on me       | `dw-mc comments <pr>`        |
+| the whole conversation, resolved and answered threads included       | `dw-mc comments <pr> --all`  |
 | what the current review run found                                    | `dw-mc findings <pr>`        |
 | those findings as the JSON a fix session is handed                   | `dw-mc findings <pr> --json` |
 | whether a pull request carries my stamp, and what the stamp rests on | `dw-mc stamp <pr>`           |
