@@ -99,17 +99,17 @@ const reviewed = (at: string, findings: ReadonlyArray<Finding> = []) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
     const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, at, "builtin"), {
+    yield* runs.set(runKey(repo, 28, at), {
       repo,
       number: 28,
       head: at,
-      runner: "builtin",
+      command: "/code-review",
       effort: "low",
       sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
       ranAt: DateTime.makeUnsafe("2026-09-17T14:21:00Z"),
       outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings }
     })
-    yield* latest.set(latestKey(repo, 28, "builtin"), { head: at })
+    yield* latest.set(latestKey(repo, 28), { head: at })
   })
 
 /** What a sweep wrote down about the pull request, which is not what the guards read. */

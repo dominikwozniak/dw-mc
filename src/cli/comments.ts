@@ -59,9 +59,8 @@ const separated = (blocks: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<
  * The conversation on screen: people first, then a rule, then the bots.
  *
  * The rule is there so the two are never read as one list. A bot's comment is
- * observed and never answered, which is the same asymmetry between a deciding
- * and a supporting runner the glossary already draws, and the bucket rules
- * ignore bots for exactly this reason.
+ * observed and never answered, and the bucket rules ignore bots for exactly
+ * this reason.
  *
  * A bot is cut at the same moment I am measured against, because the window is
  * what has happened since I last acted rather than what is owed an answer. A

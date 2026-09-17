@@ -31,7 +31,7 @@ const asJson = Schema.encodeEffect(Schema.fromJsonString(Selection))
  *
  * The findings go in verbatim rather than described, because a re-description
  * is where a file, a line or my own note quietly changes. A note outranks the
- * finding it is on: the finding is what a runner thought, the note is what I
+ * finding it is on: the finding is what the review thought, the note is what I
  * think, and I am the one who picked it.
  *
  * Pushing is mine either way, and `commits` says whether committing is too.

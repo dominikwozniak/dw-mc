@@ -2,7 +2,6 @@ import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Console, DateTime, Effect, Layer, Option, Path, Stdio } from "effect"
 import { Command } from "effect/unstable/cli"
 
-import { layerFakeSchemaFile } from "#adapters/codex.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { builtInLauncher, ConfigStore, write } from "#adapters/config.ts"
 import { layerScripted } from "#adapters/picker.ts"
@@ -84,20 +83,6 @@ const answered = (fields: Record<string, unknown>) =>
     .map((event) => JSON.stringify(event))
     .join("\n")
 
-const thread = "01a0aebf-ef88-7432-b0d9-52a2f66480e1"
-
-/** What `codex exec --json --output-schema` prints: events, and findings for a final message. */
-const answeredByCodex = (findings: unknown = structured) =>
-  [
-    { type: "thread.started", thread_id: thread },
-    { type: "turn.started" },
-    { type: "item.started", item: { id: "item_1", type: "command_execution", command: "git diff main...HEAD" } },
-    { type: "item.completed", item: { id: "item_2", type: "agent_message", text: JSON.stringify(findings) } },
-    { type: "turn.completed", usage: { input_tokens: 39129 } }
-  ]
-    .map((event) => JSON.stringify(event))
-    .join("\n")
-
 /** The one object `claude --output-format json --json-schema` prints. */
 const reported = (fields: Record<string, unknown>) =>
   JSON.stringify({
@@ -126,14 +111,12 @@ const machine = (options: {
   readonly drawn?: Array<string> | undefined
   /** How wide the screen is. Zero is a pipe, where the run writes lines instead.  */
   readonly columns?: number | undefined
-  /** The first turn of a review run, which writes the report. */
+  /** The first turn of a review run on a slash command, which writes the report. */
   readonly runner?: Turn | undefined
   /** The second turn, which reports the findings. */
   readonly findings?: Turn | undefined
-  /** The one turn of the prompt runner on Claude Code. */
+  /** The one turn a review with no slash command takes. */
   readonly prompt?: Turn | undefined
-  /** The one turn of the same prompt on Codex. */
-  readonly codex?: Turn | undefined
   /** The pull requests `gh` knows about, by repository. */
   readonly repos?: Record<string, ReadonlyArray<number>> | undefined
   /** What GitHub says changed since the head a previous run was recorded against. */
@@ -159,12 +142,12 @@ const machine = (options: {
       if (command.args.includes("--resume")) {
         return turn(options.findings, reported({ structured_output: structured }))
       }
-      return command.args.some((arg) => arg.startsWith("/code-review"))
-        ? turn(options.runner, finished)
-        : turn(options.prompt, answered({}))
-    }
-    if (command.command === "codex") {
-      return turn(options.codex, answeredByCodex())
+      // A turn held to a schema is the whole review; a turn without one opens on
+      // a slash command, and its findings come on the turn that resumes it. That
+      // is the constraint itself, rather than which command the prompt names.
+      return command.args.includes("--json-schema")
+        ? turn(options.prompt, answered({}))
+        : turn(options.runner, finished)
     }
     if (command.command === "osascript") {
       return Effect.succeed(fakeHandle({}))
@@ -223,10 +206,6 @@ const machine = (options: {
     Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
     Layer.mergeAll(
       ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      // Codex takes its schema in a file, and writing it is the only thing any
-      // run writes anywhere: the worktree is git's and the state directory is
-      // the store's.
-      layerFakeSchemaFile(),
       Path.layer,
       Stdio.layerTest({}),
       spawner,
@@ -249,25 +228,25 @@ const registered = (...repos: ReadonlyArray<string>) =>
 
 const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
-const runOf = (head_: string, runner: ReviewRun["runner"] = "builtin") =>
-  Effect.flatMap(storeFor("runs", ReviewRun), (runs) => runs.get(runKey(repo, 28, head_, runner)))
+const runOf = (head_: string) =>
+  Effect.flatMap(storeFor("runs", ReviewRun), (runs) => runs.get(runKey(repo, 28, head_)))
 
 /** A review run this head has already had, as a previous command would have left it. */
-const already = (at: string, outcome: Outcome, runner: ReviewRun["runner"] = "builtin") =>
+const already = (at: string, outcome: Outcome) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
     const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, at, runner), {
+    yield* runs.set(runKey(repo, 28, at), {
       repo,
       number: 28,
       head: at,
-      runner,
+      command: "/code-review",
       effort: "low",
       sessionId: session,
       ranAt: DateTime.makeUnsafe("2026-09-15T10:00:00Z"),
       outcome
     })
-    yield* latest.set(latestKey(repo, 28, runner), { head: at })
+    yield* latest.set(latestKey(repo, 28), { head: at })
   })
 
 const clean: Outcome = { _tag: "reported", verdict: "clean", findings: [] }
@@ -292,7 +271,7 @@ describe("dw-mc review", () => {
           repo,
           number: 28,
           head,
-          runner: "builtin",
+          command: "/code-review",
           effort: "low",
           sessionId: session,
           ranAt: undefined,
@@ -301,14 +280,14 @@ describe("dw-mc review", () => {
       )
 
       const reports = yield* textStoreFor("runs")
-      const document = yield* reports.get(reportKey(repo, 28, head, "builtin"))
+      const document = yield* reports.get(reportKey(repo, 28, head))
       assert.include(document ?? "", `# ${repo}#28 ${title}`)
       assert.include(document ?? "", `- head: ${head}`)
       assert.include(document ?? "", report)
 
       assert.deepStrictEqual(printed, [
         `${repo}#28  ${title}`,
-        `  head 284d599  builtin, effort low`,
+        `  head 284d599  /code-review low`,
         "",
         report,
         "",
@@ -516,20 +495,6 @@ describe("dw-mc review", () => {
     }).pipe(Effect.provide(machine({ spawned })), recording([]))
   })
 
-  it.effect("stops on a repository that configured no runner at all", () => {
-    const spawned: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: [] } } } })
-
-      const error = yield* Effect.flip(run("review", "28"))
-
-      assert.strictEqual(error._tag, "UserError")
-      assert.include(error.message, "no runner at all")
-      assert.deepStrictEqual(spawned, [])
-    }).pipe(Effect.provide(machine({ spawned })), recording([]))
-  })
-
   it.effect("says what it cannot read rather than guessing at it", () => {
     const spawned: Array<string> = []
 
@@ -567,7 +532,7 @@ describe("dw-mc review, and what a run costs twice", () => {
       yield* run("review", "28")
 
       assert.isFalse(reviewed(spawned))
-      assert.include(printed.at(-1) ?? "", "builtin: only documentation changed since 1a2b3c4")
+      assert.include(printed.at(-1) ?? "", "only documentation changed since 1a2b3c4")
       assert.include(spawned, `gh api repos/${repo}/compare/${before}...${head}`)
     }).pipe(
       Effect.provide(machine({ spawned, changed: ["README.md", "docs/adr/0006-source-layout.md"] })),
@@ -700,7 +665,7 @@ describe("dw-mc review, and a second turn that does not report", () => {
       yield* Effect.ignore(run("review", "28"))
 
       const reports = yield* textStoreFor("runs")
-      assert.include((yield* reports.get(reportKey(repo, 28, head, "builtin"))) ?? "", report)
+      assert.include((yield* reports.get(reportKey(repo, 28, head))) ?? "", report)
 
       printed.length = 0
       yield* run("status")
@@ -714,7 +679,7 @@ describe("dw-mc review, and a second turn that does not report", () => {
   })
 })
 
-describe("dw-mc review, on the prompt runner", () => {
+describe("dw-mc review, with no slash command", () => {
   const promptOf = (spawned: ReadonlyArray<string>) =>
     spawned.find((vector) => vector.startsWith("claude -p You are an experienced")) ?? ""
 
@@ -723,16 +688,16 @@ describe("dw-mc review, on the prompt runner", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["prompt"] } } } })
+      yield* write({ repos: { [repo]: { review: { command: null } } } })
 
       yield* run("review", "28")
 
-      const recorded = Option.getOrThrow(yield* runOf(head, "prompt"))
-      assert.strictEqual(recorded.runner, "prompt")
+      const recorded = Option.getOrThrow(yield* runOf(head))
+      assert.strictEqual(recorded.command, null)
       assert.deepStrictEqual(recorded.outcome, { _tag: "reported", verdict: "findings", findings: weighed })
       // One turn, so nothing resumes anything.
       assert.isFalse(spawned.some((vector) => vector.includes("--resume")))
-      assert.include(printed, "  head 284d599  prompt")
+      assert.include(printed, "  head 284d599  the tool's own prompt")
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
   })
 
@@ -740,7 +705,7 @@ describe("dw-mc review, on the prompt runner", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["prompt"] } } } })
+      yield* write({ repos: { [repo]: { review: { command: null } } } })
 
       yield* run("review", "28")
 
@@ -754,7 +719,7 @@ describe("dw-mc review, on the prompt runner", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["prompt"] } } } })
+      yield* write({ repos: { [repo]: { review: { command: null } } } })
 
       yield* run("review", "28")
 
@@ -763,12 +728,12 @@ describe("dw-mc review, on the prompt runner", () => {
     }).pipe(Effect.provide(machine({ spawned })), recording([]))
   })
 
-  it.effect("runs the prompt on the model configured, and passes the repository's skill through", () => {
+  it.effect("runs the prompt on the model configured, and puts my own instructions in front of it", () => {
     const spawned: Array<string> = []
 
     return Effect.gen(function* () {
       yield* write({
-        repos: { [repo]: { review: { runners: ["prompt"], model: "claude-opus-5", skill: "/house-review" } } }
+        repos: { [repo]: { review: { command: null, model: "claude-opus-5", prompt: "/house-review" } } }
       })
 
       yield* run("review", "28")
@@ -789,170 +754,14 @@ describe("dw-mc review, on the prompt runner", () => {
     })
 
     return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["prompt"] } } } })
+      yield* write({ repos: { [repo]: { review: { command: null } } } })
 
       const error = yield* Effect.flip(run("review", "28"))
 
       assert.strictEqual(error._tag, "UserError")
-      const recorded = Option.getOrThrow(yield* runOf(head, "prompt"))
+      const recorded = Option.getOrThrow(yield* runOf(head))
       assert.strictEqual(recorded.outcome._tag, "failed")
       assert.include(recorded.outcome._tag === "failed" ? recorded.outcome.detail : "", "severity")
     }).pipe(Effect.provide(machine({ spawned, prompt: { stdout: wrong } })), recording([]))
-  })
-})
-
-describe("dw-mc review, on Codex", () => {
-  const codexOf = (spawned: ReadonlyArray<string>) => spawned.find((vector) => vector.startsWith("codex exec")) ?? ""
-
-  it.effect("runs the same prompt on the Codex CLI and records it as a review run", () => {
-    const printed: Array<string> = []
-    const spawned: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["codex"] } } } })
-
-      yield* run("review", "28")
-
-      const recorded = Option.getOrThrow(yield* runOf(head, "codex"))
-      assert.strictEqual(recorded.runner, "codex")
-      assert.strictEqual(recorded.sessionId, thread)
-      assert.deepStrictEqual(recorded.outcome, { _tag: "reported", verdict: "findings", findings: weighed })
-      // Codex takes the schema in a file, and reads standard input unless it is closed.
-      assert.include(codexOf(spawned), "--output-schema /tmp/dw-mc-findings-1.json")
-      assert.include(codexOf(spawned), "--sandbox read-only")
-      assert.include(printed, "  head 284d599  codex")
-    }).pipe(Effect.provide(machine({ spawned })), recording(printed))
-  })
-
-  it.effect("writes the report from the findings, because a schema leaves Codex no prose", () => {
-    const spawned: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["codex"] } } } })
-
-      yield* run("review", "28")
-
-      const reports = yield* textStoreFor("runs")
-      const document = (yield* reports.get(reportKey(repo, 28, head, "codex"))) ?? ""
-      assert.include(document, "- runner: codex")
-      assert.include(document, "`src/cli/review.ts:88` error: The run is never recorded.")
-    }).pipe(Effect.provide(machine({ spawned })), recording([]))
-  })
-
-  it.effect("runs the prompt on the model configured", () => {
-    const spawned: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* write({ repos: { [repo]: { review: { runners: ["codex"], model: "gpt-5.4-codex" } } } })
-
-      yield* run("review", "28")
-
-      assert.include(codexOf(spawned), "--model gpt-5.4-codex")
-    }).pipe(Effect.provide(machine({ spawned })), recording([]))
-  })
-})
-
-describe("dw-mc review, and the second opinion", () => {
-  const both: ConfigFile = { repos: { [repo]: { review: { runners: ["builtin", "codex"] } } } }
-
-  it.effect("runs every configured runner in the one worktree, and keeps a run for each", () => {
-    const printed: Array<string> = []
-    const spawned: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* write(both)
-
-      yield* run("review", "28")
-
-      assert.strictEqual(Option.getOrThrow(yield* runOf(head, "builtin")).runner, "builtin")
-      assert.strictEqual(Option.getOrThrow(yield* runOf(head, "codex")).runner, "codex")
-      // One worktree for both: a second opinion of different code is worth nothing.
-      assert.lengthOf(
-        spawned.filter((vector) => vector.includes("worktree add --detach")),
-        1
-      )
-      assert.include(printed, "builtin:")
-      assert.include(printed, "codex:")
-    }).pipe(Effect.provide(machine({ spawned })), recording(printed))
-  })
-
-  it.effect("keeps the second opinion's blocking findings out of my bar", () => {
-    const printed: Array<string> = []
-    const spawned: Array<string> = []
-    // The built-in review is clean; only Codex found something blocking.
-    const nothing = reported({ structured_output: { verdict: "clean", findings: [] } })
-
-    return Effect.gen(function* () {
-      yield* write(both)
-
-      yield* run("review", "28")
-
-      printed.length = 0
-      yield* run("status")
-
-      assert.strictEqual(printed[0], "Ready")
-    }).pipe(
-      Effect.provide(machine({ spawned, repos: { [repo]: [28] }, findings: { stdout: nothing } })),
-      recording(printed)
-    )
-  })
-
-  it.effect("lets it block where the configuration says it may", () => {
-    const printed: Array<string> = []
-    const spawned: Array<string> = []
-    const nothing = reported({ structured_output: { verdict: "clean", findings: [] } })
-
-    return Effect.gen(function* () {
-      yield* write({
-        repos: {
-          [repo]: { review: { runners: ["builtin", "codex"] }, stamp: { supporting_blocks: true } }
-        }
-      })
-
-      yield* run("review", "28")
-
-      printed.length = 0
-      yield* run("status")
-
-      assert.strictEqual(printed[0], "Needs me")
-      assert.include(printed[1] ?? "", "1 blocking finding")
-    }).pipe(
-      Effect.provide(machine({ spawned, repos: { [repo]: [28] }, findings: { stdout: nothing } })),
-      recording(printed)
-    )
-  })
-
-  it.effect("does not fail the command when only the second opinion could not report", () => {
-    const spawned: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* write(both)
-
-      yield* run("review", "28")
-
-      const recorded = Option.getOrThrow(yield* runOf(head, "codex"))
-      assert.strictEqual(recorded.outcome._tag, "failed")
-      assert.strictEqual(Option.getOrThrow(yield* runOf(head, "builtin")).outcome._tag, "reported")
-    }).pipe(
-      Effect.provide(machine({ spawned, codex: { stderr: "Not logged in. Run codex login.\n", exitCode: 1 } })),
-      recording([])
-    )
-  })
-
-  it.effect("skips one runner and runs the other, because the rule is asked of each", () => {
-    const printed: Array<string> = []
-    const spawned: Array<string> = []
-
-    return Effect.gen(function* () {
-      yield* write(both)
-      // Only the built-in review has seen this pull request before.
-      yield* already(before, clean)
-
-      yield* run("review", "28")
-
-      assert.isFalse(reviewed(spawned))
-      assert.include(printed.join("\n"), "builtin: only documentation changed since 1a2b3c4")
-      assert.strictEqual(Option.getOrThrow(yield* runOf(head, "codex")).runner, "codex")
-    }).pipe(Effect.provide(machine({ spawned, changed: ["README.md"] })), recording(printed))
   })
 })

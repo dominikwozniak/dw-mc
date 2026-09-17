@@ -1,21 +1,46 @@
 /**
- * Claude Code as a runner: its own review command, the tool's own prompt, and
- * the sessions I steer.
+ * Claude Code as the runner: a slash command, the tool's own prompt, and the
+ * sessions I steer.
  */
-import { Effect, FileSystem, Option, PlatformError, Schema, Stream } from "effect"
+import { Effect, Option, PlatformError, Result, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 import type { Reported, RunnerFailed } from "#adapters/agent.ts"
 import { failedBy, patience, turn } from "#adapters/agent.ts"
-import { codexReview } from "#adapters/codex.ts"
-import type { Effort, Launcher, Runner } from "#adapters/config.ts"
+import type { Launcher } from "#adapters/config.ts"
 
-/** What one turn on a runner came back with. */
+/**
+ * What one review run opens on: a slash command, or the tool's own prompt.
+ *
+ * Which of the two it is decides how many turns the run takes, and that is a
+ * fact about Claude Code rather than about reviewing, so the shape is declared
+ * here and filled in by the domain (ADR 0006).
+ */
+export type ReviewTurn =
+  | {
+      readonly _tag: "command"
+      /** The slash command and whatever follows it, as one line. */
+      readonly line: string
+      /** What else the run is told to look at, on the system prompt beside the command. */
+      readonly instructions: string | null
+    }
+  | { readonly _tag: "prompt"; readonly text: string }
+
+/** What one turn came back with. */
 export interface Turn {
-  /** What the runner said, as the prose it says it in. */
+  /** What the run said, as the prose it says it in. */
   readonly report: string
   /** The session the turn ran in, which the follow-up turn resumes. */
   readonly sessionId: string
+}
+
+/** What a whole review run came to, however many turns it took. */
+export interface Reviewed {
+  readonly sessionId: string
+  /** What the run said in prose, or null where a schema left it none to say. */
+  readonly prose: string | null
+  /** What it reported, or the failure the reporting was. */
+  readonly findings: Result.Result<unknown, RunnerFailed>
 }
 
 /**
@@ -37,7 +62,7 @@ const Working = Schema.Struct({
   })
 })
 
-const Result = Schema.Struct({
+const Ended = Schema.Struct({
   type: Schema.Literal("result"),
   subtype: Schema.String,
   is_error: Schema.Boolean,
@@ -48,7 +73,7 @@ const Result = Schema.Struct({
 })
 
 const asWorking = Schema.decodeUnknownOption(Schema.fromJsonString(Working))
-const asResult = Schema.decodeUnknownOption(Schema.fromJsonString(Result))
+const asResult = Schema.decodeUnknownOption(Schema.fromJsonString(Ended))
 
 /** What one event says the runner reached for, and what it said out loud. */
 interface Heard {
@@ -67,17 +92,17 @@ const heardIn = (line: string): Heard => {
 /** What the run comes to while it is still going. */
 interface SoFar {
   readonly said: ReadonlyArray<string>
-  readonly result: Option.Option<typeof Result.Type>
+  readonly result: Option.Option<typeof Ended.Type>
 }
 
 /**
  * The result a turn ended on, or the failure it really was.
  *
- * A turn that said nothing this can read and a turn the runner itself calls an
+ * A turn that said nothing this can read and a turn Claude Code itself calls an
  * error are both failures: `subtype` is where a run that hit its turn limit or
  * lost its connection says so, and its `result` is the only word on why.
  */
-const ended = (program: string, result: Option.Option<typeof Result.Type>) => {
+const ended = (program: string, result: Option.Option<typeof Ended.Type>) => {
   const failed = failedBy(program)
   if (Option.isNone(result)) {
     return Effect.fail(failed("the turn came back with no result"))
@@ -93,8 +118,8 @@ const ended = (program: string, result: Option.Option<typeof Result.Type>) => {
  * to `onTool` while the run is still going, and what it said and how it ended
  * are what comes back.
  *
- * Both of Claude Code's runners read a turn the same way, so the fold is here
- * rather than once per runner.
+ * Both shapes of review read a turn the same way, so the fold is here rather
+ * than once per shape.
  */
 const transcript =
   (onTool: (tool: string) => Effect.Effect<void>) =>
@@ -116,38 +141,54 @@ const transcript =
     )
 
 /**
- * One review run of Claude Code's own code review, headless, in `directory`.
+ * One review run on a slash command, headless, in `directory`.
  *
  * The run is in the foreground and says what it is doing as it does it, which
  * is what `onTool` is for: a review takes minutes, and a terminal that prints
  * nothing for minutes is one I stop trusting.
  *
+ * `--json-schema` is never passed here: verified by running it, the flag beside
+ * `/code-review` breaks the run, which is why a slash command costs a second
+ * turn that resumes the session and asks for the findings. My own instructions
+ * ride on `--append-system-prompt` rather than on the command's own line,
+ * because what a slash command does with its arguments is its business and not
+ * this tool's.
+ *
  * `--comment` is the flag that makes the built-in review post on the pull
- * request, and it is never passed (ADR 0002). The report is everything the
- * runner said on its own turns rather than the `result` alone: verified by
- * running it, a repository whose review command fans out to subagents can end
- * on a remark about them, and the report is the turn before that. The follow-up
- * turn is what turns the prose into findings, and it needs this run's session.
+ * request, and it is never passed either (ADR 0002). The report is everything
+ * the run said on its own turns rather than the `result` alone: verified by
+ * running it, a repository whose review command fans out to subagents can end on
+ * a remark about them, and the report is the turn before that.
  */
-export const builtinReview = Effect.fn("runner.builtinReview")(function* (options: {
+export const commandReview = Effect.fn("runner.commandReview")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
-  readonly effort: Effort
+  readonly line: string
+  readonly instructions: string | null
+  readonly model: string | null
   readonly onTool: (tool: string) => Effect.Effect<void>
 }) {
   const [program] = options.launcher.command
   const run = yield* turn({
     command: options.launcher.command,
     directory: options.directory,
-    args: ["-p", `/code-review ${options.effort}`, "--output-format", "stream-json", "--verbose"],
+    args: [
+      "-p",
+      options.line,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      ...(options.instructions === null ? [] : ["--append-system-prompt", options.instructions]),
+      ...(options.model === null ? [] : ["--model", options.model])
+    ],
     patience: { turn: "the review", duration: patience.reviewing },
     read: transcript(options.onTool)
   })
 
   const { result: lastWord, session_id } = yield* ended(program, run.result)
 
-  // The result is the runner's last word, which is its whole answer on a run
-  // that said nothing before it.
+  // The result is the run's last word, which is its whole answer on a run that
+  // said nothing before it.
   const report = (run.said.length === 0 ? (lastWord ?? "") : run.said.join("\n\n")).trim()
   if (report === "") {
     return yield* failedBy(program)("the run came back with an empty report")
@@ -179,12 +220,12 @@ const reportFindings = [
  * is what makes it cheap and what makes it accurate - verified by running it,
  * the line numbers it reports beat the ones the prose gives. The output is
  * handed on as it arrived: what the findings must look like belongs to the
- * domain, and the schema the runner is held to comes in from there too.
+ * domain, and the schema the run is held to comes in from there too.
  *
  * Every way this can end badly ends as a `RunnerFailed`, because a review run
  * that could not report is a failure and never a clean verdict.
  */
-export const builtinFindings = Effect.fn("runner.builtinFindings")(function* (options: {
+export const findingsTurn = Effect.fn("runner.findingsTurn")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
   readonly sessionId: string
@@ -216,17 +257,13 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(function* (op
 }, Effect.scoped)
 
 /**
- * One review run of the tool's own review prompt on Claude Code, in `directory`.
+ * One review run of the tool's own review prompt, in `directory`.
  *
- * It is one turn rather than two: verified by running it, `--json-schema`
- * beside an ordinary prompt gives both the prose the run wrote and the
- * `structured_output` it validated, where the same flag on the built-in
- * `/code-review` breaks the run. The schema arrives as inline JSON and never as
- * a path - a path is where Claude Code reports `--json-schema is not valid
- * JSON`.
- *
- * `review.model` reaches the run here, and nowhere in the built-in runner: the
- * prompt is the tool's, so which model reads the code is mine to choose.
+ * It is one turn rather than two: verified by running it, `--json-schema` beside
+ * an ordinary prompt gives both the prose the run wrote and the
+ * `structured_output` it validated, where the same flag on a slash command
+ * breaks the run. The schema arrives as inline JSON and never as a path - a path
+ * is where Claude Code reports `--json-schema is not valid JSON`.
  */
 export const promptReview = Effect.fn("runner.promptReview")(function* (options: {
   readonly launcher: Launcher
@@ -265,22 +302,41 @@ export const promptReview = Effect.fn("runner.promptReview")(function* (options:
 }, Effect.scoped)
 
 /**
- * The tool's own review prompt, on whichever CLI the runner names.
+ * One review run, in whichever shape it was configured in.
  *
- * The two CLIs are spawned differently and answer differently, and which of
- * them a runner means is the adapter's knowledge: a caller hands over the
- * runner and gets the same `Reported` back either way.
+ * A slash command takes two turns and the tool's own prompt takes one, which is
+ * Claude Code's doing and nobody else's: a caller hands over the turn and gets
+ * the same answer back either way.
+ *
+ * The second turn's failure is kept beside the first turn's prose rather than
+ * replacing it. A review that ran and could not report is still worth reading,
+ * and it is recorded as the failure it is.
  */
-export const promptRun = (options: {
-  readonly runner: Runner
+export const reviewTurns = Effect.fn("runner.reviewTurns")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
-  readonly prompt: string
+  readonly turn: ReviewTurn
   readonly model: string | null
   readonly jsonSchema: string
   readonly onTool: (tool: string) => Effect.Effect<void>
-}): Effect.Effect<Reported, RunnerFailed, ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem> =>
-  options.runner === "codex" ? codexReview(options) : promptReview(options)
+}) {
+  const { directory, jsonSchema, launcher, model, onTool } = options
+  if (options.turn._tag === "prompt") {
+    const run = yield* promptReview({ launcher, directory, prompt: options.turn.text, model, jsonSchema, onTool })
+    return { sessionId: run.sessionId, prose: run.prose, findings: Result.succeed(run.findings) } satisfies Reviewed
+  }
+
+  const run = yield* commandReview({
+    launcher,
+    directory,
+    line: options.turn.line,
+    instructions: options.turn.instructions,
+    model,
+    onTool
+  })
+  const findings = yield* Effect.result(findingsTurn({ launcher, directory, sessionId: run.sessionId, jsonSchema }))
+  return { sessionId: run.sessionId, prose: run.report, findings } satisfies Reviewed
+})
 
 /**
  * An interactive `claude` in `directory`, opened on `prompt`, with my terminal
@@ -291,7 +347,7 @@ export const promptRun = (options: {
  * no headless review turn wants. They sit in front of the
  * prompt, because `claude` takes its flags before its positional argument.
  *
- * This is the one place a runner is not read: the three streams are inherited,
+ * This is the one place a run is not read: the three streams are inherited,
  * so what is on the screen is the session itself and not a transcript of it,
  * and what I type reaches it. The child is not detached for the same reason -
  * a detached child sits outside the terminal's foreground process group, where

@@ -1,11 +1,11 @@
 /**
- * The review prompt the `prompt` runner owns.
+ * What a review run is opened on, and the prompt the tool carries.
  *
- * Where `builtin` drives the agent's own review command, this is a prompt the
- * tool carries, so my bar is not one agent's idea of a code review. It is the
- * same prompt on either CLI: what differs is how each one is handed the schema,
- * which belongs to the runner adapter and not here.
+ * Where a slash command drives the agent's own review, this is a prompt of the
+ * tool's own, so my bar is not one agent's idea of a code review. How a turn is
+ * spawned belongs to the runner adapter; which turn it is belongs here.
  */
+import type { ReviewTurn } from "#adapters/runner.ts"
 
 /**
  * The reviewer persona, derived from Addy Osmani's `code-reviewer` agent
@@ -60,24 +60,24 @@ export interface Reviewing {
   readonly title: string
   /** The branch the pull request targets, which is what the change is measured against. */
   readonly base: string
-  /** A repository's own review skill, passed through untouched, or null. */
-  readonly skill: string | null
+  /** My own review instructions, passed through untouched, or null. */
+  readonly prompt: string | null
 }
 
 /**
- * The prompt one `prompt` review run opens on.
+ * The prompt a review run with no slash command opens on.
  *
  * It says what to review and how to answer, and nothing about how the answer is
- * validated: the schema arrives beside the prompt on both CLIs, so describing it
- * here would be the same shape written twice.
+ * validated: the schema arrives beside the prompt, so describing it here would
+ * be the same shape written twice.
  *
- * `review.skill` is a passthrough and goes in first, spelled exactly as the file
- * spells it. A repository that has its own review skill gets that skill's review
- * with the persona behind it, and the tool does not try to interpret the value.
+ * `review.prompt` is a passthrough and goes in first, spelled exactly as the
+ * file spells it. A repository with its own instructions gets its review with
+ * the persona behind it, and the tool does not try to interpret the value.
  */
 export const reviewPrompt = (reviewing: Reviewing): string =>
   [
-    ...(reviewing.skill === null ? [] : [reviewing.skill, ""]),
+    ...(reviewing.prompt === null ? [] : [reviewing.prompt, ""]),
     persona,
     "",
     `The change is ${reviewing.repo}#${reviewing.number}, "${reviewing.title}".`,
@@ -88,3 +88,24 @@ export const reviewPrompt = (reviewing: Reviewing): string =>
     "line it is at, its severity and a one-sentence summary. The verdict is clean when there is",
     "nothing to report, and findings otherwise."
   ].join("\n")
+
+/**
+ * What one review run opens on, decided by what the repository configured.
+ *
+ * A slash command is the review, so the persona stays out of its way and my own
+ * instructions ride beside it. Without one the review is the tool's own, and my
+ * instructions go in front of the persona. The effort word follows the command
+ * because that is where a slash command takes its arguments; a repository that
+ * spells its own arguments out sets `review.effort` to null and keeps the line.
+ */
+export const turnFor = (
+  review: { readonly command: string | null; readonly effort: string | null; readonly prompt: string | null },
+  about: Reviewing
+): ReviewTurn =>
+  review.command === null
+    ? { _tag: "prompt", text: reviewPrompt({ ...about, prompt: review.prompt }) }
+    : {
+        _tag: "command",
+        line: [review.command, review.effort].filter((part) => part !== null).join(" "),
+        instructions: review.prompt
+      }

@@ -2,14 +2,15 @@ import { Console, DateTime, Effect, Exit, Option, Result, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { RunnerFailed } from "#adapters/agent.ts"
-import type { ConfigFile, Effort, Launcher, Runner, Settings } from "#adapters/config.ts"
+import type { ConfigFile, Effort, Launcher, Settings } from "#adapters/config.ts"
 import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
 import { announce } from "#adapters/notify.ts"
 import type { Doing } from "#adapters/progress.ts"
 import { spinning } from "#adapters/progress.ts"
-import { builtinFindings, builtinReview, promptRun } from "#adapters/runner.ts"
+import type { ReviewTurn } from "#adapters/runner.ts"
+import { reviewTurns } from "#adapters/runner.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
 import { lines, summary } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
@@ -17,10 +18,9 @@ import { asUserError, userFacing } from "#cli/sweep.ts"
 import { count } from "#cli/table.ts"
 import { asMarkdown, jsonSchema, Reported } from "#domain/findings.ts"
 import type { Reviewing } from "#domain/persona.ts"
-import { reviewPrompt } from "#domain/persona.ts"
+import { turnFor } from "#domain/persona.ts"
 import type { Asked, Outcome } from "#domain/review.ts"
 import {
-  decidingIn,
   LastReviewed,
   lastRun,
   latestKey,
@@ -30,27 +30,44 @@ import {
   reportKey,
   ReviewRun,
   runKey,
-  runnersFor,
   short,
   skippedSince
 } from "#domain/review.ts"
 
 /** What the spinner says a run has got through, while it is still going. */
-const saying =
-  (runner: Runner) =>
-  (doing: Doing, since: string): string =>
-    [
-      `${runner} reviewing`,
-      count(doing.tools, "tool"),
-      doing.subagents === 0 ? null : count(doing.subagents, "subagent"),
-      since
-    ]
-      .filter((part) => part !== null)
-      .join(" · ")
+const saying = (doing: Doing, since: string): string =>
+  ["reviewing", count(doing.tools, "tool"), doing.subagents === 0 ? null : count(doing.subagents, "subagent"), since]
+    .filter((part) => part !== null)
+    .join(" · ")
 
-const effortFlag = Flag.Literals("effort", ["low", "medium", "high"]).pipe(
+const commandFlag = Flag.String("command").pipe(
+  Flag.withDescription("The slash command this run opens on, over what the repository configured"),
+  Flag.optional
+)
+
+const promptFlag = Flag.String("prompt").pipe(
+  Flag.withDescription("The review instructions this run carries, over what the repository configured"),
+  Flag.optional
+)
+
+const effortFlag = Flag.Literals("effort", ["low", "medium", "high", "xhigh", "max"]).pipe(
   Flag.withDescription("How much this run spends, over what the repository configured"),
   Flag.optional
+)
+
+const modelFlag = Flag.String("model").pipe(
+  Flag.withDescription("The model this run reads the code on, over what the repository configured"),
+  Flag.optional
+)
+
+const promptOnlyFlag = Flag.Boolean("prompt-only").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Review on the prompt alone, whatever slash command the repository configured")
+)
+
+const commandOnlyFlag = Flag.Boolean("command-only").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Review on the slash command alone, whatever instructions the repository configured")
 )
 
 const forceFlag = Flag.Boolean("force").pipe(
@@ -58,34 +75,48 @@ const forceFlag = Flag.Boolean("force").pipe(
   Flag.withDescription("Review even where the re-run rule would skip it")
 )
 
-/** The runners a review run executes, or the sentence saying there are none. */
-const runnersOf = (configured: ReadonlyArray<Runner>) => {
-  const runners = runnersFor(configured)
-  return runners.length === 0
-    ? Effect.fail(
-        new CliError.UserError({
-          cause:
-            "This repository reviews on no runner at all. " +
-            "Set review.runners to one or more of builtin, prompt and codex."
-        })
-      )
-    : Effect.succeed(runners)
+/** A flag that names a value beside the flag that clears it: one of the two, never both. */
+const opposite = (flag: string, given: Option.Option<string>, only: string) =>
+  Option.isSome(given) ? [`--${flag} and --${only} say opposite things. Pass one.`] : []
+
+/** What this run is asked, once the flags have had their say over the file. */
+const asking = (options: {
+  readonly settings: Settings
+  readonly command: Option.Option<string>
+  readonly prompt: Option.Option<string>
+  readonly effort: Option.Option<Effort>
+  readonly model: Option.Option<string>
+  readonly promptOnly: boolean
+  readonly commandOnly: boolean
+}) => {
+  const clash = [
+    ...(options.promptOnly ? opposite("command", options.command, "prompt-only") : []),
+    ...(options.commandOnly ? opposite("prompt", options.prompt, "command-only") : [])
+  ]
+  if (clash.length > 0) {
+    return Effect.fail(new CliError.UserError({ cause: clash.join(" ") }))
+  }
+
+  const { review } = options.settings
+  return Effect.succeed({
+    command: options.promptOnly ? null : Option.getOrElse(options.command, () => review.command),
+    effort: Option.getOrElse(options.effort, () => review.effort),
+    prompt: options.commandOnly ? null : Option.getOrElse(options.prompt, () => review.prompt),
+    model: Option.getOrElse(options.model, () => review.model)
+  })
 }
 
 /**
  * What the re-run rule is asked about, read before anything is cut or spawned:
  * the whole point of the rule is not paying for the run.
  *
- * It is asked per runner, because a second opinion that has never seen this
- * pull request is not skipped for the head the primary review already read.
- *
  * GitHub is asked what changed only where there is a run to measure from and a
  * different head to measure to. Neither is the rule deciding anything - there is
  * simply nothing to compare - and a comparison GitHub would not answer comes
  * back as nothing known rather than as a failure of the command.
  */
-const askedOf = Effect.fn("review.askedOf")(function* (repo: string, number: number, head: string, runner: Runner) {
-  const last = Option.getOrNull(yield* lastRun(repo, number, runner))
+const askedOf = Effect.fn("review.askedOf")(function* (repo: string, number: number, head: string) {
+  const last = Option.getOrNull(yield* lastRun(repo, number))
   const changed =
     last === null || last.head === head
       ? null
@@ -93,20 +124,15 @@ const askedOf = Effect.fn("review.askedOf")(function* (repo: string, number: num
   return { last, head, changed } satisfies Asked
 })
 
-/**
- * How a run reads on the line above it: which runner, and what it was told to
- * spend.
- *
- * `review.effort` drives the built-in review command and nothing else, and
- * `review.model` drives the prompt the tool owns, so each run says the one that
- * decided anything about it.
- */
-const spending = (runner: Runner, effort: Effort, model: string | null): string => {
-  if (runner === "builtin") {
-    return `${runner}, effort ${effort}`
-  }
-  return model === null ? runner : `${runner}, model ${model}`
-}
+/** How a run reads on the line above it: what it opens on, and on which model. */
+const spending = (turn: ReviewTurn, model: string | null): string =>
+  [
+    turn._tag === "command" ? turn.line : "the tool's own prompt",
+    turn._tag === "command" && turn.instructions !== null ? "with my own instructions" : null,
+    model === null ? null : `model ${model}`
+  ]
+    .filter((part) => part !== null)
+    .join(", ")
 
 /** What one runner came back with, as far as the runner itself gets. */
 interface Reviewed {
@@ -122,7 +148,7 @@ interface Reviewed {
   readonly reported: Result.Result<typeof Reported.Type, { readonly message: string }>
 }
 
-/** What is written down about one runner's review. */
+/** What is written down about the review. */
 interface Ran {
   readonly sessionId: string | null
   /** The prose the report document is written from, or null where there is none. */
@@ -131,64 +157,39 @@ interface Ran {
 }
 
 /**
- * One runner's review of the head in the worktree.
- *
- * `builtin` is two turns of one session: the agent's own review as prose, then
- * the same review reported as findings. `prompt` and `codex` are one turn on
- * the tool's own prompt, which carries the schema with it, so the findings are
- * what the run answers with.
+ * The review of the head in the worktree.
  *
  * Whatever the reporting comes to is a value and not a failure: the review is
  * already worth keeping, and a turn that could not report is recorded as the
  * failure it is rather than lost with it.
  */
 const reviewOn = Effect.fn("review.reviewOn")(function* (options: {
-  readonly runner: Runner
   readonly launcher: Launcher
   readonly directory: string
-  readonly effort: Effort
-  readonly settings: Settings
-  /** What the run is about, which is what the tool's own prompt is written from. */
-  readonly about: Reviewing
+  readonly turn: ReviewTurn
+  readonly model: string | null
 }) {
-  const said = saying(options.runner)
-  const { directory, launcher, settings } = options
-
-  if (options.runner === "builtin") {
-    const turn = yield* spinning(said, (onTool) =>
-      builtinReview({ launcher, directory, effort: options.effort, onTool })
-    )
-    const reported = yield* Effect.result(
-      Effect.flatMap(builtinFindings({ launcher, directory, sessionId: turn.sessionId, jsonSchema }), (output) =>
-        Schema.decodeUnknownEffect(Reported)(output)
-      )
-    )
-    return { sessionId: turn.sessionId, prose: turn.report, reported } satisfies Reviewed
-  }
-
-  const prompt = reviewPrompt(options.about)
-  const run = yield* spinning(said, (onTool) =>
-    promptRun({
-      runner: options.runner,
-      launcher,
-      directory,
-      prompt,
-      model: settings.review.model,
-      jsonSchema,
-      onTool
-    })
+  const { directory, launcher, model, turn } = options
+  const run = yield* spinning(saying, (onTool) => reviewTurns({ launcher, directory, turn, model, jsonSchema, onTool }))
+  // Both halves answer `message`, which is all `ranBy` reads: a turn that could
+  // not report and a turn that answered in a shape that does not validate are
+  // the same kind of failure of the same run.
+  const answered: Effect.Effect<unknown, { readonly message: string }> = Result.isFailure(run.findings)
+    ? Effect.fail(run.findings.failure)
+    : Effect.succeed(run.findings.success)
+  const reported = yield* Effect.result(
+    Effect.flatMap(answered, (output) => Schema.decodeUnknownEffect(Reported)(output))
   )
-  const reported = yield* Effect.result(Schema.decodeUnknownEffect(Reported)(run.findings))
   return { sessionId: run.sessionId, prose: run.prose, reported } satisfies Reviewed
 })
 
 /**
- * What a runner's review comes to on disk: the findings it reported, or the
- * failure it reached instead.
+ * What the review comes to on disk: the findings it reported, or the failure it
+ * reached instead.
  *
- * A runner that would not start is as much a failure as a turn that answered in
- * a shape that does not validate, and both are recorded: the head has been
- * tried and nothing was found, which is not the same as nothing being wrong.
+ * A run that would not start is as much a failure as a turn that answered in a
+ * shape that does not validate, and both are recorded: the head has been tried
+ * and nothing was found, which is not the same as nothing being wrong.
  */
 const ranBy = (got: Result.Result<Reviewed, RunnerFailed>): Ran => {
   if (Result.isFailure(got)) {
@@ -201,33 +202,27 @@ const ranBy = (got: Result.Result<Reviewed, RunnerFailed>): Ran => {
   const found = reported.success
   return {
     sessionId,
-    // A runner held to a schema answers in findings and not in prose, so the
-    // report kept beside it is written from what it found.
+    // A run held to a schema answers in findings and not in prose, so the report
+    // kept beside it is written from what it found.
     prose: prose ?? asMarkdown(found),
     outcome: { _tag: "reported", verdict: found.verdict, findings: found.findings }
   }
 }
 
 /**
- * The command's own failure where a runner that decides my bar reported
- * nothing, and nothing where they all reported.
+ * The command's own failure where the review reported nothing.
  *
- * Every run is written down either way; what the exit code says is whether the
- * review I asked for is one to trust. A second opinion that could not report is
- * said out loud and no more: it informs me, so its silence is not my command
- * failing.
+ * The run is written down either way; what the exit code says is whether the
+ * review I asked for is one to trust.
  */
-const unreported = (recorded: ReadonlyArray<ReviewRun>, deciding: ReadonlyArray<Runner>, number: number) => {
-  const failed = recorded.flatMap((run) => {
-    const detail = detailOf(run)
-    return deciding.includes(run.runner) && detail !== null ? [`${run.runner}: ${detail}`] : []
-  })
-  return failed.length === 0
+const unreported = (run: ReviewRun, number: number) => {
+  const detail = detailOf(run)
+  return detail === null
     ? Effect.void
     : Effect.fail(
         new CliError.UserError({
           cause:
-            `The review ran and its findings did not: ${failed.join("; ")}. ` +
+            `The review ran and its findings did not: ${detail}. ` +
             `Run dw-mc review ${number} --force to run it again.`
         })
       )
@@ -241,54 +236,45 @@ const unreported = (recorded: ReadonlyArray<ReviewRun>, deciding: ReadonlyArray<
  * the one who decides to spend it.
  *
  * The run happens in a throwaway worktree of the tool's own clone, so what is
- * reviewed is the pull request's head rather than whatever I have open. Every
- * configured runner reviews in that one worktree, one after the other: the
- * cutting is the expensive part that they can share, and a second opinion is
- * worth nothing if it read different code.
+ * reviewed is the pull request's head rather than whatever I have open.
  *
- * What they found is kept against that head, one record per runner, which is
- * what takes the pull request out of Needs review run and what a blocking
- * finding later puts into Needs me.
+ * What it found is kept against that head, which is what takes the pull request
+ * out of Needs review run and what a blocking finding later puts into Needs me.
  *
  * The report is printed as well as kept. A run I waited minutes for should not
  * need a second command to read.
  */
 export const review = Command.make(
   "review",
-  { pr: prArgument, effort: effortFlag, force: forceFlag },
+  {
+    pr: prArgument,
+    command: commandFlag,
+    prompt: promptFlag,
+    effort: effortFlag,
+    model: modelFlag,
+    promptOnly: promptOnlyFlag,
+    commandOnly: commandOnlyFlag,
+    force: forceFlag
+  },
   Effect.fn("review")(
-    function* ({ effort, force, pr }) {
+    function* ({ command, commandOnly, effort, force, model, pr, prompt, promptOnly }) {
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
       const launcher = launcherOf(file)
-      const configured = yield* runnersOf(settings.review.runners)
-      const deciding = decidingIn(configured, settings.stamp.supporting_blocks)
-      const spend = Option.getOrElse(effort, () => settings.review.effort)
+      const asked = yield* asking({ settings, command, prompt, effort, model, promptOnly, commandOnly })
 
       const view = yield* prView(repo, number)
       yield* Console.log(`${repo}#${number}  ${view.title}`)
 
-      const asked = yield* Effect.forEach(configured, (runner) =>
-        Effect.map(
-          force
-            ? Effect.succeed(null)
-            : Effect.map(askedOf(repo, number, view.headRefOid, runner), (it) =>
-                skippedSince(it, settings.review.docs_only)
-              ),
-          (since) => ({ runner, since })
+      const since = force
+        ? null
+        : skippedSince(yield* askedOf(repo, number, view.headRefOid), settings.review.docs_only)
+      if (since !== null) {
+        yield* Console.log(
+          `  only documentation changed since ${short(since)}, so this run is skipped. ` +
+            `Pass --force to review it anyway.`
         )
-      )
-      for (const { runner, since } of asked) {
-        if (since !== null) {
-          yield* Console.log(
-            `  ${runner}: only documentation changed since ${short(since)}, so this run is skipped. ` +
-              `Pass --force to review it anyway.`
-          )
-        }
-      }
-      const running = asked.filter((it) => it.since === null).map((it) => it.runner)
-      if (running.length === 0) {
         return
       }
 
@@ -297,8 +283,9 @@ export const review = Command.make(
         number,
         title: view.title,
         base: view.baseRefName,
-        skill: settings.review.skill
+        prompt: asked.prompt
       }
+      const turn = turnFor(asked, about)
 
       // The bell and the notification are what let me walk away from a run that
       // takes minutes, so they ring however it ended: a run that gave up while I
@@ -306,15 +293,11 @@ export const review = Command.make(
       yield* Effect.gen(function* () {
         const ran = yield* withWorktree(repo, number, (worktree) =>
           Effect.gen(function* () {
-            const done: Array<{ readonly runner: Runner; readonly ran: Ran }> = []
-            for (const runner of running) {
-              yield* Console.log(`  head ${short(worktree.head)}  ${spending(runner, spend, settings.review.model)}`)
-              const got = yield* Effect.result(
-                reviewOn({ runner, launcher, directory: worktree.directory, effort: spend, settings, about })
-              )
-              done.push({ runner, ran: ranBy(got) })
-            }
-            return { head: worktree.head, done }
+            yield* Console.log(`  head ${short(worktree.head)}  ${spending(turn, asked.model)}`)
+            const got = yield* Effect.result(
+              reviewOn({ launcher, directory: worktree.directory, turn, model: asked.model })
+            )
+            return { head: worktree.head, ran: ranBy(got) }
           })
         )
 
@@ -323,62 +306,49 @@ export const review = Command.make(
         const latest = yield* storeFor("runs", LastReviewed)
         const reports = yield* textStoreFor("runs")
 
-        const recorded: Array<ReviewRun> = []
-        for (const { ran: got, runner } of ran.done) {
-          const run: ReviewRun = {
-            repo,
-            number,
-            head: ran.head,
-            runner,
-            effort: spend,
-            sessionId: got.sessionId,
-            ranAt,
-            outcome: got.outcome
-          }
-          yield* runs.set(runKey(repo, number, run.head, runner), run)
-          yield* latest.set(latestKey(repo, number, runner), { head: run.head })
-          yield* reports.set(
-            reportKey(repo, number, run.head, runner),
-            reportDocument(run, view.title, got.prose ?? "")
-          )
-          recorded.push(run)
+        const got = ran.ran
+        const run: ReviewRun = {
+          repo,
+          number,
+          head: ran.head,
+          command: asked.command,
+          effort: asked.command === null ? null : asked.effort,
+          sessionId: got.sessionId,
+          ranAt,
+          outcome: got.outcome
+        }
+        yield* runs.set(runKey(repo, number, run.head), run)
+        yield* latest.set(latestKey(repo, number), { head: run.head })
+        yield* reports.set(reportKey(repo, number, run.head), reportDocument(run, view.title, got.prose ?? ""))
 
-          yield* Console.log("")
-          // One runner says which it was on the line above its run already; more
-          // than one and the reports need telling apart.
-          if (ran.done.length > 1) {
-            yield* Console.log(`${runner}:`)
-          }
-          const detail = detailOf(run)
-          if (detail !== null) {
-            yield* Console.log(`  reported nothing: ${detail}`)
-            continue
-          }
+        yield* Console.log("")
+        const detail = detailOf(run)
+        if (detail !== null) {
+          yield* Console.log(`  reported nothing: ${detail}`)
+        } else {
           const found = reportedBy(run)
-          if (found === null) {
-            continue
-          }
-          if (got.prose !== null) {
-            yield* Console.log(got.prose)
-            yield* Console.log("")
-          }
-          yield* Console.log(summary(found, settings.stamp.blocks_on))
-          for (const line of lines(found)) {
-            yield* Console.log(`  ${line}`)
+          if (found !== null) {
+            if (got.prose !== null) {
+              yield* Console.log(got.prose)
+              yield* Console.log("")
+            }
+            yield* Console.log(summary(found, settings.stamp.blocks_on))
+            for (const line of lines(found)) {
+              yield* Console.log(`  ${line}`)
+            }
           }
         }
 
         yield* Console.log(`Recorded against ${short(ran.head)} in ${yield* stateDirectory}`)
-        yield* unreported(recorded, deciding, number)
+        yield* unreported(run, number)
       }).pipe(
         Effect.onExit((exit) =>
           announce("dw-mc review", `${repo}#${number} ${Exit.isSuccess(exit) ? "reviewed" : "could not be reviewed"}`)
         )
       )
     },
-    // No `RunnerFailed` here: every runner's own failure is caught where it
-    // happens and written down as the run's outcome, so none of them reaches
-    // this far.
+    // No `RunnerFailed` here: the run's own failure is caught where it happens
+    // and written down as the run's outcome, so it never reaches this far.
     Effect.catchTag([...userFacing, "GitFailed"], asUserError)
   )
-).pipe(Command.withDescription("Review one pull request on the configured runners, in a throwaway worktree"))
+).pipe(Command.withDescription("Review one pull request on Claude Code, in a throwaway worktree"))

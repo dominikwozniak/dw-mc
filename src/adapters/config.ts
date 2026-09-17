@@ -8,29 +8,18 @@ import type { Value } from "#adapters/yaml.ts"
 import { encodeYaml } from "#adapters/yaml.ts"
 
 /**
- * What a review run executes: the agent's own review command, or the tool's own
- * review prompt on one of the two agent CLIs.
+ * How much a review run spends, in the words the slash command takes.
  *
- * `builtin` and `prompt` run on the launcher, which is Claude Code. `codex`
- * runs the same prompt on the Codex CLI, and is the second opinion: configured
- * beside one of the others, its findings inform me without gating my bar.
+ * The set is Claude Code's and not this tool's, so it is wider than the three
+ * words a review used to be held to: a run that would be worth `max` is one I
+ * should be able to ask for without spelling the whole command out.
  */
-export const runners = ["builtin", "prompt", "codex"] as const
-export const Runner = Schema.Literals(runners)
-export type Runner = typeof Runner.Type
-
-/** How much a built-in review run spends. */
-export const Effort = Schema.Literals(["low", "medium", "high"])
+export const Effort = Schema.Literals(["low", "medium", "high", "xhigh", "max"])
 export type Effort = typeof Effort.Type
 
 /** How much a finding weighs. */
 export const Severity = Schema.Literals(["error", "warning", "info"])
 export type Severity = typeof Severity.Type
-
-const PathInstruction = Schema.Struct({
-  path: Schema.String,
-  instructions: Schema.String
-})
 
 /**
  * What one section of the file may say. Every key is optional: what the file
@@ -41,12 +30,11 @@ const SettingsPatch = Schema.Struct({
   base: Schema.optionalKey(Schema.NullOr(Schema.String)),
   review: Schema.optionalKey(
     Schema.Struct({
-      runners: Schema.optionalKey(Schema.Array(Runner)),
-      effort: Schema.optionalKey(Effort),
+      command: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      effort: Schema.optionalKey(Schema.NullOr(Effort)),
+      prompt: Schema.optionalKey(Schema.NullOr(Schema.String)),
       model: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      skill: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      docs_only: Schema.optionalKey(Schema.Array(Schema.String)),
-      path_instructions: Schema.optionalKey(Schema.Array(PathInstruction))
+      docs_only: Schema.optionalKey(Schema.Array(Schema.String))
     })
   ),
   ci: Schema.optionalKey(
@@ -67,14 +55,13 @@ const SettingsPatch = Schema.Struct({
   ),
   stamp: Schema.optionalKey(
     Schema.Struct({
-      blocks_on: Schema.optionalKey(Severity),
-      supporting_blocks: Schema.optionalKey(Schema.Boolean)
+      blocks_on: Schema.optionalKey(Severity)
     })
   )
 })
 export type SettingsPatch = typeof SettingsPatch.Type
 
-/** How this machine starts a runner, where it does not start `claude` itself. */
+/** How this machine starts Claude Code, where it does not start `claude` itself. */
 const LauncherPatch = Schema.Struct({
   // An argv list and never a shell string: a shell string needs `sh -c` in
   // front of it, and that extra process sits in the terminal's foreground
@@ -85,16 +72,7 @@ const LauncherPatch = Schema.Struct({
       Schema.check(Schema.isMinLength(1, { message: "Expected the launcher command to name a program" }))
     )
   ),
-  fix_args: Schema.optionalKey(Schema.Array(Schema.String)),
-  // The second agent CLI, named the same way and for the same reason: which
-  // program reaches Codex is a fact of this machine. It sits beside `command`
-  // rather than replacing it, because a machine that asks Codex for a second
-  // opinion is a machine that has both CLIs.
-  codex: Schema.optionalKey(
-    Schema.Array(Schema.String).pipe(
-      Schema.check(Schema.isMinLength(1, { message: "Expected the codex command to name a program" }))
-    )
-  )
+  fix_args: Schema.optionalKey(Schema.Array(Schema.String))
 })
 
 /** A repository, as `gh` spells it: `owner/name`. */
@@ -126,31 +104,28 @@ export interface Settings {
 export const builtIn: Settings = {
   base: null,
   review: {
-    runners: ["builtin"],
+    command: "/code-review",
     effort: "low",
+    prompt: null,
     model: null,
-    skill: null,
-    docs_only: ["**/*.md", "docs/**"],
-    path_instructions: []
+    docs_only: ["**/*.md", "docs/**"]
   },
   ci: { ignore: [], flaky_patterns: [] },
   fix: { commits: false },
   rebase: { enabled: false },
-  stamp: { blocks_on: "error", supporting_blocks: false }
+  stamp: { blocks_on: "error" }
 }
 
-/** What this machine spawns a runner with, once the file has been read. */
+/** What this machine spawns Claude Code with, once the file has been read. */
 export interface Launcher {
   /** The program, then the arguments it takes before mission control's own. */
   readonly command: readonly [string, ...Array<string>]
   /** The flags only a fix session gets, the one run that is no review run. */
   readonly fix_args: ReadonlyArray<string>
-  /** The program, then its prefix, that reaches the Codex CLI. */
-  readonly codex: readonly [string, ...Array<string>]
 }
 
-/** `claude` and `codex` themselves, which is what a machine that spawns them directly needs. */
-export const builtInLauncher: Launcher = { command: ["claude"], fix_args: [], codex: ["codex"] }
+/** `claude` itself, which is what a machine that spawns it directly needs. */
+export const builtInLauncher: Launcher = { command: ["claude"], fix_args: [] }
 
 /**
  * The patch's value where it has one, the inherited value otherwise. A key the
@@ -165,12 +140,11 @@ const apply = (settings: Settings, patch: SettingsPatch | undefined): Settings =
     : {
         base: over(patch.base, settings.base),
         review: {
-          runners: over(patch.review?.runners, settings.review.runners),
+          command: over(patch.review?.command, settings.review.command),
           effort: over(patch.review?.effort, settings.review.effort),
+          prompt: over(patch.review?.prompt, settings.review.prompt),
           model: over(patch.review?.model, settings.review.model),
-          skill: over(patch.review?.skill, settings.review.skill),
-          docs_only: over(patch.review?.docs_only, settings.review.docs_only),
-          path_instructions: over(patch.review?.path_instructions, settings.review.path_instructions)
+          docs_only: over(patch.review?.docs_only, settings.review.docs_only)
         },
         ci: {
           ignore: over(patch.ci?.ignore, settings.ci.ignore),
@@ -178,10 +152,7 @@ const apply = (settings: Settings, patch: SettingsPatch | undefined): Settings =
         },
         fix: { commits: over(patch.fix?.commits, settings.fix.commits) },
         rebase: { enabled: over(patch.rebase?.enabled, settings.rebase.enabled) },
-        stamp: {
-          blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on),
-          supporting_blocks: over(patch.stamp?.supporting_blocks, settings.stamp.supporting_blocks)
-        }
+        stamp: { blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on) }
       }
 
 /**
@@ -227,18 +198,16 @@ export const withRepo = (file: ConfigFile, repo: string, patch: SettingsPatch): 
 })
 
 /**
- * What this machine starts a runner with: the file's launcher over `claude`.
+ * What this machine starts Claude Code with: the file's launcher over `claude`.
  *
  * It is no repository's business. What spawns the agent CLI is a fact of the
  * machine, which is why it sits beside `defaults` rather than inside it.
  */
 export const launcherOf = (file: ConfigFile): Launcher => {
   const [program = builtInLauncher.command[0], ...prefix] = file.launcher?.command ?? []
-  const [codex = builtInLauncher.codex[0], ...codexPrefix] = file.launcher?.codex ?? []
   return {
     command: [program, ...prefix],
-    fix_args: file.launcher?.fix_args ?? builtInLauncher.fix_args,
-    codex: [codex, ...codexPrefix]
+    fix_args: file.launcher?.fix_args ?? builtInLauncher.fix_args
   }
 }
 
@@ -315,6 +284,62 @@ export class ConfigMalformed extends Schema.TaggedError<ConfigMalformed>()("Conf
 
 const reasonOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause))
 
+/** The keys an earlier version had, read off a file loosely enough to find them. */
+const LegacySection = Schema.Struct({
+  review: Schema.optionalKey(
+    Schema.Struct({
+      runners: Schema.optionalKey(Schema.Unknown),
+      skill: Schema.optionalKey(Schema.Unknown),
+      path_instructions: Schema.optionalKey(Schema.Unknown)
+    })
+  ),
+  stamp: Schema.optionalKey(Schema.Struct({ supporting_blocks: Schema.optionalKey(Schema.Unknown) }))
+})
+
+const Legacy = Schema.Struct({
+  launcher: Schema.optionalKey(Schema.Struct({ codex: Schema.optionalKey(Schema.Unknown) })),
+  defaults: Schema.optionalKey(LegacySection),
+  repos: Schema.optionalKey(Schema.Record(Schema.String, LegacySection))
+})
+
+const asLegacy = Schema.decodeUnknownOption(Legacy)
+
+/**
+ * What a file from an earlier version says, and what to do about each of it.
+ *
+ * The excess-property error names a key and stops there, which is enough for a
+ * key that is simply gone and not enough for one that moved: `review.skill` is
+ * `review.prompt` now, and a file quietly stripped of it is a review brief lost.
+ * This is here to be deleted once no file has those keys left.
+ */
+const legacyIn = (decided: unknown): string | null => {
+  const legacy = asLegacy(decided)
+  if (Option.isNone(legacy)) {
+    return null
+  }
+  const sections = [legacy.value.defaults, ...Object.values(legacy.value.repos ?? {})]
+  const spelled = (says: (section: typeof LegacySection.Type) => unknown): boolean =>
+    sections.some((section) => section !== undefined && says(section) !== undefined)
+
+  const said = [
+    legacy.value.launcher?.codex === undefined ? null : "launcher.codex is gone: reviews run on Claude Code alone.",
+    spelled((section) => section.review?.runners)
+      ? "review.runners is gone: a head carries one review run, which review.command configures."
+      : null,
+    spelled((section) => section.review?.skill)
+      ? "review.skill is review.prompt now, unchanged in what it does - move the text across rather than losing it."
+      : null,
+    spelled((section) => section.review?.path_instructions)
+      ? "review.path_instructions is gone: nothing ever read it."
+      : null,
+    spelled((section) => section.stamp?.supporting_blocks)
+      ? "stamp.supporting_blocks is gone: there is no second opinion to let through."
+      : null
+  ].filter((sentence) => sentence !== null)
+
+  return said.length === 0 ? null : `it names keys this version does not have.\n${said.join("\n")}`
+}
+
 /**
  * The configuration file, or `None` when this machine has none yet.
  *
@@ -336,6 +361,11 @@ export const read = Effect.gen(function* () {
   })
   // An empty document parses to null: the file is there and decides nothing.
   const decided: unknown = parsed ?? {}
+
+  const legacy = legacyIn(decided)
+  if (legacy !== null) {
+    return yield* malformed(legacy)
+  }
 
   return Option.some(
     yield* Schema.decodeUnknownEffect(ConfigFile)(decided, {
@@ -363,12 +393,11 @@ const settingsDocument = (patch: SettingsPatch): Value =>
       patch.review === undefined
         ? undefined
         : mapping([
-            ["runners", patch.review.runners],
+            ["command", patch.review.command],
             ["effort", patch.review.effort],
+            ["prompt", patch.review.prompt],
             ["model", patch.review.model],
-            ["skill", patch.review.skill],
-            ["docs_only", patch.review.docs_only],
-            ["path_instructions", patch.review.path_instructions]
+            ["docs_only", patch.review.docs_only]
           ])
     ],
     [
@@ -382,15 +411,7 @@ const settingsDocument = (patch: SettingsPatch): Value =>
     ],
     ["fix", patch.fix === undefined ? undefined : mapping([["commits", patch.fix.commits]])],
     ["rebase", patch.rebase === undefined ? undefined : mapping([["enabled", patch.rebase.enabled]])],
-    [
-      "stamp",
-      patch.stamp === undefined
-        ? undefined
-        : mapping([
-            ["blocks_on", patch.stamp.blocks_on],
-            ["supporting_blocks", patch.stamp.supporting_blocks]
-          ])
-    ]
+    ["stamp", patch.stamp === undefined ? undefined : mapping([["blocks_on", patch.stamp.blocks_on]])]
   ])
 
 /**
@@ -407,8 +428,7 @@ const fileDocument = (file: ConfigFile): Value =>
         ? undefined
         : mapping([
             ["command", file.launcher.command],
-            ["fix_args", file.launcher.fix_args],
-            ["codex", file.launcher.codex]
+            ["fix_args", file.launcher.fix_args]
           ])
     ],
     ["defaults", file.defaults === undefined ? undefined : settingsDocument(file.defaults)],

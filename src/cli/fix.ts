@@ -88,7 +88,7 @@ export const fix = Command.make(
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
 
-      const run = yield* currentRun(repo, number, settings.review.runners)
+      const run = yield* currentRun(repo, number)
       const found = yield* whatItFound(run)
       yield* Console.log(header(run, found, settings.stamp.blocks_on))
       if (found.findings.length === 0) {

@@ -1,11 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Duration, Effect, Fiber, PlatformError } from "effect"
+import { Duration, Effect, Fiber, PlatformError, Result } from "effect"
 import { TestClock } from "effect/testing"
 import type { ChildProcess } from "effect/unstable/process"
 
 import type { Launcher } from "#adapters/config.ts"
 import { builtInLauncher } from "#adapters/config.ts"
-import { builtinFindings, builtinReview, promptReview, steeredSession } from "#adapters/runner.ts"
+import { commandReview, findingsTurn, promptReview, reviewTurns, steeredSession } from "#adapters/runner.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const launcher = builtInLauncher
@@ -63,15 +63,17 @@ const claude = (options: {
 
 const nothing = () => Effect.void
 
-describe("the built-in runner", () => {
+describe("a review run on a slash command", () => {
   it.effect("reviews in the worktree and brings back the report and the session it ran in", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      const turn = yield* builtinReview({
+      const turn = yield* commandReview({
         launcher,
         directory: "/home/dw/.local/state/dw-mc/worktrees/dominikwozniak/dw-mc/28",
-        effort: "low",
+        line: "/code-review low",
+        instructions: null,
+        model: null,
         onTool: nothing
       })
 
@@ -84,7 +86,7 @@ describe("the built-in runner", () => {
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(success) })))
   })
 
-  it.effect("keeps every word the runner said, not only its last one", () => {
+  it.effect("keeps every word the run said, not only its last one", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
     // What a repository whose review command fans out to subagents really ends
     // on: the report, then a remark about the notification that followed it.
@@ -96,18 +98,32 @@ describe("the built-in runner", () => {
     ].join("\n")
 
     return Effect.gen(function* () {
-      const turn = yield* builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+      const turn = yield* commandReview({
+        launcher,
+        directory: "/worktree",
+        line: "/code-review low",
+        instructions: null,
+        model: null,
+        onTool: nothing
+      })
 
       assert.strictEqual(turn.report, `${report}\n\n${remark}`)
     }).pipe(Effect.provide(claude({ spawned, stdout })))
   })
 
-  it.effect("falls back to the last word when the runner said nothing before it", () => {
+  it.effect("falls back to the last word when the run said nothing before it", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
     const stdout = JSON.stringify(success)
 
     return Effect.gen(function* () {
-      const turn = yield* builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+      const turn = yield* commandReview({
+        launcher,
+        directory: "/worktree",
+        line: "/code-review low",
+        instructions: null,
+        model: null,
+        onTool: nothing
+      })
 
       assert.strictEqual(turn.report, report)
     }).pipe(Effect.provide(claude({ spawned, stdout })))
@@ -117,17 +133,31 @@ describe("the built-in runner", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      yield* builtinReview({ launcher, directory: "/worktree", effort: "high", onTool: nothing })
+      yield* commandReview({
+        launcher,
+        directory: "/worktree",
+        line: "/code-review high",
+        instructions: null,
+        model: null,
+        onTool: nothing
+      })
 
       assert.isFalse(spawned.some((command) => command.args.includes("--comment")))
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(success) })))
   })
 
-  it.effect("spends what the effort says", () => {
+  it.effect("opens on the line it was given", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      yield* builtinReview({ launcher, directory: "/worktree", effort: "high", onTool: nothing })
+      yield* commandReview({
+        launcher,
+        directory: "/worktree",
+        line: "/code-review high",
+        instructions: null,
+        model: null,
+        onTool: nothing
+      })
 
       assert.include(spawned[0]?.args ?? [], "/code-review high")
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(success) })))
@@ -138,10 +168,12 @@ describe("the built-in runner", () => {
     const tools: Array<string> = []
 
     return Effect.gen(function* () {
-      yield* builtinReview({
+      yield* commandReview({
         launcher,
         directory: "/worktree",
-        effort: "low",
+        line: "/code-review low",
+        instructions: null,
+        model: null,
         onTool: (tool) => Effect.sync(() => tools.push(tool))
       })
 
@@ -149,12 +181,19 @@ describe("the built-in runner", () => {
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(success) })))
   })
 
-  it.effect("a runner that exits non-zero is a failure, not an empty report", () => {
+  it.effect("a run that exits non-zero is a failure, not an empty report", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+        commandReview({
+          launcher,
+          directory: "/worktree",
+          line: "/code-review low",
+          instructions: null,
+          model: null,
+          onTool: nothing
+        })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -167,7 +206,14 @@ describe("the built-in runner", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+        commandReview({
+          launcher,
+          directory: "/worktree",
+          line: "/code-review low",
+          instructions: null,
+          model: null,
+          onTool: nothing
+        })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -175,13 +221,20 @@ describe("the built-in runner", () => {
     }).pipe(Effect.provide(claude({ spawned, stdout: `{"type":"system","subtype":"init"}\n` })))
   })
 
-  it.effect("a run the runner itself calls an error is a failure", () => {
+  it.effect("a run Claude Code itself calls an error is a failure", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
     const gaveUp = { ...success, subtype: "error_max_turns", is_error: true, result: "Reached max turns" }
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+        commandReview({
+          launcher,
+          directory: "/worktree",
+          line: "/code-review low",
+          instructions: null,
+          model: null,
+          onTool: nothing
+        })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -190,7 +243,7 @@ describe("the built-in runner", () => {
   })
 })
 
-describe("the built-in runner's second turn", () => {
+describe("the findings turn", () => {
   const schema = `{"type":"object","properties":{"verdict":{"type":"string"}}}`
   const found = {
     verdict: "findings",
@@ -210,11 +263,11 @@ describe("the built-in runner's second turn", () => {
     })
 
   const reporting = (spawned: Array<ChildProcess.StandardCommand>) =>
-    builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema }).pipe(
+    findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema }).pipe(
       Effect.provide(claude({ spawned, stdout: answer({ structured_output: found }) }))
     )
 
-  it.effect("resumes the first turn's session and brings back what the runner validated", () => {
+  it.effect("resumes the first turn's session and brings back what the run validated", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
@@ -251,7 +304,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
+        findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -264,7 +317,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
+        findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -277,7 +330,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
+        findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -290,7 +343,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
+        findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -305,7 +358,7 @@ describe("the built-in runner's second turn", () => {
   it.effect("a turn that never comes back is a failure rather than a command that hangs", () =>
     Effect.gen(function* () {
       const turn = yield* Effect.forkChild(
-        Effect.flip(builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema }))
+        Effect.flip(findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema }))
       )
 
       yield* TestClock.adjust(Duration.minutes(6))
@@ -406,6 +459,89 @@ describe("the prompt runner on Claude Code", () => {
   })
 })
 
+describe("one review run, in whichever shape it was configured in", () => {
+  const schema = `{"type":"object","properties":{"verdict":{"type":"string"}}}`
+  const found = {
+    verdict: "findings",
+    findings: [{ file: "src/cli/review.ts", line: 88, severity: "error", summary: "The run is never recorded." }]
+  }
+
+  /** A `claude` that answers the review turn and the findings turn differently. */
+  const turns = (spawned: Array<ChildProcess.StandardCommand>, reporting?: Record<string, unknown>) =>
+    layerFake((command) => {
+      if (command._tag !== "StandardCommand") {
+        return Effect.die("runner.test: the fake was handed a piped command")
+      }
+      spawned.push(command)
+      const resuming = command.args.includes("--resume")
+      const answer = JSON.stringify({ ...success, session_id: session, structured_output: found, ...reporting })
+      return Effect.succeed(
+        fakeHandle({
+          stdout: resuming
+            ? answer
+            : [
+                JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: report }] } }),
+                JSON.stringify({ ...success, structured_output: found })
+              ].join("\n")
+        })
+      )
+    })
+
+  const running = (turn: Parameters<typeof reviewTurns>[0]["turn"]) =>
+    reviewTurns({ launcher, directory: "/worktree", turn, model: null, jsonSchema: schema, onTool: nothing })
+
+  it.effect("takes one turn on the tool's own prompt, with the schema beside it", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const run = yield* running({ _tag: "prompt", text: "Review the change." })
+
+      assert.strictEqual(run.sessionId, session)
+      assert.deepStrictEqual(run.findings, Result.succeed(found))
+      assert.lengthOf(spawned, 1)
+      assert.include(spawned[0]?.args ?? [], "--json-schema")
+    }).pipe(Effect.provide(turns(spawned)))
+  })
+
+  it.effect("takes two turns on a slash command, and never hands the first one a schema", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const run = yield* running({ _tag: "command", line: "/code-review low", instructions: null })
+
+      assert.strictEqual(run.prose, report)
+      assert.deepStrictEqual(run.findings, Result.succeed(found))
+      assert.lengthOf(spawned, 2)
+      assert.isFalse(spawned[0]?.args.includes("--json-schema"))
+      assert.include(spawned[1]?.args ?? [], "--resume")
+      assert.include(spawned[1]?.args ?? [], "--json-schema")
+    }).pipe(Effect.provide(turns(spawned)))
+  })
+
+  it.effect("carries my own instructions beside the slash command, not inside its arguments", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      yield* running({ _tag: "command", line: "/code-review low", instructions: "Look at the N+1 queries." })
+
+      assert.deepStrictEqual(spawned[0]?.args.slice(0, 2), ["-p", "/code-review low"])
+      assert.deepStrictEqual(spawned[0]?.args.slice(-2), ["--append-system-prompt", "Look at the N+1 queries."])
+    }).pipe(Effect.provide(turns(spawned)))
+  })
+
+  it.effect("keeps the review where the findings turn could not report", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const run = yield* running({ _tag: "command", line: "/code-review low", instructions: null })
+
+      assert.strictEqual(run.prose, report)
+      assert.strictEqual(run.sessionId, session)
+      assert.isTrue(Result.isFailure(run.findings))
+    }).pipe(Effect.provide(turns(spawned, { structured_output: undefined })))
+  })
+})
+
 describe("steeredSession", () => {
   it.effect("opens claude in the worktree, on the prompt, with my terminal handed to it", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
@@ -430,7 +566,7 @@ describe("steeredSession", () => {
 
   it.effect("starts what the launcher names, its own arguments first and the prompt last", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
-    const wrapper: Launcher = { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"], codex: ["codex"] }
+    const wrapper: Launcher = { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"] }
 
     return Effect.gen(function* () {
       yield* steeredSession({ launcher: wrapper, directory: "/fixes/28", prompt: "Work through these findings" })

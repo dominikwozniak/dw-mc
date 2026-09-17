@@ -7,11 +7,12 @@ export const Verdict = Schema.Literals(["clean", "findings"])
 export type Verdict = typeof Verdict.Type
 
 /**
- * Every severity word a runner may answer with.
+ * Every severity word a review may answer with.
  *
- * The first three are ours, and the only ones a runner is asked for. The rest
- * are the persona the `prompt` runner carries, which grades in its own words:
- * a turn that comes back in them is worth reading rather than throwing away.
+ * The first three are ours, and the only ones a run is asked for. The rest are
+ * the persona a run with no slash command carries, which grades in its own
+ * words: a turn that comes back in them is worth reading rather than throwing
+ * away.
  */
 const Spelling = Schema.Literals(["error", "warning", "info", "Critical", "Required", "Optional", "Nit", "FYI"])
 
@@ -82,9 +83,9 @@ export const jsonSchema: string = JSON.stringify(
 /**
  * The findings as the Markdown a report is written in.
  *
- * It is what the `prompt` runner's report says: with a schema in force a runner
- * answers in findings and not in prose, so the report kept beside the run is
- * written from the findings themselves rather than left empty.
+ * It is what a schema-held run's report says: with a schema in force a run
+ * answers in findings and not in prose, so the report kept beside it is written
+ * from the findings themselves rather than left empty.
  */
 export const asMarkdown = (found: Findings): string =>
   found.findings.length === 0
