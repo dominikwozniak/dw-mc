@@ -40,26 +40,12 @@ follows the same `type(scope): subject` form as a commit subject.
 
 ## Releases
 
-The version in `package.json` is written by changesets and by nothing else. Never edit it, and never
-publish from a machine: `main` publishes itself.
-
-A change that someone installing `dw-mc` would notice carries a changeset, written in the same pull
-request as the change it describes:
-
-```sh
-pnpm changeset
-```
-
-Pick `patch` for a fix, `minor` for a command, a flag or behaviour that is new, `major` for one that
-breaks. The text is for whoever reads the changelog on npm, so it says what the tool now does, not which
-files moved. A change nobody installing would notice — this file, an ADR, a workflow, a test — carries
-none, and nothing complains: a changeset is the decision that something is worth releasing, not a
-condition of merging.
-
-What follows is automatic. A merge to `main` with changesets waiting opens a `chore(release): version
-packages` pull request that bumps the version, writes `CHANGELOG.md` and consumes the changesets;
-merging that one runs the gate, publishes to npm with provenance, tags the commit and cuts a GitHub
-Release. See [ADR 0008](docs/adr/0008-npm-publication.md).
+changesets writes the version and the changelog: never edit the version in `package.json`, and never
+publish from a machine. A change someone installing `dw-mc` would notice carries a changeset in the
+pull request that makes it - `pnpm changeset`, `patch` for a fix, `minor` for new behaviour, `major`
+for a break, written for whoever reads it on npm. Anything else carries none and nothing complains. A
+merge to `main` with changesets waiting opens a version pull request; merging that one publishes, tags
+and releases. See [ADR 0008](docs/adr/0008-npm-publication.md).
 
 ## Agent skills
 
