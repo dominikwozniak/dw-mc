@@ -3,7 +3,7 @@ import { Effect, Option, Schema } from "effect"
 
 import { layerTest, prKey, storeFor } from "#adapters/store.ts"
 import type { Branches, Situation } from "#domain/rebase.ts"
-import { Conflict, conflictedAt, decide, recordConflict, stackOf } from "#domain/rebase.ts"
+import { Conflict, conflictFor, decide, recordConflict, stackOf } from "#domain/rebase.ts"
 
 const repo = "dominikwozniak/dw-mc"
 
@@ -142,7 +142,7 @@ describe("the record a conflicted rebase leaves", () => {
         yield* store.get(prKey(repo, 28)),
         Option.some({ head, paths: ["src/cli/rebase.ts", "pnpm-lock.yaml"] })
       )
-      assert.strictEqual(yield* conflictedAt(repo, 28), head)
+      assert.strictEqual((yield* conflictFor(repo, 28))?.head, head)
     }).pipe(Effect.provide(layerTest))
   )
 
@@ -156,7 +156,7 @@ describe("the record a conflicted rebase leaves", () => {
       // The head is what puts the pull request in Needs me, so a record without
       // paths is worth less than one with them and still worth everything the
       // bucket asks of it.
-      assert.strictEqual(yield* conflictedAt(repo, 28), head)
+      assert.strictEqual((yield* conflictFor(repo, 28))?.head, head)
     }).pipe(Effect.provide(layerTest))
   )
 })

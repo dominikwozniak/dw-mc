@@ -25,7 +25,7 @@ import { blocking } from "#domain/findings.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
-import { conflictedAt } from "#domain/rebase.ts"
+import { conflictFor } from "#domain/rebase.ts"
 import { reportedBy, ReviewRun, runKey } from "#domain/review.ts"
 
 /** Something a sweep could not read, and what GitHub said about it. */
@@ -118,7 +118,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
             }
           )
 
-  const rebaseConflictAt = yield* conflictedAt(found.repo, found.number)
+  const rebaseConflictAt = yield* Effect.map(conflictFor(found.repo, found.number), (it) => it?.head ?? null)
 
   const facts: Facts = {
     repo: found.repo,

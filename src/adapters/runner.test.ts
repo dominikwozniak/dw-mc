@@ -5,7 +5,7 @@ import type { ChildProcess } from "effect/unstable/process"
 
 import type { Launcher } from "#adapters/config.ts"
 import { builtInLauncher } from "#adapters/config.ts"
-import { builtinFindings, builtinReview, fixSession } from "#adapters/runner.ts"
+import { builtinFindings, builtinReview, steeredSession } from "#adapters/runner.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const launcher = builtInLauncher
@@ -317,12 +317,12 @@ describe("the built-in runner's second turn", () => {
   )
 })
 
-describe("fixSession", () => {
+describe("steeredSession", () => {
   it.effect("opens claude in the worktree, on the prompt, with my terminal handed to it", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      const ended = yield* fixSession({ launcher, directory: "/fixes/28", prompt: "Work through these findings" })
+      const ended = yield* steeredSession({ launcher, directory: "/fixes/28", prompt: "Work through these findings" })
 
       assert.strictEqual(ended, 0)
       const [command] = spawned
@@ -344,7 +344,7 @@ describe("fixSession", () => {
     const wrapper: Launcher = { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"] }
 
     return Effect.gen(function* () {
-      yield* fixSession({ launcher: wrapper, directory: "/fixes/28", prompt: "Work through these findings" })
+      yield* steeredSession({ launcher: wrapper, directory: "/fixes/28", prompt: "Work through these findings" })
 
       const [command] = spawned
       assert.strictEqual(command?.command, "cswap")
@@ -356,13 +356,15 @@ describe("fixSession", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      assert.strictEqual(yield* fixSession({ launcher, directory: "/fixes/28", prompt: "Work through these" }), 130)
+      assert.strictEqual(yield* steeredSession({ launcher, directory: "/fixes/28", prompt: "Work through these" }), 130)
     }).pipe(Effect.provide(claude({ spawned, exitCode: 130 })))
   })
 
   it.effect("a claude that will not start is a failure in our words", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(fixSession({ launcher, directory: "/fixes/28", prompt: "Work through these" }))
+      const error = yield* Effect.flip(
+        steeredSession({ launcher, directory: "/fixes/28", prompt: "Work through these" })
+      )
 
       assert.strictEqual(error._tag, "RunnerFailed")
       assert.include(error.message, "no claude on this machine")

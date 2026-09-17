@@ -40,6 +40,8 @@ const git = (options: {
   readonly behind?: number | undefined
   /** The files a conflicted replay left unmerged in the worktree. */
   readonly unmerged?: ReadonlyArray<string> | undefined
+  /** Whether the worktree has something staged, as `rerere` leaves it. */
+  readonly staged?: boolean | undefined
 }) =>
   layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -61,6 +63,9 @@ const git = (options: {
     }
     if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/rebase/28`) {
       return Effect.succeed(fakeHandle({ exitCode: 1 }))
+    }
+    if (argv.endsWith("diff --cached --quiet")) {
+      return options.staged === true ? Effect.succeed(fakeHandle({ exitCode: 1 })) : Effect.succeed(fakeHandle({}))
     }
     if (argv === `-C ${standing} diff --name-only --diff-filter=U`) {
       return Effect.succeed(fakeHandle({ stdout: (options.unmerged ?? []).map((path) => `${path}\n`).join("") }))
@@ -471,18 +476,50 @@ describe("replaying onto the base in a worktree that stands", () => {
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
   })
 
-  it.effect("aborts a replay that never started, so the worktree is left as it was found", () => {
+  it.effect("says a replay that never started in git's own words, and calls it no conflict", () => {
     const spawned: Array<string> = []
     const refuses = { argv: `-C ${standing} rebase refs/heads/main`, detail: said.noIdentity }
 
     return Effect.gen(function* () {
-      // Nothing is unmerged, so the replay never stopped on a conflict: it
-      // never began, and a standing worktree must not be left mid-rebase.
+      // Nothing unmerged and nothing staged: the replay never stopped on a
+      // conflict, it never began, so there is nothing to continue and nothing
+      // to resolve.
       const error = yield* Effect.flip(rebaseInPlace(standing, "main"))
 
       assert.strictEqual(error._tag, "GitFailed")
       assert.include(error.message, "empty ident name")
-      assert.include(spawned, `git -C ${standing} rebase --abort`)
+      assert.isFalse(spawned.some((vector) => vector.includes("rebase --continue")))
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true, refuses }))))
+  })
+
+  it.effect("carries a stop that rerere already resolved past itself rather than reporting it", () => {
+    const spawned: Array<string> = []
+    const refuses = { argv: `-C ${standing} rebase refs/heads/main`, detail: said.rebaseConflict }
+
+    return Effect.gen(function* () {
+      // Verified against git: a replay of a conflict resolved once stages the
+      // old resolution and still exits non-zero, with nothing left unmerged.
+      const stopped = yield* rebaseInPlace(standing, "main")
+
+      assert.deepStrictEqual(stopped, { _tag: "replayed" })
+      assert.include(spawned, `git -C ${standing} -c core.editor=true rebase --continue`)
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, refuses, staged: true, unmerged: [] }))))
+  })
+})
+
+describe("a rebase whose conflict rerere has seen before", () => {
+  it.effect("carries the throwaway replay past the stop and pushes what it replayed", () => {
+    const spawned: Array<string> = []
+    const refuses = { argv: `-C ${worktree} rebase refs/heads/main`, detail: said.rebaseConflict }
+
+    return Effect.gen(function* () {
+      // The point of turning rerere on: the conflict I resolved once costs the
+      // next rebase nothing, and dw-mc rebase pushes as it always did.
+      const done = yield* rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch")
+
+      assert.deepStrictEqual(done, { _tag: "pushed", before: head, after: rebased, behind: 3 })
+      assert.include(spawned, `git -C ${worktree} -c core.editor=true rebase --continue`)
+      assert.isFalse(spawned.some((vector) => vector.includes("rebase --abort")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, behind: 3, refuses, staged: true, unmerged: [] }))))
   })
 })

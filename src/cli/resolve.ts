@@ -5,7 +5,7 @@ import type { ConfigFile } from "#adapters/config.ts"
 import { launcherOf, read as readConfig } from "#adapters/config.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseInPlace, standingWorktree } from "#adapters/git.ts"
-import { fixSession } from "#adapters/runner.ts"
+import { steeredSession } from "#adapters/runner.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { count } from "#cli/table.ts"
@@ -69,20 +69,21 @@ export const resolve = Command.make(
         conflictAt: conflict === null ? null : conflict.head
       })
 
-      const conflicted = {
+      /** The conflict as the prompt takes it, around whichever paths are known by then. */
+      const conflicted = (paths: ReadonlyArray<string>) => ({
         repo,
         number,
         head: view.headRefOid,
         base: view.baseRefName,
         title: view.title,
-        paths: conflict?.paths ?? []
-      }
+        paths
+      })
 
       // The prompt on its own, for the session I already have open. Nothing is
       // cut and no replay is run: the paths are the ones the rebase wrote down,
       // which is everything a prompt has to carry.
       if (print) {
-        yield* Console.log(yield* promptFor(conflicted))
+        yield* Console.log(yield* promptFor(conflicted(conflict?.paths ?? [])))
         return
       }
 
@@ -95,7 +96,8 @@ export const resolve = Command.make(
       const stopped = yield* rebaseInPlace(worktree.directory, view.baseRefName)
       if (stopped._tag === "replayed") {
         yield* Console.log(
-          `The replay went through, so there is nothing to resolve: git replayed a resolution you made before.`
+          `The replay went through, so there is nothing to resolve: git replayed a resolution you made before, ` +
+            `or the conflict is gone.`
         )
         yield* Console.log(`The worktree stands at ${worktree.directory}; the push onto ${view.headRefName} is yours.`)
         return
@@ -104,10 +106,10 @@ export const resolve = Command.make(
       yield* Console.log(`It stopped on ${count(stopped.paths.length, "file")}:`)
       yield* Effect.forEach(stopped.paths, (path) => Console.log(`  ${path}`))
 
-      const ended = yield* fixSession({
+      const ended = yield* steeredSession({
         launcher: launcherOf(file),
         directory: worktree.directory,
-        prompt: yield* promptFor({ ...conflicted, head: worktree.head, paths: stopped.paths })
+        prompt: yield* promptFor(conflicted(stopped.paths))
       })
 
       yield* Console.log(ended === 0 ? "The session is over." : `The session ended with ${ended}.`)

@@ -78,7 +78,7 @@ A local agent CLI that a review run executes on. Claude Code is the primary runn
 _Avoid_: reviewer, provider, model
 
 **Launcher**:
-The program this machine starts a runner with, and the arguments it takes before mission control's own. Its default is `claude` itself; a machine that reaches Claude Code through another program - `cswap run --`, a multi-account manager - names that program here. It carries the fix session too, which is no review run.
+The program this machine starts a runner with, and the arguments it takes before mission control's own. Its default is `claude` itself; a machine that reaches Claude Code through another program - `cswap run --`, a multi-account manager - names that program here. It carries the sessions I steer too - the one on findings and the one on a conflict - which are no review run.
 _Avoid_: wrapper, executable, shim
 
 **Finding**:

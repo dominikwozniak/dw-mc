@@ -283,8 +283,9 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(function* (op
  * An interactive `claude` in `directory`, opened on `prompt`, with my terminal
  * handed straight to it.
  *
- * The launcher's `fix_args` go here and nowhere else: they are the flags of a
- * session I steer, which no headless review turn wants. They sit in front of the
+ * The launcher's `fix_args` go here and nowhere else: they are the flags of
+ * every session I steer - the one on findings and the one on a conflict - which
+ * no headless review turn wants. They sit in front of the
  * prompt, because `claude` takes its flags before its positional argument.
  *
  * This is the one place a runner is not read: the three streams are inherited,
@@ -293,14 +294,14 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(function* (op
  * a detached child sits outside the terminal's foreground process group, where
  * neither my keystrokes nor Ctrl-C would reach it.
  *
- * There is no patience here either. A fix session lasts as long as I am in it,
- * and a timeout would be the tool closing a session I was still working in.
+ * There is no patience here either. A session I steer lasts as long as I am in
+ * it, and a timeout would be the tool closing a session I was still working in.
  *
  * What comes back is the code the session ended on. A session I left with
  * Ctrl-C ended badly for `claude` and not for me, so this reports it rather
  * than failing on it; only a `claude` that would not start at all is a failure.
  */
-export const fixSession = Effect.fn("runner.fixSession")(function* (options: {
+export const steeredSession = Effect.fn("runner.steeredSession")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
   readonly prompt: string

@@ -8,7 +8,7 @@ import { layerScripted } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
-import { Conflict, conflictedAt } from "#domain/rebase.ts"
+import { Conflict, conflictFor } from "#domain/rebase.ts"
 
 const repo = "dominikwozniak/dw-mc"
 const branch = "feat/28-a-branch"
@@ -71,7 +71,10 @@ const machine = (options: {
         return Effect.succeed(fakeHandle({ stdout: `${rebased}\n` }))
       }
       if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
-        return Effect.succeed(fakeHandle({ stdout: (options.unmerged ?? []).map((path) => `${path}\n`).join("") }))
+        // A content conflict always leaves the file unmerged, which is what
+        // tells it from a replay that stopped for any other reason.
+        const unmerged = options.unmerged ?? (options.conflicts === true ? ["a.ts"] : [])
+        return Effect.succeed(fakeHandle({ stdout: unmerged.map((path) => `${path}\n`).join("") }))
       }
       return Effect.succeed(fakeHandle({}))
     }
@@ -196,7 +199,7 @@ describe("dw-mc rebase", () => {
       assert.deepStrictEqual(pushes(spawned), [])
       assert.include(spawned, `git -C ${worktree} rebase --abort`)
       assert.strictEqual(spawned.at(-1), `git -C ${clone} worktree remove --force ${worktree}`)
-      assert.strictEqual(yield* conflictedAt(repo, 28), head)
+      assert.strictEqual((yield* conflictFor(repo, 28))?.head, head)
     }).pipe(Effect.provide(machine({ spawned, behind: 3, conflicts: true })), recording(printed))
   })
 

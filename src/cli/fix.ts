@@ -6,7 +6,7 @@ import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts
 import { prView } from "#adapters/gh.ts"
 import { standingWorktree } from "#adapters/git.ts"
 import { choose, note, width } from "#adapters/picker.ts"
-import { fixSession } from "#adapters/runner.ts"
+import { steeredSession } from "#adapters/runner.ts"
 import { currentRun, header, lines, whatItFound } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
@@ -122,7 +122,7 @@ export const fix = Command.make(
       )
       yield* Console.log(`  ${worktree.directory}, pushing to ${view.headRefName}`)
 
-      const ended = yield* fixSession({
+      const ended = yield* steeredSession({
         launcher: launcherOf(file),
         directory: worktree.directory,
         prompt: yield* promptFor({ repo, number, head: worktree.head, findings: chosen }, commits)

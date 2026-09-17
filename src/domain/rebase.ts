@@ -89,10 +89,11 @@ export interface Branch {
 /**
  * Why this branch is nobody's to touch here, or null where it is mine.
  *
- * These are the guards about the branch rather than about the rebase, which is
- * why they are their own: who authored the pull request and where its branch
- * lives is the boundary itself - a branch somebody else authored and a branch
- * in a fork are not mine to push, whatever else is true of them. A stack comes
+ * These are the guards about the branch rather than about what is done to it,
+ * which is why they are their own and why they say nothing about pushing: who
+ * authored the pull request and where its branch lives is the boundary itself -
+ * a branch somebody else authored and a branch in a fork are not mine to work
+ * on, whatever else is true of them and whichever command asks. A stack comes
  * next, and a pull request the stack was not read from counts as one, because a
  * stack the tool cannot see is one it could drive: the tool does not understand
  * stacks, so the one thing it has to say about one is where the pull request
@@ -101,18 +102,18 @@ export interface Branch {
 export const boundary = (branch: Branch): string | null => {
   const where = `${branch.repo}#${branch.number}`
   if (!branch.mine) {
-    return `${where} is not mine. dw-mc pushes to branches I author and to nothing else.`
+    return `${where} is not mine. dw-mc works on branches I author and on nothing else.`
   }
   if (branch.fromFork) {
     return (
       `${where} is opened from a fork, so its branch is not in ${branch.repo}. ` +
-      `dw-mc pushes only to a branch in the repository it read.`
+      `dw-mc works only on a branch in the repository it read.`
     )
   }
   if (!branch.listed) {
     return (
       `${where} was not among the open pull requests of ${branch.repo}, so nothing here can say whether ` +
-      `it is in a stack. Read it again before rebasing it.`
+      `it is in a stack. Read it again before touching the branch.`
     )
   }
   if (branch.stack !== null) {
@@ -188,19 +189,14 @@ export const Conflict = Schema.Struct({
 export type Conflict = typeof Conflict.Type
 
 /**
- * The head a rebase last conflicted at, or null where none has.
+ * The conflict a rebase last left on this pull request, or null where it left
+ * none.
  *
  * A record this version cannot read is one another version of it wrote, and a
  * conflict is worth a bucket rather than a failed sweep: forgetting it costs
  * the pull request one reason to be in Needs me, where failing here would cost
  * me the whole table.
  */
-export const conflictedAt = Effect.fn("rebase.conflictedAt")(function* (repo: string, number: number) {
-  const conflict = yield* conflictFor(repo, number)
-  return conflict === null ? null : conflict.head
-})
-
-/** The whole conflict record, head and paths, or null where there is none. */
 export const conflictFor = Effect.fn("rebase.conflictFor")(function* (repo: string, number: number) {
   const store = yield* storeFor("rebases", Conflict)
   const conflict = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Conflict>())
