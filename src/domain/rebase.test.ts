@@ -1,7 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
+import { Effect, Option, Schema } from "effect"
 
+import { layerTest, prKey, storeFor } from "#adapters/store.ts"
 import type { Branches, Situation } from "#domain/rebase.ts"
-import { decide, stackOf } from "#domain/rebase.ts"
+import { Conflict, conflictedAt, decide, recordConflict, stackOf } from "#domain/rebase.ts"
 
 const repo = "dominikwozniak/dw-mc"
 
@@ -125,4 +127,36 @@ describe("decide", () => {
 
     assert.include(said, "off")
   })
+})
+
+describe("the record a conflicted rebase leaves", () => {
+  const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
+
+  it.effect("carries the files the rebase conflicted on beside the head", () =>
+    Effect.gen(function* () {
+      yield* recordConflict(repo, 28, head, ["src/cli/rebase.ts", "pnpm-lock.yaml"])
+
+      const store = yield* storeFor("rebases", Conflict)
+
+      assert.deepStrictEqual(
+        yield* store.get(prKey(repo, 28)),
+        Option.some({ head, paths: ["src/cli/rebase.ts", "pnpm-lock.yaml"] })
+      )
+      assert.strictEqual(yield* conflictedAt(repo, 28), head)
+    }).pipe(Effect.provide(layerTest))
+  )
+
+  it.effect("reads a record an older version wrote, which has no paths at all", () =>
+    Effect.gen(function* () {
+      // The record as an older version of the tool wrote it: a head and nothing
+      // else.
+      const older = yield* storeFor("rebases", Schema.Struct({ head: Schema.String }))
+      yield* older.set(prKey(repo, 28), { head })
+
+      // The head is what puts the pull request in Needs me, so a record without
+      // paths is worth less than one with them and still worth everything the
+      // bucket asks of it.
+      assert.strictEqual(yield* conflictedAt(repo, 28), head)
+    }).pipe(Effect.provide(layerTest))
+  )
 })

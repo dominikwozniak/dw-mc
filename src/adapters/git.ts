@@ -204,7 +204,7 @@ export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string,
 /** What a rebase of a pull request's branch onto its base came to. */
 export type Rebased =
   | { readonly _tag: "up-to-date" }
-  | { readonly _tag: "conflicted" }
+  | { readonly _tag: "conflicted"; readonly paths: ReadonlyArray<string> }
   | { readonly _tag: "pushed"; readonly before: string; readonly after: string; readonly behind: number }
 
 /** How many commits the base has that the worktree's head does not. */
@@ -214,7 +214,24 @@ const behindBy = Effect.fn("git.behindBy")(function* (directory: string, base: s
 })
 
 /**
- * Rebases onto `base` in `directory`, or says the rebase conflicted.
+ * The files the stopped replay left unmerged, which is what the conflict is
+ * about.
+ *
+ * `git` names them itself rather than being read out of its prose, and a
+ * listing that refuses is no reason to leave a rebase standing: the paths are
+ * worth less than the abort, so the conflict is recorded with none of them.
+ */
+const unmergedIn = Effect.fn("git.unmergedIn")(function* (directory: string) {
+  const listed = yield* Effect.orElseSucceed(git(["-C", directory, "diff", "--name-only", "--diff-filter=U"]), () => "")
+  return listed.split("\n").filter((line) => line !== "")
+})
+
+/** What replaying a branch's commits onto its base came to, inside the worktree. */
+type Replayed = { readonly _tag: "replayed" } | { readonly _tag: "conflicted"; readonly paths: ReadonlyArray<string> }
+
+/**
+ * Rebases onto `base` in `directory`, or says which files the rebase conflicted
+ * on.
  *
  * A conflict is told apart from every other way `git rebase` refuses by asking
  * `git` to abort: an abort succeeds only where a rebase is in progress, which
@@ -223,19 +240,24 @@ const behindBy = Effect.fn("git.behindBy")(function* (directory: string, base: s
  * started, and is worth its own words rather than being reported as a conflict
  * that never happened.
  *
+ * The unmerged files are read before the abort, which is the only moment they
+ * exist: the abort puts the branch back and takes the stopped replay's index
+ * with it.
+ *
  * Either way nothing half-finished is left behind: the worktree is thrown away
  * with the run, and the abort puts the branch back where it was first.
  */
 const replayOnto = Effect.fn("git.replayOnto")(function* (directory: string, base: string) {
   const rebased = yield* Effect.result(git(["-C", directory, "rebase", `refs/heads/${base}`]))
   if (Result.isSuccess(rebased)) {
-    return true
+    return { _tag: "replayed" } satisfies Replayed
   }
+  const paths = yield* unmergedIn(directory)
   const aborted = yield* Effect.result(git(["-C", directory, "rebase", "--abort"]))
   if (Result.isFailure(aborted)) {
     return yield* rebased.failure
   }
-  return false
+  return { _tag: "conflicted", paths } satisfies Replayed
 })
 
 /**
@@ -265,8 +287,9 @@ export const rebaseOnto = Effect.fn("git.rebaseOnto")(function* (
       if (behind === 0) {
         return { _tag: "up-to-date" } satisfies Rebased
       }
-      if (!(yield* replayOnto(worktree.directory, base))) {
-        return { _tag: "conflicted" } satisfies Rebased
+      const replayed = yield* replayOnto(worktree.directory, base)
+      if (replayed._tag === "conflicted") {
+        return replayed satisfies Rebased
       }
 
       const after = yield* git(["-C", worktree.directory, "rev-parse", "HEAD"])

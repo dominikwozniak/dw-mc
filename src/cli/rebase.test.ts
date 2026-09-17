@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Path, Stdio } from "effect"
+import { ConfigProvider, Console, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
@@ -8,7 +8,7 @@ import { layerScripted } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
-import { conflictedAt } from "#domain/rebase.ts"
+import { Conflict, conflictedAt } from "#domain/rebase.ts"
 
 const repo = "dominikwozniak/dw-mc"
 const branch = "feat/28-a-branch"
@@ -39,6 +39,8 @@ const machine = (options: {
   readonly open?: ReadonlyArray<{ number: number; headRefName: string; baseRefName: string }> | undefined
   /** Whether replaying the commits onto the base conflicts. */
   readonly conflicts?: boolean | undefined
+  /** The files a conflicted replay leaves unmerged in the worktree. */
+  readonly unmerged?: ReadonlyArray<string> | undefined
   /** Who opened the pull request, where it was not me. */
   readonly author?: string | undefined
   /** Whether the head branch lives in a fork. */
@@ -67,6 +69,9 @@ const machine = (options: {
       }
       if (argv === `-C ${worktree} rev-parse HEAD`) {
         return Effect.succeed(fakeHandle({ stdout: `${rebased}\n` }))
+      }
+      if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
+        return Effect.succeed(fakeHandle({ stdout: (options.unmerged ?? []).map((path) => `${path}\n`).join("") }))
       }
       return Effect.succeed(fakeHandle({}))
     }
@@ -193,6 +198,25 @@ describe("dw-mc rebase", () => {
       assert.strictEqual(spawned.at(-1), `git -C ${clone} worktree remove --force ${worktree}`)
       assert.strictEqual(yield* conflictedAt(repo, 28), head)
     }).pipe(Effect.provide(machine({ spawned, behind: 3, conflicts: true })), recording(printed))
+  })
+
+  it.effect("prints the files the rebase conflicted on and writes them down beside the head", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+    const unmerged = ["src/cli/rebase.ts", "pnpm-lock.yaml"]
+
+    return Effect.gen(function* () {
+      yield* enabled
+
+      yield* run("rebase", "28")
+
+      assert.include(printed.join("\n"), "2 files")
+      assert.include(printed.join("\n"), "src/cli/rebase.ts")
+      assert.include(printed.join("\n"), "pnpm-lock.yaml")
+
+      const store = yield* Store.storeFor("rebases", Conflict)
+      assert.deepStrictEqual(yield* store.get(Store.prKey(repo, 28)), Option.some({ head, paths: unmerged }))
+    }).pipe(Effect.provide(machine({ spawned, behind: 3, conflicts: true, unmerged })), recording(printed))
   })
 
   it.effect("is off until the repository turns it on", () => {

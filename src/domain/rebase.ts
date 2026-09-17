@@ -147,13 +147,24 @@ export const decide = (situation: Situation): string | null => {
 }
 
 /**
- * A rebase that conflicted, and the head it conflicted at.
+ * A rebase that conflicted: the head it conflicted at and the files it stopped
+ * on.
  *
- * The head is the whole record, as it is for a withdrawn stamp: a conflict is
- * about the code the branch is at, so it lasts exactly as long as that code is
- * what the pull request is.
+ * The head is what the record is scoped to, as it is for a withdrawn stamp: a
+ * conflict is about the code the branch is at, so it lasts exactly as long as
+ * that code is what the pull request is. A branch that moved is a branch
+ * nothing here has tried to rebase yet.
+ *
+ * The paths are what makes the conflict something to open: `a rebase
+ * conflicted` cannot tell a stale lockfile from half the pull request. They are
+ * an optional key rather than a required one so a record an older version wrote
+ * still reads, and a conflict with no paths still puts the pull request in
+ * Needs me.
  */
-export const Conflict = Schema.Struct({ head: Schema.String })
+export const Conflict = Schema.Struct({
+  head: Schema.String,
+  paths: Schema.optionalKey(Schema.Array(Schema.String))
+})
 export type Conflict = typeof Conflict.Type
 
 /**
@@ -170,12 +181,13 @@ export const conflictedAt = Effect.fn("rebase.conflictedAt")(function* (repo: st
   return Option.match(conflict, { onNone: () => null, onSome: (it) => it.head })
 })
 
-/** Writes down that a rebase of `head` conflicted, which is the only head it holds for. */
+/** Writes down that a rebase of `head` conflicted on `paths`, which is the only head it holds for. */
 export const recordConflict = Effect.fn("rebase.recordConflict")(function* (
   repo: string,
   number: number,
-  head: string
+  head: string,
+  paths: ReadonlyArray<string>
 ) {
   const store = yield* storeFor("rebases", Conflict)
-  yield* store.set(prKey(repo, number), { head })
+  yield* store.set(prKey(repo, number), { head, paths })
 })
