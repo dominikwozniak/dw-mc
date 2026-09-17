@@ -7,9 +7,9 @@ import type { ConfigFile, Launcher, Settings } from "#adapters/config.ts"
 import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
+import type { Reads } from "#adapters/heartbeat.ts"
+import { beating } from "#adapters/heartbeat.ts"
 import { announce } from "#adapters/notify.ts"
-import type { Doing } from "#adapters/progress.ts"
-import { spinning } from "#adapters/progress.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
 import { lines, summary } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
@@ -34,11 +34,19 @@ import {
 } from "#domain/review.ts"
 import type { Effort, ReviewTurn } from "#terms/review.ts"
 
-/** What the spinner says a run has got through, while it is still going. */
-const saying = (doing: Doing, since: string): string =>
-  ["reviewing", count(doing.tools, "tool"), doing.subagents === 0 ? null : count(doing.subagents, "subagent"), since]
-    .filter((part) => part !== null)
-    .join(" · ")
+/** What a review run has reached for so far, which is what its heartbeat counts. */
+interface Doing {
+  readonly tools: number
+  readonly subagents: number
+}
+
+/** What the heartbeat says a run has got through, while it is still going. */
+const saying =
+  (doing: Doing): Reads =>
+  (since) =>
+    ["reviewing", count(doing.tools, "tool"), doing.subagents === 0 ? null : count(doing.subagents, "subagent"), since]
+      .filter((part) => part !== null)
+      .join(" · ")
 
 const commandFlag = Flag.String("command").pipe(
   Flag.withDescription("The slash command this run opens on, over what the repository configured"),
@@ -170,7 +178,23 @@ const reviewOn = Effect.fn("review.reviewOn")(function* (options: {
   readonly model: string | null
 }) {
   const { directory, launcher, model, turn } = options
-  const run = yield* spinning(saying, (onTool) => reviewTurns({ launcher, directory, turn, model, jsonSchema, onTool }))
+  // The count is the command's: a tool reached for moves it on, and the line is
+  // reworded from where it got to. Where there is no screen the tools go out one
+  // to a line, as they did before there was a heartbeat.
+  let doing: Doing = { tools: 0, subagents: 0 }
+  const run = yield* beating(saying(doing), (says) =>
+    reviewTurns({
+      launcher,
+      directory,
+      turn,
+      model,
+      jsonSchema,
+      onTool: (tool) => {
+        doing = { tools: doing.tools + 1, subagents: doing.subagents + (tool === "Agent" ? 1 : 0) }
+        return says(saying(doing), `  · ${tool}`)
+      }
+    })
+  )
   // Both halves answer `message`, which is all `ranBy` reads: a turn that could
   // not report and a turn that answered in a shape that does not validate are
   // the same kind of failure of the same run.

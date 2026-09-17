@@ -1,6 +1,8 @@
 # Colour carries state, dim carries context, and prose is never coloured
 
-Mission control writes lines, not screens. There are no frames, no boxes and no full-screen redrawing beyond the spinner a review already turns: a line survives a pipe, a paste into a pull request and a terminal I resized, and a frame does not.
+Mission control writes lines, not screens. There are no frames, no boxes and no full-screen redrawing beyond the one line a heartbeat rewrites: a line survives a pipe, a paste into a pull request and a terminal I resized, and a frame does not.
+
+**Work that takes seconds says so.** Every command that reaches GitHub, a clone or the disk before it can print turns a heartbeat while it does, because a terminal that shows nothing for five seconds is one I stop trusting. It is one line, rewritten in place and gone the moment the work is, so what the screen keeps is the report and never the trail of what it took to get there. What the line counts belongs to the command — a review counts tools, a sweep counts pull requests, a command reading two guards counts nothing — and the clock and the rewriting belong to the heartbeat. Where there is no screen to measure, nothing is drawn: a pipe reads exactly what it read before there was a heartbeat at all.
 
 What a line is allowed to say in more than words is fixed here, because a rule invented per command is four looks.
 
