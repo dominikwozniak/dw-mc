@@ -1,5 +1,5 @@
 ---
-"dw-mc": minor
+"dw-mc": patch
 ---
 
 `dw-mc cleanup` takes back the disk the tool spends on itself — the bare clones and the worktrees a
