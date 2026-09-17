@@ -39,6 +39,10 @@ const machine = (options: {
   readonly open?: ReadonlyArray<{ number: number; headRefName: string; baseRefName: string }> | undefined
   /** Whether replaying the commits onto the base conflicts. */
   readonly conflicts?: boolean | undefined
+  /** Who opened the pull request, where it was not me. */
+  readonly author?: string | undefined
+  /** Whether the head branch lives in a fork. */
+  readonly fromFork?: boolean | undefined
 }) => {
   const base = options.base ?? "main"
   const spawner = layerFake((command) => {
@@ -77,12 +81,17 @@ const machine = (options: {
             headRefOid: head,
             headRefName: branch,
             baseRefName: base,
+            author: { login: options.author ?? "dominikwozniak" },
+            isCrossRepository: options.fromFork ?? false,
             mergeable: "MERGEABLE",
             reviewDecision: "",
             statusCheckRollup: options.checks ?? []
           })
         })
       )
+    }
+    if (argv === "api user") {
+      return Effect.succeed(fakeHandle({ stdout: JSON.stringify({ login: "dominikwozniak" }) }))
     }
     if (/^pr list --repo \S+ --state open/.test(argv)) {
       return Effect.succeed(
@@ -258,6 +267,49 @@ describe("dw-mc rebase", () => {
     }).pipe(Effect.provide(machine({ spawned, behind: 3, checks: [check("FAILURE")] })), recording(printed))
   })
 
+  it.effect("refuses a branch somebody else authored", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* enabled
+
+      const error = yield* Effect.flip(run("rebase", "28"))
+
+      assert.include(String(error.cause), "not mine")
+      assert.deepStrictEqual(pushes(spawned), [])
+      assert.isFalse(spawned.some((vector) => vector.includes("worktree add")))
+    }).pipe(Effect.provide(machine({ spawned, behind: 3, author: "someone-else" })), recording(printed))
+  })
+
+  it.effect("refuses a branch that lives in a fork rather than in the repository", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* enabled
+
+      const error = yield* Effect.flip(run("rebase", "28"))
+
+      assert.include(String(error.cause), "fork")
+      assert.deepStrictEqual(pushes(spawned), [])
+    }).pipe(Effect.provide(machine({ spawned, behind: 3, fromFork: true })), recording(printed))
+  })
+
+  it.effect("refuses where the open pull requests it read did not include this one", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* enabled
+
+      const error = yield* Effect.flip(run("rebase", "28"))
+
+      assert.include(String(error.cause), "stack")
+      assert.deepStrictEqual(pushes(spawned), [])
+    }).pipe(Effect.provide(machine({ spawned, behind: 3, open: [] })), recording(printed))
+  })
+
   it.effect("works in the tool's own clone and never in my checkout", () => {
     const spawned: Array<string> = []
     const printed: Array<string> = []
@@ -289,7 +341,7 @@ describe("dw-mc rebase", () => {
       // status or merge - `gh pr view` and `gh pr list` cannot write, and the
       // push goes to a branch I author, with a lease.
       for (const vector of spawned.filter((spawn) => spawn.startsWith("gh "))) {
-        assert.match(vector, /^gh pr (view|list) /)
+        assert.match(vector, /^gh (pr (view|list)|api user)/)
       }
       assert.deepStrictEqual(pushes(spawned), [
         `git -C ${worktree} push --force-with-lease=refs/heads/${branch}:${head} origin HEAD:refs/heads/${branch}`

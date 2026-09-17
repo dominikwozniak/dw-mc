@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 
-import type { Branches } from "#domain/rebase.ts"
+import type { Branches, Situation } from "#domain/rebase.ts"
 import { decide, stackOf } from "#domain/rebase.ts"
 
 const repo = "dominikwozniak/dw-mc"
@@ -13,12 +13,15 @@ const open: ReadonlyArray<Branches> = [
   { number: 31, head: "feat/31-on-its-own", base: "main" }
 ]
 
-const situation = (over: Partial<Parameters<typeof decide>[0]> = {}) => ({
+const situation = (over: Partial<Situation> = {}): Situation => ({
   repo,
   number: 28,
   base: "main",
   enabled: true,
-  checks: "green" as const,
+  mine: true,
+  fromFork: false,
+  listed: true,
+  checks: "green",
   stack: null,
   ...over
 })
@@ -40,7 +43,7 @@ describe("stackOf", () => {
     assert.deepStrictEqual(stackOf(30, open), { position: 3, length: 3 })
   })
 
-  it("counts the longest chain where one branch carries two", () => {
+  it("measures the deepest line where one branch carries two", () => {
     const forked: ReadonlyArray<Branches> = [
       ...open,
       { number: 32, head: "feat/32-a-second-child", base: "feat/28-the-bottom" }
@@ -84,6 +87,24 @@ describe("decide", () => {
     const said = decide(situation({ stack: { position: 2, length: 3 } }))
 
     assert.include(said, "2 of 3")
+    assert.include(said, "stack")
+  })
+
+  it("refuses a pull request somebody else opened, whose branch is not mine to push", () => {
+    const said = decide(situation({ mine: false }))
+
+    assert.include(said, "not mine")
+  })
+
+  it("refuses a pull request opened from a fork, whose branch is not in the repository", () => {
+    const said = decide(situation({ fromFork: true }))
+
+    assert.include(said, "fork")
+  })
+
+  it("refuses where the open pull requests it would read a stack from did not include it", () => {
+    const said = decide(situation({ listed: false }))
+
     assert.include(said, "stack")
   })
 

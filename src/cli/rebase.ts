@@ -4,7 +4,7 @@ import { CliError, Command } from "effect/unstable/cli"
 import { rollupState } from "#adapters/ci.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
-import { openPrs, prView } from "#adapters/gh.ts"
+import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseOnto } from "#adapters/git.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
@@ -24,8 +24,9 @@ const allowed = (situation: Situation) => {
  * than the rebase does.
  *
  * This is the only place the tool writes to GitHub, and it writes one thing: a
- * push to a branch I author, with a lease, onto the head this run read (ADR
- * 0002). No comment, reply, thread resolve, label, review, approval, status or
+ * push to a branch I author, in the repository the branch is in, with a lease,
+ * onto the head this run read (ADR 0002). Who opened the pull request and where
+ * its branch lives are read from GitHub and checked before anything is cut. No comment, reply, thread resolve, label, review, approval, status or
  * merge, here or anywhere.
  *
  * Every guard is read live rather than off the last sweep, because each of them
@@ -52,12 +53,16 @@ export const rebase = Command.make(
 
       const view = yield* prView(repo, number)
       const open = yield* openPrs(repo)
+      const me = yield* viewer
 
       yield* allowed({
         repo,
         number,
         base: view.baseRefName,
         enabled: settings.rebase.enabled,
+        mine: view.author?.login === me,
+        fromFork: view.isCrossRepository,
+        listed: open.some((it) => it.number === number),
         checks: rollupState(view.statusCheckRollup, settings.ci.ignore),
         stack: stackOf(number, open)
       })
@@ -75,7 +80,7 @@ export const rebase = Command.make(
           `${where}  ${short(view.headRefOid)}  the rebase onto ${view.baseRefName} conflicted, ` +
             `so it was aborted and nothing was pushed.`
         )
-        yield* Console.log("It is in Needs me until you resolve it and the branch moves.")
+        yield* Console.log("The next sweep puts it in Needs me, and it stays there until the branch moves.")
         return
       }
 

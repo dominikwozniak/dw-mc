@@ -79,6 +79,8 @@ const view = (repo: string, pr: Fixture) => ({
   headRefOid: pr.headRefOid ?? "31268022360852f71815404b6bbdd6bd797cfb4c",
   headRefName: `feat/${pr.number}-a-branch`,
   baseRefName: "main",
+  author: { login: "dominikwozniak" },
+  isCrossRepository: false,
   mergeable: pr.mergeable ?? "MERGEABLE",
   reviewDecision: pr.reviewDecision ?? "",
   // Every check of a PR reports at the same job, whose id is the PR's number,
@@ -783,7 +785,7 @@ describe("a red CI, classified", () => {
         "gh api user",
         `gh pr view 1 --repo ${repo} --json commits`,
         `gh pr view 1 --repo ${repo} --json files`,
-        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,baseRefName,mergeable,reviewDecision,statusCheckRollup`,
+        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,baseRefName,author,isCrossRepository,mergeable,reviewDecision,statusCheckRollup`,
         `gh repo view ${repo} --json defaultBranchRef`,
         `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`,
         `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`

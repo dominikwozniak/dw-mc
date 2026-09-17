@@ -118,10 +118,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
             }
           )
 
-  // A rebase that conflicted is about the code the branch is at, so it holds
-  // for that head alone: a branch that has moved since is one nothing here has
-  // tried to rebase yet.
-  const conflicted = yield* conflictedAt(found.repo, found.number)
+  const rebaseConflictAt = yield* conflictedAt(found.repo, found.number)
 
   const facts: Facts = {
     repo: found.repo,
@@ -134,7 +131,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
     reviewDecision: reviewDecisionOf(view.reviewDecision),
     checks,
     ciFlaky,
-    rebaseConflictAt: conflicted === view.headRefOid ? conflicted : null,
+    rebaseConflictAt,
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,

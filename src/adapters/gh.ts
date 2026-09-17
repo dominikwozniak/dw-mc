@@ -191,6 +191,10 @@ const PrView = Schema.fromJsonString(
     headRefOid: Schema.String,
     headRefName: Schema.String,
     baseRefName: Schema.String,
+    /** Who opened it, which is what says whether its branch is mine to push to. */
+    author: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+    /** Whether the head branch lives in a fork rather than in this repository. */
+    isCrossRepository: Schema.Boolean,
     mergeable: Schema.String,
     reviewDecision: Schema.String,
     statusCheckRollup: Schema.NullOr(Schema.Array(CheckEntry))
@@ -199,7 +203,8 @@ const PrView = Schema.fromJsonString(
 export type PrView = typeof PrView.Type
 
 const viewFields =
-  "number,title,url,isDraft,headRefOid,headRefName,baseRefName,mergeable,reviewDecision,statusCheckRollup"
+  "number,title,url,isDraft,headRefOid,headRefName,baseRefName,author,isCrossRepository,mergeable," +
+  "reviewDecision,statusCheckRollup"
 
 /**
  * Everything about one pull request that arrives without paging through it:
@@ -231,12 +236,15 @@ export interface OpenPr {
  *
  * Everyone's and not only mine: a stack is recognised from branches built on
  * branches, and a pull request of mine can sit on one somebody else opened.
+ *
+ * The page is deep because a pull request this misses is one that looks like it
+ * is in no stack, and a stack the tool cannot see is one it could drive.
  */
 export const openPrs = Effect.fnUntraced(function* (repo: string) {
   const open = yield* readJson(
     "pr list",
     "gh",
-    ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json", "number,headRefName,baseRefName"],
+    ["pr", "list", "--repo", repo, "--state", "open", "--limit", "500", "--json", "number,headRefName,baseRefName"],
     OpenPrs
   )
 

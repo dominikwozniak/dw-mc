@@ -19,10 +19,10 @@ export interface Position {
 /**
  * How many pull requests this one stands on.
  *
- * A branch is walked to what it merges into and on from there, so the chain is
- * followed however deep it goes. Every pull request the walk has already
- * counted is left alone, which is what keeps two branches that merge into each
- * other from being walked around forever.
+ * A branch is walked to what it merges into and on from there, however deep the
+ * stack goes. Every pull request the walk has already counted is left alone,
+ * which is what keeps two branches that merge into each other from being walked
+ * around forever.
  */
 const ancestorsOf = (pr: Branches, open: ReadonlyArray<Branches>, seen: Set<number>): number => {
   let count = 0
@@ -39,11 +39,11 @@ const ancestorsOf = (pr: Branches, open: ReadonlyArray<Branches>, seen: Set<numb
 }
 
 /**
- * How many pull requests stand on this one, along the longest chain of them.
+ * How deep the stack goes above this pull request.
  *
  * Two branches cut from the same one are not two stacks deep, they are two
- * branches, so what counts is the deepest single chain rather than how many
- * pull requests are downstream in total.
+ * branches, so what counts is the deepest single line of them rather than how
+ * many pull requests stand above it in total.
  */
 const descendantsOf = (pr: Branches, open: ReadonlyArray<Branches>, seen: Set<number>): number => {
   let deepest = 0
@@ -80,6 +80,12 @@ export interface Situation {
   /** The branch the pull request merges into, which is what it would be rebased onto. */
   readonly base: string
   readonly enabled: boolean
+  /** Whether I opened the pull request, which is the only kind whose branch is mine to push. */
+  readonly mine: boolean
+  /** Whether the head branch lives in a fork rather than in the repository that was read. */
+  readonly fromFork: boolean
+  /** Whether the pull request was among the open ones the stack was read from. */
+  readonly listed: boolean
   readonly checks: ChecksState
   readonly stack: Position | null
 }
@@ -93,9 +99,13 @@ export interface Situation {
  *
  * Being off is said first, because a repository that has not turned rebase on
  * has decided the question and nothing else about the pull request changes it.
- * A stack comes next: the tool does not understand stacks, so the one thing it
- * has to say about one is where the pull request sits in it. CI is last and
- * costs the most to get wrong - rebasing while a run is in flight cancels the
+ * Then who the branch belongs to and where it lives, which is the boundary
+ * itself: a branch somebody else authored and a branch in a fork are not mine
+ * to push, whatever else is true of them. A stack comes next, and a pull
+ * request the stack was not read from counts as one, because a stack the tool
+ * cannot see is one it could drive: the tool does not understand stacks, so the
+ * one thing it has to say about one is where the pull request sits in it. CI is
+ * last and costs the most to get wrong - rebasing while a run is in flight cancels the
  * run I am waiting on, and a red build is mine to fix where it is.
  */
 export const decide = (situation: Situation): string | null => {
@@ -104,6 +114,21 @@ export const decide = (situation: Situation): string | null => {
     return (
       `Rebase is off for ${situation.repo}. Set rebase.enabled: true for it in the config to turn it on, ` +
       `so a force push is never a surprise.`
+    )
+  }
+  if (!situation.mine) {
+    return `${where} is not mine. dw-mc pushes to branches I author and to nothing else.`
+  }
+  if (situation.fromFork) {
+    return (
+      `${where} is opened from a fork, so its branch is not in ${situation.repo}. ` +
+      `dw-mc pushes only to a branch in the repository it read.`
+    )
+  }
+  if (!situation.listed) {
+    return (
+      `${where} was not among the open pull requests of ${situation.repo}, so nothing here can say whether ` +
+      `it is in a stack. Read it again before rebasing it.`
     )
   }
   if (situation.stack !== null) {
