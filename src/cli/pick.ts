@@ -7,7 +7,7 @@ import { Paint, ink, plain } from "#adapters/paint.ts"
 import { confirm, pick, width } from "#adapters/picker.ts"
 import { prKey } from "#adapters/store.ts"
 import { cells, rule } from "#cli/row.ts"
-import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
+import { asUserError, printTroubles, sweeping, userFacing } from "#cli/sweep.ts"
 import { table, truncate, visible } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
@@ -109,7 +109,7 @@ const where = (facts: Facts): string => `${facts.repo}#${facts.number}`
 export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.Effect<void, E, R>) =>
   Effect.fn("pick")(
     function* () {
-      const report = yield* sweep
+      const report = yield* sweeping
 
       if (report.repos.length === 0) {
         yield* Console.log("No repositories registered. Run dw-mc init inside a repository to register it.")

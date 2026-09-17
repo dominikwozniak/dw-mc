@@ -59,22 +59,35 @@ export const beating = Effect.fnUntraced(function* <A, E, R>(from: Reads, use: (
     return yield* use((_, aside) => (aside === undefined ? Effect.void : Console.log(aside)))
   }
 
-  let reads = from
-  const says: Says = (next) => Effect.sync(() => void (reads = next))
-
   const started = yield* Clock.currentTimeMillis
   const draw = (text: string) => Effect.ignore(terminal.display(`\r${text.slice(0, columns - 1).padEnd(columns - 1)}`))
 
-  // The first frame is drawn here rather than in the fiber, so the line is on
-  // the screen the moment the work starts rather than one frame into it.
-  const frame = (since: number, at: number) => `${frames[at % frames.length]} ${reads(elapsed(since))}`
+  let reads = from
+  let at = 0
 
-  yield* draw(frame(0, 0))
+  /** The line as it stands: this frame of the spinner, and the latest wording. */
+  const paint = Effect.flatMap(Clock.currentTimeMillis, (now) =>
+    draw(`${frames[at % frames.length]} ${reads(elapsed(now - started))}`)
+  )
+
+  // The wording is painted the moment it changes rather than at the next frame.
+  // Work that gets further every few milliseconds would otherwise show a count
+  // up to a frame out of date, which is a line saying something untrue.
+  const says: Says = (next) =>
+    Effect.andThen(
+      Effect.sync(() => void (reads = next)),
+      paint
+    )
+
+  // The first frame is painted here rather than in the fiber, so the line is on
+  // the screen the moment the work starts rather than one frame into it.
+  yield* paint
   const beat = yield* Effect.forkChild(
     Effect.gen(function* () {
-      for (let at = 1; ; at = at + 1) {
+      for (;;) {
         yield* Effect.sleep(frameFor)
-        yield* draw(frame((yield* Clock.currentTimeMillis) - started, at))
+        at = at + 1
+        yield* paint
       }
     })
   )

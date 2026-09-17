@@ -4,7 +4,7 @@ import { Command } from "effect/unstable/cli"
 import { Paint } from "#adapters/paint.ts"
 import { prKey } from "#adapters/store.ts"
 import { cells, heading, rule, titleWidth } from "#cli/row.ts"
-import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
+import { asUserError, printTroubles, sweeping, userFacing } from "#cli/sweep.ts"
 import { table } from "#cli/table.ts"
 import type { Grouped } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
@@ -45,7 +45,7 @@ export const status = Command.make(
   {},
   Effect.fn("status")(
     function* () {
-      const report = yield* sweep
+      const report = yield* sweeping
 
       if (report.repos.length === 0) {
         yield* Console.log("No repositories registered. Run dw-mc init inside a repository to register it.")
