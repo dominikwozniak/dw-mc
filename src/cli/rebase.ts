@@ -36,9 +36,11 @@ const allowed = (situation: Situation) => {
  *
  * A conflict is written down against the head it conflicted at, with the files
  * it stopped on, which puts the pull request in Needs me until the branch
- * moves. The files are what makes it something to open: a conflict with no
- * paths says only that one happened. Nothing half-finished is left behind
- * either way: the rebase aborts and the worktree it ran in goes with the run.
+ * moves. The files are what makes it something to open, and `dw-mc resolve` is
+ * what opens it - said here, because a conflict is where the next step stops
+ * being obvious, and never taken here, because a session is opened when I ask
+ * for one. Nothing half-finished is left behind either way: the rebase aborts
+ * and the worktree it ran in goes with the run.
  *
  * A stack is recognised and never driven. The tool does not understand stacks,
  * so what it has to say about one is where the pull request sits in it.
@@ -85,7 +87,15 @@ export const rebase = Command.make(
           yield* Console.log(`It stopped on ${count(done.paths.length, "file")}:`)
           yield* Effect.forEach(done.paths, (path) => Console.log(`  ${path}`))
         }
-        yield* Console.log("The next sweep puts it in Needs me, and it stays there until the branch moves.")
+
+        // A conflict is where the next step stops being obvious, so the step is
+        // on screen as itself. Nothing follows it on its own: the session is
+        // opened when I ask for it and never because a rebase stopped.
+        yield* Effect.forEach([``, `  dw-mc resolve ${number}`, ``], (line) => Console.log(line))
+        yield* Console.log(
+          `That opens a session on the conflict, in a worktree of your own. ` +
+            `The next sweep puts it in Needs me, and it stays there until the branch moves.`
+        )
         return
       }
 

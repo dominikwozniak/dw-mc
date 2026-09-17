@@ -222,6 +222,22 @@ describe("dw-mc rebase", () => {
     }).pipe(Effect.provide(machine({ spawned, behind: 3, conflicts: true, unmerged })), recording(printed))
   })
 
+  it.effect("points at the command that opens a session on the conflict", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* enabled
+
+      yield* run("rebase", "28")
+
+      // A conflict is where the next step stops being obvious, so the step is
+      // on screen as itself rather than left to be remembered.
+      assert.include(printed, "  dw-mc resolve 28")
+      assert.include(printed.join("\n"), "Needs me")
+    }).pipe(Effect.provide(machine({ spawned, behind: 3, conflicts: true })), recording(printed))
+  })
+
   it.effect("is off until the repository turns it on", () => {
     const spawned: Array<string> = []
     const printed: Array<string> = []
