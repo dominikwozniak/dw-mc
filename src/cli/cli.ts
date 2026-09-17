@@ -12,7 +12,15 @@ import { stampCommand } from "#cli/stamp.ts"
 import { status } from "#cli/status.ts"
 import { sweepCommand } from "#cli/sweep.ts"
 
-export const version = "0.0.0"
+declare const __VERSION__: string | undefined
+
+/**
+ * The version the CLI reports: the build stamps it in from `package.json`.
+ *
+ * Running from source leaves the constant undeclared rather than undefined, so
+ * the check has to be `typeof` and the fallback is what a test reads.
+ */
+export const version: string = typeof __VERSION__ === "string" ? __VERSION__ : "0.0.0"
 
 /** Where the project lives, printed beside the version in the header. */
 export const projectUrl = "github.com/dominikwozniak/dw-mc"

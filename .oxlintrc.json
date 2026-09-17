@@ -65,10 +65,11 @@
   },
   "overrides": [
     {
-      // A lint plugin is loaded by path, not by this package's subpath names, so its own
-      // modules are the one place a relative import is the only spelling there is. ADR 0006
-      // is about `src/`, and nothing under `tools/` belongs to a layer.
-      "files": ["tools/**"],
+      // A lint plugin is loaded by path, and the build's configuration reads `package.json`
+      // as a file, so neither can spell an import as one of this package's subpath names.
+      // ADR 0006 is about `src/`, and neither `tools/` nor the build configuration belongs
+      // to a layer.
+      "files": ["tools/**", "tsdown.config.ts"],
       "rules": { "no-restricted-imports": "off" }
     },
     {

@@ -10,7 +10,7 @@
     "url": "git+https://github.com/dominikwozniak/dw-mc.git"
   },
   "bin": {
-    "dw-mc": "./dist/cli/bin.js"
+    "dw-mc": "./dist/bin.js"
   },
   "files": [
     "dist",
@@ -18,15 +18,11 @@
   ],
   "type": "module",
   "imports": {
-    "#*.ts": {
-      "types": "./src/*.ts",
-      "development": "./src/*.ts",
-      "default": "./dist/*.js"
-    }
+    "#*.ts": "./src/*.ts"
   },
   "scripts": {
-    "build": "tsc -b",
-    "typecheck": "tsc -p tsconfig.check.json",
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json",
     "lint": "oxlint . --disable-nested-config",
     "lint:fix": "oxlint . --disable-nested-config --fix",
     "format": "oxfmt --check --disable-nested-config .",
@@ -48,6 +44,7 @@
     "oxfmt": "0.67.0",
     "oxlint": "1.82.0",
     "oxlint-tsgolint": "7.0.2001",
+    "tsdown": "0.23.0",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
   },
