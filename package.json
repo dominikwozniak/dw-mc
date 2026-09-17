@@ -1,7 +1,25 @@
 {
   "name": "dw-mc",
   "version": "0.2.0",
-  "description": "A local CLI that keeps the state of my open pull requests on disk, reads GitHub through gh, runs code reviews through local agent CLIs, and shows what every PR waits on.",
+  "description": "Mission control for the pull requests you have open — a local CLI that buckets every PR by what it waits on and reviews them with your own agent CLIs.",
+  "keywords": [
+    "agent",
+    "claude-code",
+    "cli",
+    "code-review",
+    "codex",
+    "developer-tools",
+    "effect",
+    "gh",
+    "github",
+    "local-first",
+    "pull-requests",
+    "typescript"
+  ],
+  "homepage": "https://github.com/dominikwozniak/dw-mc#readme",
+  "bugs": {
+    "url": "https://github.com/dominikwozniak/dw-mc/issues"
+  },
   "license": "MIT",
   "author": "Dominik Woźniak",
   "repository": {
