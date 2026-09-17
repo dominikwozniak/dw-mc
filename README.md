@@ -147,7 +147,9 @@ pnpm install
 pnpm check # lint, format, typecheck, test, build — the whole gate, and what CI runs
 ```
 
-Work lands on `main` through a pull request, on a branch named `type/<issue>-subject`, squash-merged under a [Conventional Commits](https://www.conventionalcommits.org) title. Add a changeset when the change is worth releasing — nothing gates a pull request on carrying one.
+Work lands on `main` through a pull request, on a branch named `type/<issue>-subject`, squash-merged under a [Conventional Commits](https://www.conventionalcommits.org) title. [`CONTRIBUTING.md`](./CONTRIBUTING.md) has the rest: what is worth an issue first, the layers a module belongs to, and when a change carries a changeset. Everyone taking part is held to the [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+Found a security issue? Do not open an issue — [`SECURITY.md`](./SECURITY.md) says how to report it privately.
 
 ## License
 

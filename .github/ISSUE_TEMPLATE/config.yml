@@ -1,0 +1,13 @@
+# Left open on purpose: a blank issue is how the specs and the working notes in this
+# tracker are written, and neither form above fits one.
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/dominikwozniak/dw-mc/security/advisories/new
+    about: Report it privately instead. Do not open a public issue.
+  - name: What a word means
+    url: https://github.com/dominikwozniak/dw-mc/blob/main/CONTEXT.md
+    about: Bucket, stamp, runner, review run, sweep — the glossary defines them all.
+  - name: Why it works this way
+    url: https://github.com/dominikwozniak/dw-mc/tree/main/docs/adr
+    about: The decisions behind the boundaries, each one recorded.

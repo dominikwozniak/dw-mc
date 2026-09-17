@@ -1,0 +1,69 @@
+name: Bug report
+description: A command does something other than what it says it does.
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Preflight
+      options:
+        - label: I am on the latest release of `dw-mc`.
+          required: true
+        - label: I searched the open and closed issues and found no duplicate.
+          required: true
+        - label: This is not a security issue. Those go through a [private report](https://github.com/dominikwozniak/dw-mc/security/advisories/new).
+          required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, and what it printed. Paste the output rather than describing it.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest path from a working install to the wrong output. Say what state the pull request was in — which bucket, whether it was stamped, whether a review run existed for that head.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `dw-mc --version`.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: "Operating system, `node --version`, `gh --version`, and which agent CLIs are configured as runners."
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: The relevant part of your `config.yaml`, with anything private taken out.
+      render: yaml
+    validations:
+      required: false

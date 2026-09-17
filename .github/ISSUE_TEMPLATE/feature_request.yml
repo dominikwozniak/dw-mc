@@ -1,0 +1,58 @@
+name: Feature request
+description: A command, a flag, or a rule that is not there yet.
+labels: [enhancement]
+body:
+  - type: checkboxes
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched the open and closed issues and found no duplicate.
+          required: true
+        - label: I read [`CONTEXT.md`](https://github.com/dominikwozniak/dw-mc/blob/main/CONTEXT.md) and use its words for what I am describing.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is the moment in your day that this fixes? Name what you do instead today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would have it do
+      description: The command and its output, or the rule and what it decides. A sketch of the terminal is worth more than a paragraph.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: shape
+    attributes:
+      label: What shape is it
+      options:
+        - A new command
+        - A flag on a command that exists
+        - A change to the bucket rules
+        - A change to what a command prints
+        - A change to the configuration file
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Does it stay inside the boundaries
+      description: "`dw-mc` sends nothing off the machine but calls to GitHub and to local agent CLIs ([ADR 0001](https://github.com/dominikwozniak/dw-mc/blob/main/docs/adr/0001-local-first.md)), and writes to GitHub only your own branches, pull request bodies, failed runs and stamped squash merges ([ADR 0002](https://github.com/dominikwozniak/dw-mc/blob/main/docs/adr/0002-github-write-boundary.md)). Say so if your idea needs either to move."
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What else you tried
+      description: Other shapes you considered, or the workaround you run today.
+    validations:
+      required: false
