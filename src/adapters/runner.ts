@@ -1,7 +1,7 @@
 import { Duration, Effect, Option, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
-import type { Effort } from "#adapters/config.ts"
+import type { Effort, Launcher } from "#adapters/config.ts"
 
 /** A review run that would not start, would not finish, or finished badly. */
 export class RunnerFailed extends Schema.TaggedError<RunnerFailed>()("RunnerFailed", {
@@ -73,7 +73,14 @@ interface SoFar {
   readonly result: Option.Option<typeof Result.Type>
 }
 
-const failed = (detail: string) => new RunnerFailed({ runner: "claude", detail })
+/**
+ * Failures in the name of the program that was spawned.
+ *
+ * Where the launcher starts `claude` through another program, it is that
+ * program that would not start or exited badly, and saying `claude` sends the
+ * search to the wrong process.
+ */
+const failedBy = (program: string) => (detail: string) => new RunnerFailed({ runner: program, detail })
 
 /**
  * How long each turn gets before it is given up on.
@@ -93,35 +100,50 @@ const patience = {
 }
 
 /**
- * One turn of `claude` in `directory`, with `read` over its standard output.
+ * One turn of the launcher in `directory`, with `read` over its standard output.
  *
- * The two output streams are drained together, because draining one to the end
- * first can block a runner that is still writing to the other. Every way a turn
- * can fail to finish comes back from here as a `RunnerFailed`, so a caller is
- * left with the turn's own answer and nothing else to translate.
+ * The launcher's own arguments go in front of the turn's, because they are what
+ * gets `claude` started at all. The two output streams are drained together,
+ * because draining one to the end first can block a runner that is still writing
+ * to the other. Every way a turn can fail to finish comes back from here as a
+ * `RunnerFailed`, so a caller is left with the turn's own answer and nothing else
+ * to translate - a turn that never comes back included.
  */
 const turn = Effect.fnUntraced(function* <A, E extends { readonly message: string }, R>(options: {
+  readonly launcher: Launcher
   readonly directory: string
   readonly args: ReadonlyArray<string>
+  /** What this turn is called when it is late, and how long it has. */
+  readonly patience: { readonly turn: string; readonly duration: Duration.Duration }
   readonly read: (stdout: ChildProcessSpawner.ChildProcessHandle["stdout"]) => Effect.Effect<A, E, R>
 }) {
+  const [program, ...prefix] = options.launcher.command
+  const failed = failedBy(program)
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
-  const handle = yield* Effect.mapError(
-    spawner.spawn(ChildProcess.make("claude", options.args, { cwd: options.directory })),
-    (error) => failed(error.message)
-  )
+  const running = Effect.gen(function* () {
+    const handle = yield* Effect.mapError(
+      spawner.spawn(ChildProcess.make(program, [...prefix, ...options.args], { cwd: options.directory })),
+      (error) => failed(error.message)
+    )
 
-  const [got, stderr] = yield* Effect.mapError(
-    Effect.all([options.read(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))], { concurrency: 2 }),
-    (error) => failed(error.message)
-  )
+    const [got, stderr] = yield* Effect.mapError(
+      Effect.all([options.read(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))], { concurrency: 2 }),
+      (error) => failed(error.message)
+    )
 
-  const exitCode = yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
-  if (exitCode !== 0) {
-    return yield* failed(stderr.trim() === "" ? `claude exited ${exitCode}` : stderr.trim())
-  }
-  return got
+    const exitCode = yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
+    if (exitCode !== 0) {
+      return yield* failed(stderr.trim() === "" ? `${program} exited ${exitCode}` : stderr.trim())
+    }
+    return got
+  })
+
+  return yield* Effect.timeoutOrElse(running, {
+    duration: options.patience.duration,
+    orElse: () =>
+      failed(`${options.patience.turn} did not come back within ${Duration.format(options.patience.duration)}`)
+  })
 })
 
 /**
@@ -131,7 +153,8 @@ const turn = Effect.fnUntraced(function* <A, E extends { readonly message: strin
  * error are both failures: `subtype` is where a run that hit its turn limit or
  * lost its connection says so, and its `result` is the only word on why.
  */
-const ended = (result: Option.Option<typeof Result.Type>) => {
+const ended = (program: string, result: Option.Option<typeof Result.Type>) => {
+  const failed = failedBy(program)
   if (Option.isNone(result)) {
     return Effect.fail(failed("the turn came back with no result"))
   }
@@ -155,49 +178,46 @@ const ended = (result: Option.Option<typeof Result.Type>) => {
  * on a remark about them, and the report is the turn before that. The follow-up
  * turn is what turns the prose into findings, and it needs this run's session.
  */
-export const builtinReview = Effect.fn("runner.builtinReview")(
-  function* (options: {
-    readonly directory: string
-    readonly effort: Effort
-    readonly onTool: (tool: string) => Effect.Effect<void>
-  }) {
-    const run = yield* turn({
-      directory: options.directory,
-      args: ["-p", `/code-review ${options.effort}`, "--output-format", "stream-json", "--verbose"],
-      read: (stdout) =>
-        stdout.pipe(
-          Stream.decodeText(),
-          Stream.splitLines,
-          Stream.mapEffect((line) => {
-            const heard = heardIn(line)
-            return Effect.as(Effect.forEach(heard.tools, options.onTool, { discard: true }), { line, heard })
-          }),
-          Stream.runFold(
-            (): SoFar => ({ said: [], result: Option.none() }),
-            (soFar, { heard, line }): SoFar => ({
-              said: [...soFar.said, ...heard.said],
-              result: Option.orElse(asResult(line), () => soFar.result)
-            })
-          )
+export const builtinReview = Effect.fn("runner.builtinReview")(function* (options: {
+  readonly launcher: Launcher
+  readonly directory: string
+  readonly effort: Effort
+  readonly onTool: (tool: string) => Effect.Effect<void>
+}) {
+  const [program] = options.launcher.command
+  const run = yield* turn({
+    launcher: options.launcher,
+    directory: options.directory,
+    args: ["-p", `/code-review ${options.effort}`, "--output-format", "stream-json", "--verbose"],
+    patience: { turn: "the review", duration: patience.reviewing },
+    read: (stdout) =>
+      stdout.pipe(
+        Stream.decodeText(),
+        Stream.splitLines,
+        Stream.mapEffect((line) => {
+          const heard = heardIn(line)
+          return Effect.as(Effect.forEach(heard.tools, options.onTool, { discard: true }), { line, heard })
+        }),
+        Stream.runFold(
+          (): SoFar => ({ said: [], result: Option.none() }),
+          (soFar, { heard, line }): SoFar => ({
+            said: [...soFar.said, ...heard.said],
+            result: Option.orElse(asResult(line), () => soFar.result)
+          })
         )
-    })
-
-    const { result: lastWord, session_id } = yield* ended(run.result)
-
-    // The result is the runner's last word, which is its whole answer on a run
-    // that said nothing before it.
-    const report = (run.said.length === 0 ? (lastWord ?? "") : run.said.join("\n\n")).trim()
-    if (report === "") {
-      return yield* failed("the run came back with an empty report")
-    }
-    return { report, sessionId: session_id } satisfies Turn
-  },
-  Effect.scoped,
-  Effect.timeoutOrElse({
-    duration: patience.reviewing,
-    orElse: () => failed(`the review did not come back within ${Duration.format(patience.reviewing)}`)
+      )
   })
-)
+
+  const { result: lastWord, session_id } = yield* ended(program, run.result)
+
+  // The result is the runner's last word, which is its whole answer on a run
+  // that said nothing before it.
+  const report = (run.said.length === 0 ? (lastWord ?? "") : run.said.join("\n\n")).trim()
+  if (report === "") {
+    return yield* failedBy(program)("the run came back with an empty report")
+  }
+  return { report, sessionId: session_id } satisfies Turn
+}, Effect.scoped)
 
 /**
  * What the second turn asks for.
@@ -228,39 +248,44 @@ const reportFindings = [
  * Every way this can end badly ends as a `RunnerFailed`, because a review run
  * that could not report is a failure and never a clean verdict.
  */
-export const builtinFindings = Effect.fn("runner.builtinFindings")(
-  function* (options: { readonly directory: string; readonly sessionId: string; readonly jsonSchema: string }) {
-    const printed = yield* turn({
-      directory: options.directory,
-      args: [
-        "-p",
-        "--resume",
-        options.sessionId,
-        reportFindings,
-        "--output-format",
-        "json",
-        "--json-schema",
-        options.jsonSchema
-      ],
-      read: (stdout) => Stream.mkString(Stream.decodeText(stdout))
-    })
-
-    const { structured_output } = yield* ended(asResult(printed.trim()))
-    if (structured_output === undefined) {
-      return yield* failed("the findings turn came back with no structured output")
-    }
-    return structured_output
-  },
-  Effect.scoped,
-  Effect.timeoutOrElse({
-    duration: patience.reporting,
-    orElse: () => failed(`the findings turn did not come back within ${Duration.format(patience.reporting)}`)
+export const builtinFindings = Effect.fn("runner.builtinFindings")(function* (options: {
+  readonly launcher: Launcher
+  readonly directory: string
+  readonly sessionId: string
+  readonly jsonSchema: string
+}) {
+  const [program] = options.launcher.command
+  const printed = yield* turn({
+    launcher: options.launcher,
+    directory: options.directory,
+    patience: { turn: "the findings turn", duration: patience.reporting },
+    args: [
+      "-p",
+      "--resume",
+      options.sessionId,
+      reportFindings,
+      "--output-format",
+      "json",
+      "--json-schema",
+      options.jsonSchema
+    ],
+    read: (stdout) => Stream.mkString(Stream.decodeText(stdout))
   })
-)
+
+  const { structured_output } = yield* ended(program, asResult(printed.trim()))
+  if (structured_output === undefined) {
+    return yield* failedBy(program)("the findings turn came back with no structured output")
+  }
+  return structured_output
+}, Effect.scoped)
 
 /**
  * An interactive `claude` in `directory`, opened on `prompt`, with my terminal
  * handed straight to it.
+ *
+ * The launcher's `fix_args` go here and nowhere else: they are the flags of a
+ * session I steer, which no headless review turn wants. They sit in front of the
+ * prompt, because `claude` takes its flags before its positional argument.
  *
  * This is the one place a runner is not read: the three streams are inherited,
  * so what is on the screen is the session itself and not a transcript of it,
@@ -276,14 +301,17 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(
  * than failing on it; only a `claude` that would not start at all is a failure.
  */
 export const fixSession = Effect.fn("runner.fixSession")(function* (options: {
+  readonly launcher: Launcher
   readonly directory: string
   readonly prompt: string
 }) {
+  const [program, ...prefix] = options.launcher.command
+  const failed = failedBy(program)
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 
   const handle = yield* Effect.mapError(
     spawner.spawn(
-      ChildProcess.make("claude", [options.prompt], {
+      ChildProcess.make(program, [...prefix, ...options.launcher.fix_args, options.prompt], {
         cwd: options.directory,
         stdin: "inherit",
         stdout: "inherit",

@@ -4,7 +4,7 @@ import { Command } from "effect/unstable/cli"
 import type { ChildProcess } from "effect/unstable/process"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
+import { builtInLauncher, ConfigStore, write } from "#adapters/config.ts"
 import { key, layerScripted, typed } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
@@ -12,6 +12,9 @@ import { storeFor } from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
 import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
+
+/** The program a runner is spawned as, which the launcher names and the default spells `claude`. */
+const launching = builtInLauncher.command[0]
 
 const repo = "dominikwozniak/dw-mc"
 const branch = "feat/28-a-branch"
@@ -47,7 +50,7 @@ const machine = (options: {
     options.spawned.push(command)
     const argv = command.args.join(" ")
 
-    if (command.command === "claude") {
+    if (command.command === launching) {
       return Effect.succeed(fakeHandle({}))
     }
     if (command.command === "git") {
@@ -134,7 +137,7 @@ const ran = (outcome: Outcome) =>
 
 /** The prompt the session was opened on, or nothing where no session was opened. */
 const opened = (spawned: ReadonlyArray<ChildProcess.StandardCommand>) =>
-  spawned.find((command) => command.command === "claude")
+  spawned.find((command) => command.command === launching)
 
 /** The findings JSON the session was handed, as an object a test can read. */
 const carried = (prompt: string): { readonly findings: ReadonlyArray<Record<string, unknown>> } =>

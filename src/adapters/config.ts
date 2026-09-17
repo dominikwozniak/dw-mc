@@ -65,6 +65,20 @@ const SettingsPatch = Schema.Struct({
 })
 export type SettingsPatch = typeof SettingsPatch.Type
 
+/** How this machine starts a runner, where it does not start `claude` itself. */
+const LauncherPatch = Schema.Struct({
+  // An argv list and never a shell string: a shell string needs `sh -c` in
+  // front of it, and that extra process sits in the terminal's foreground
+  // group, where it takes the inherited standard input and the Ctrl-C of a fix
+  // session with it.
+  command: Schema.optionalKey(
+    Schema.Array(Schema.String).pipe(
+      Schema.check(Schema.isMinLength(1, { message: "Expected the launcher command to name a program" }))
+    )
+  ),
+  fix_args: Schema.optionalKey(Schema.Array(Schema.String))
+})
+
 /** A repository, as `gh` spells it: `owner/name`. */
 export const Repo = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[^\s/]+\/[^\s/]+$/, { message: "Expected a repository as owner/name" }))
@@ -72,6 +86,7 @@ export const Repo = Schema.String.pipe(
 
 /** The whole configuration file: global defaults and per-repository overrides. */
 export const ConfigFile = Schema.Struct({
+  launcher: Schema.optionalKey(LauncherPatch),
   defaults: Schema.optionalKey(SettingsPatch),
   repos: Schema.optionalKey(Schema.Record(Repo, SettingsPatch))
 })
@@ -105,6 +120,17 @@ export const builtIn: Settings = {
   rebase: { enabled: false },
   stamp: { blocks_on: "error" }
 }
+
+/** What this machine spawns a runner with, once the file has been read. */
+export interface Launcher {
+  /** The program, then the arguments it takes before mission control's own. */
+  readonly command: readonly [string, ...Array<string>]
+  /** The flags only a fix session gets, the one run that is no review run. */
+  readonly fix_args: ReadonlyArray<string>
+}
+
+/** `claude` itself, which is what a machine that spawns it directly needs. */
+export const builtInLauncher: Launcher = { command: ["claude"], fix_args: [] }
 
 /**
  * The patch's value where it has one, the inherited value otherwise. A key the
@@ -176,6 +202,17 @@ export const withRepo = (file: ConfigFile, repo: string, patch: SettingsPatch): 
   ...file,
   repos: { ...file.repos, [repo]: merge(file.repos?.[repo] ?? {}, patch) }
 })
+
+/**
+ * What this machine starts a runner with: the file's launcher over `claude`.
+ *
+ * It is no repository's business. What spawns the agent CLI is a fact of the
+ * machine, which is why it sits beside `defaults` rather than inside it.
+ */
+export const launcherOf = (file: ConfigFile): Launcher => {
+  const [program = builtInLauncher.command[0], ...prefix] = file.launcher?.command ?? []
+  return { command: [program, ...prefix], fix_args: file.launcher?.fix_args ?? builtInLauncher.fix_args }
+}
 
 /** What `repo` is worth: its own overrides over the global defaults. */
 export const settingsFor = (file: ConfigFile, repo: string): Settings =>
@@ -328,6 +365,15 @@ const settingsDocument = (patch: SettingsPatch): Value =>
  */
 const fileDocument = (file: ConfigFile): Value =>
   mapping([
+    [
+      "launcher",
+      file.launcher === undefined
+        ? undefined
+        : mapping([
+            ["command", file.launcher.command],
+            ["fix_args", file.launcher.fix_args]
+          ])
+    ],
     ["defaults", file.defaults === undefined ? undefined : settingsDocument(file.defaults)],
     [
       "repos",

@@ -3,9 +3,12 @@ import { Duration, Effect, Fiber, PlatformError } from "effect"
 import { TestClock } from "effect/testing"
 import type { ChildProcess } from "effect/unstable/process"
 
+import type { Launcher } from "#adapters/config.ts"
+import { builtInLauncher } from "#adapters/config.ts"
 import { builtinFindings, builtinReview, fixSession } from "#adapters/runner.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
+const launcher = builtInLauncher
 const session = "befb6186-5471-4b26-b680-e8ca49df25ac"
 const report = "## Standards\n\n1. The write boundary fails open on an unreadable flag."
 
@@ -66,6 +69,7 @@ describe("the built-in runner", () => {
 
     return Effect.gen(function* () {
       const turn = yield* builtinReview({
+        launcher,
         directory: "/home/dw/.local/state/dw-mc/worktrees/dominikwozniak/dw-mc/28",
         effort: "low",
         onTool: nothing
@@ -92,7 +96,7 @@ describe("the built-in runner", () => {
     ].join("\n")
 
     return Effect.gen(function* () {
-      const turn = yield* builtinReview({ directory: "/worktree", effort: "low", onTool: nothing })
+      const turn = yield* builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
 
       assert.strictEqual(turn.report, `${report}\n\n${remark}`)
     }).pipe(Effect.provide(claude({ spawned, stdout })))
@@ -103,7 +107,7 @@ describe("the built-in runner", () => {
     const stdout = JSON.stringify(success)
 
     return Effect.gen(function* () {
-      const turn = yield* builtinReview({ directory: "/worktree", effort: "low", onTool: nothing })
+      const turn = yield* builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
 
       assert.strictEqual(turn.report, report)
     }).pipe(Effect.provide(claude({ spawned, stdout })))
@@ -113,7 +117,7 @@ describe("the built-in runner", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      yield* builtinReview({ directory: "/worktree", effort: "high", onTool: nothing })
+      yield* builtinReview({ launcher, directory: "/worktree", effort: "high", onTool: nothing })
 
       assert.isFalse(spawned.some((command) => command.args.includes("--comment")))
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(success) })))
@@ -123,7 +127,7 @@ describe("the built-in runner", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      yield* builtinReview({ directory: "/worktree", effort: "high", onTool: nothing })
+      yield* builtinReview({ launcher, directory: "/worktree", effort: "high", onTool: nothing })
 
       assert.include(spawned[0]?.args ?? [], "/code-review high")
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(success) })))
@@ -135,6 +139,7 @@ describe("the built-in runner", () => {
 
     return Effect.gen(function* () {
       yield* builtinReview({
+        launcher,
         directory: "/worktree",
         effort: "low",
         onTool: (tool) => Effect.sync(() => tools.push(tool))
@@ -148,7 +153,9 @@ describe("the built-in runner", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(builtinReview({ directory: "/worktree", effort: "low", onTool: nothing }))
+      const error = yield* Effect.flip(
+        builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+      )
 
       assert.strictEqual(error._tag, "RunnerFailed")
       assert.include(error.message, "Invalid API key")
@@ -159,7 +166,9 @@ describe("the built-in runner", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(builtinReview({ directory: "/worktree", effort: "low", onTool: nothing }))
+      const error = yield* Effect.flip(
+        builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+      )
 
       assert.strictEqual(error._tag, "RunnerFailed")
       assert.include(error.message, "no result")
@@ -171,7 +180,9 @@ describe("the built-in runner", () => {
     const gaveUp = { ...success, subtype: "error_max_turns", is_error: true, result: "Reached max turns" }
 
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(builtinReview({ directory: "/worktree", effort: "low", onTool: nothing }))
+      const error = yield* Effect.flip(
+        builtinReview({ launcher, directory: "/worktree", effort: "low", onTool: nothing })
+      )
 
       assert.strictEqual(error._tag, "RunnerFailed")
       assert.include(error.message, "error_max_turns")
@@ -199,7 +210,7 @@ describe("the built-in runner's second turn", () => {
     })
 
   const reporting = (spawned: Array<ChildProcess.StandardCommand>) =>
-    builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema }).pipe(
+    builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema }).pipe(
       Effect.provide(claude({ spawned, stdout: answer({ structured_output: found }) }))
     )
 
@@ -240,7 +251,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -253,7 +264,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -266,7 +277,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -279,7 +290,7 @@ describe("the built-in runner's second turn", () => {
 
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
-        builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema })
+        builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
       assert.strictEqual(error._tag, "RunnerFailed")
@@ -294,7 +305,7 @@ describe("the built-in runner's second turn", () => {
   it.effect("a turn that never comes back is a failure rather than a command that hangs", () =>
     Effect.gen(function* () {
       const turn = yield* Effect.forkChild(
-        Effect.flip(builtinFindings({ directory: "/worktree", sessionId: session, jsonSchema: schema }))
+        Effect.flip(builtinFindings({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema }))
       )
 
       yield* TestClock.adjust(Duration.minutes(6))
@@ -311,7 +322,7 @@ describe("fixSession", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      const ended = yield* fixSession({ directory: "/fixes/28", prompt: "Work through these findings" })
+      const ended = yield* fixSession({ launcher, directory: "/fixes/28", prompt: "Work through these findings" })
 
       assert.strictEqual(ended, 0)
       const [command] = spawned
@@ -328,17 +339,30 @@ describe("fixSession", () => {
     }).pipe(Effect.provide(claude({ spawned })))
   })
 
+  it.effect("starts what the launcher names, its own arguments first and the prompt last", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const wrapper: Launcher = { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"] }
+
+    return Effect.gen(function* () {
+      yield* fixSession({ launcher: wrapper, directory: "/fixes/28", prompt: "Work through these findings" })
+
+      const [command] = spawned
+      assert.strictEqual(command?.command, "cswap")
+      assert.deepStrictEqual(command?.args, ["run", "--", "--enable-auto-mode", "Work through these findings"])
+    }).pipe(Effect.provide(claude({ spawned })))
+  })
+
   it.effect("hands back the code the session ended on rather than reading anything it printed", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
 
     return Effect.gen(function* () {
-      assert.strictEqual(yield* fixSession({ directory: "/fixes/28", prompt: "Work through these" }), 130)
+      assert.strictEqual(yield* fixSession({ launcher, directory: "/fixes/28", prompt: "Work through these" }), 130)
     }).pipe(Effect.provide(claude({ spawned, exitCode: 130 })))
   })
 
   it.effect("a claude that will not start is a failure in our words", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(fixSession({ directory: "/fixes/28", prompt: "Work through these" }))
+      const error = yield* Effect.flip(fixSession({ launcher, directory: "/fixes/28", prompt: "Work through these" }))
 
       assert.strictEqual(error._tag, "RunnerFailed")
       assert.include(error.message, "no claude on this machine")

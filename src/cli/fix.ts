@@ -2,7 +2,7 @@ import { Console, Effect, Option } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { prView } from "#adapters/gh.ts"
 import { fixWorktree } from "#adapters/git.ts"
 import { choose, note, width } from "#adapters/picker.ts"
@@ -123,6 +123,7 @@ export const fix = Command.make(
       yield* Console.log(`  ${worktree.directory}, pushing to ${view.headRefName}`)
 
       const ended = yield* fixSession({
+        launcher: launcherOf(file),
         directory: worktree.directory,
         prompt: yield* promptFor({ repo, number, head: worktree.head, findings: chosen }, commits)
       })

@@ -36,6 +36,9 @@ Vocabulary is in [`CONTEXT.md`](../CONTEXT.md). Boundaries are in [`docs/adr/`](
 ### Config schema
 
 ```yaml
+launcher:
+  command: [claude]            # program + argument prefix that starts a runner
+  fix_args: []                 # flags only a fix session gets
 defaults:
   base: null                   # default branch from gh when null
   review:
