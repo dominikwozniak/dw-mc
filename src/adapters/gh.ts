@@ -190,6 +190,11 @@ const PrView = Schema.fromJsonString(
     isDraft: Schema.Boolean,
     headRefOid: Schema.String,
     headRefName: Schema.String,
+    baseRefName: Schema.String,
+    /** Who opened it, which is what says whether its branch is mine to push to. */
+    author: Schema.NullOr(Schema.Struct({ login: Schema.String })),
+    /** Whether the head branch lives in a fork rather than in this repository. */
+    isCrossRepository: Schema.Boolean,
     mergeable: Schema.String,
     reviewDecision: Schema.String,
     statusCheckRollup: Schema.NullOr(Schema.Array(CheckEntry))
@@ -197,7 +202,9 @@ const PrView = Schema.fromJsonString(
 )
 export type PrView = typeof PrView.Type
 
-const viewFields = "number,title,url,isDraft,headRefOid,headRefName,mergeable,reviewDecision,statusCheckRollup"
+const viewFields =
+  "number,title,url,isDraft,headRefOid,headRefName,baseRefName,author,isCrossRepository,mergeable," +
+  "reviewDecision,statusCheckRollup"
 
 /**
  * Everything about one pull request that arrives without paging through it:
@@ -205,6 +212,43 @@ const viewFields = "number,title,url,isDraft,headRefOid,headRefName,mergeable,re
  */
 export const prView = Effect.fnUntraced(function* (repo: string, number: number) {
   return yield* readJson("pr view", "gh", ["pr", "view", String(number), "--repo", repo, "--json", viewFields], PrView)
+})
+
+const OpenPrs = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      number: Schema.Int,
+      headRefName: Schema.String,
+      baseRefName: Schema.String
+    })
+  )
+)
+
+/** One open pull request, as the branch it stands on and the one it merges into. */
+export interface OpenPr {
+  readonly number: number
+  readonly head: string
+  readonly base: string
+}
+
+/**
+ * Every open pull request on a repository, by branch.
+ *
+ * Everyone's and not only mine: a stack is recognised from branches built on
+ * branches, and a pull request of mine can sit on one somebody else opened.
+ *
+ * The page is deep because a pull request this misses is one that looks like it
+ * is in no stack, and a stack the tool cannot see is one it could drive.
+ */
+export const openPrs = Effect.fnUntraced(function* (repo: string) {
+  const open = yield* readJson(
+    "pr list",
+    "gh",
+    ["pr", "list", "--repo", repo, "--state", "open", "--limit", "500", "--json", "number,headRefName,baseRefName"],
+    OpenPrs
+  )
+
+  return open.map((it): OpenPr => ({ number: it.number, head: it.headRefName, base: it.baseRefName }))
 })
 
 const Comments = Schema.fromJsonString(

@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, Path } from "effect"
 
-import { fixWorktree, withWorktree } from "#adapters/git.ts"
+import { fixWorktree, rebaseOnto, withWorktree } from "#adapters/git.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const state = "/home/dw/.local/state/dw-mc"
@@ -9,12 +9,16 @@ const clone = `${state}/repos/dominikwozniak/dw-mc.git`
 const worktree = `${state}/worktrees/dominikwozniak/dw-mc/28`
 const fix = `${state}/fixes/dominikwozniak/dw-mc/28`
 const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
+const rebased = "9f2b0c1d4e5a6b7c8d9e0f1a2b3c4d5e6f708192"
 const fetched = `-C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`
 
 /** What the real `git` says, captured from `git` itself. */
 const said = {
   noRepository: `fatal: cannot change to '${clone}': No such file or directory\n`,
-  conflict: "fatal: 'refs/pull/28/head' does not appear to be a git repository\n"
+  conflict: "fatal: 'refs/pull/28/head' does not appear to be a git repository\n",
+  rebaseConflict: "CONFLICT (content): Merge conflict in src/cli/rebase.ts\n",
+  noIdentity: "fatal: empty ident name not allowed\n",
+  noRebase: "fatal: No rebase in progress?\n"
 }
 
 /** A `git` that answers from fixtures and records every vector handed to it. */
@@ -31,6 +35,8 @@ const git = (options: {
    * branch at all. Left out, the branch is not there.
    */
   readonly ahead?: number | undefined
+  /** How many commits the base has that the pull request's head does not. */
+  readonly behind?: number | undefined
 }) =>
   layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -57,6 +63,12 @@ const git = (options: {
     }
     if (argv === `-C ${clone} rev-list --count refs/heads/dw-mc/fix/28 ^${head}`) {
       return Effect.succeed(fakeHandle({ stdout: `${options.ahead ?? 0}\n` }))
+    }
+    if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/main`) {
+      return Effect.succeed(fakeHandle({ stdout: `${options.behind ?? 0}\n` }))
+    }
+    if (argv === `-C ${worktree} rev-parse HEAD`) {
+      return Effect.succeed(fakeHandle({ stdout: `${rebased}\n` }))
     }
     if (argv === `-C ${clone} worktree list --porcelain`) {
       const listed = (options.worktrees ?? []).map((directory) => `worktree ${directory}\nbare\n`)
@@ -262,5 +274,103 @@ describe("the worktree a fix session opens in", () => {
       assert.include(error.message, "2 commits")
       assert.isFalse(spawned.some((vector) => vector.includes("worktree add")))
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true, worktrees: [], ahead: 2 }))))
+  })
+})
+
+describe("rebasing a branch onto its base", () => {
+  it.effect("leaves a branch that is already on its base alone", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const done = yield* rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch")
+
+      assert.deepStrictEqual(done, { _tag: "up-to-date" })
+      assert.isFalse(spawned.some((vector) => vector.includes(" rebase ") || vector.includes(" push ")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, behind: 0 }))))
+  })
+
+  it.effect("rebases a branch that is behind and pushes it with a lease on the head it read", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const done = yield* rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch")
+
+      assert.deepStrictEqual(done, { _tag: "pushed", before: head, after: rebased, behind: 3 })
+      assert.include(spawned, `git -C ${worktree} rebase refs/heads/main`)
+      assert.include(
+        spawned,
+        `git -C ${worktree} push --force-with-lease=refs/heads/feat/28-a-branch:${head} ` +
+          `origin HEAD:refs/heads/feat/28-a-branch`
+      )
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, behind: 3 }))))
+  })
+
+  it.effect("aborts on a conflict, pushes nothing, and leaves no rebase half done", () => {
+    const spawned: Array<string> = []
+    const refuses = { argv: `-C ${worktree} rebase refs/heads/main`, detail: said.rebaseConflict }
+
+    return Effect.gen(function* () {
+      const done = yield* rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch")
+
+      assert.deepStrictEqual(done, { _tag: "conflicted" })
+      assert.include(spawned, `git -C ${worktree} rebase --abort`)
+      assert.isFalse(spawned.some((vector) => vector.includes(" push ")))
+      assert.strictEqual(spawned.at(-1), `git -C ${clone} worktree remove --force ${worktree}`)
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, behind: 3, refuses }))))
+  })
+
+  it.effect("reports a rebase that never started as what it is, and not as a conflict", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      // Only a rebase in progress can be aborted, so an abort that refuses says
+      // the replay never began: nothing conflicted, and the reason is git's own.
+      const error = yield* Effect.flip(rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch"))
+
+      assert.strictEqual(error._tag, "GitFailed")
+      assert.include(error.message, "empty ident name")
+      assert.isFalse(spawned.some((vector) => vector.includes(" push ")))
+    }).pipe(
+      Effect.provide(
+        machine(
+          layerFake((command) => {
+            if (command._tag !== "StandardCommand") {
+              return Effect.die("git.test: the fake was handed a piped command")
+            }
+            const argv = command.args.join(" ")
+            spawned.push(`${command.command} ${argv}`)
+            if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
+              return Effect.succeed(fakeHandle({ stdout: "true\n" }))
+            }
+            if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
+              return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
+            }
+            if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/main`) {
+              return Effect.succeed(fakeHandle({ stdout: "3\n" }))
+            }
+            if (argv === `-C ${worktree} rebase refs/heads/main`) {
+              return Effect.succeed(fakeHandle({ exitCode: 128, stderr: said.noIdentity }))
+            }
+            if (argv === `-C ${worktree} rebase --abort`) {
+              return Effect.succeed(fakeHandle({ exitCode: 128, stderr: said.noRebase }))
+            }
+            return Effect.succeed(fakeHandle({}))
+          })
+        )
+      )
+    )
+  })
+
+  it.effect("works in the throwaway worktree and never in my own checkout", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch")
+
+      assert.isTrue(
+        spawned.every((vector) => vector.startsWith(`git -C ${clone} `) || vector.startsWith(`git -C ${worktree} `)),
+        spawned.join("\n")
+      )
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, behind: 3 }))))
   })
 })

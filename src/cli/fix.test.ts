@@ -78,6 +78,9 @@ const machine = (options: {
             isDraft: false,
             headRefOid: options.headRefOid ?? head,
             headRefName: branch,
+            baseRefName: "main",
+            author: { login: "dominikwozniak" },
+            isCrossRepository: false,
             mergeable: "MERGEABLE",
             reviewDecision: "",
             statusCheckRollup: []

@@ -1,4 +1,4 @@
-import { Effect, Path, Schema } from "effect"
+import { Effect, Path, Result, Schema } from "effect"
 
 import { capture } from "#adapters/spawner.ts"
 import { stateDirectory } from "#adapters/store.ts"
@@ -199,4 +199,86 @@ export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string,
   yield* git(["-C", directory, "config", "--worktree", "push.default", "upstream"])
 
   return { directory, head } satisfies Worktree
+})
+
+/** What a rebase of a pull request's branch onto its base came to. */
+export type Rebased =
+  | { readonly _tag: "up-to-date" }
+  | { readonly _tag: "conflicted" }
+  | { readonly _tag: "pushed"; readonly before: string; readonly after: string; readonly behind: number }
+
+/** How many commits the base has that the worktree's head does not. */
+const behindBy = Effect.fn("git.behindBy")(function* (directory: string, base: string) {
+  const counted = yield* git(["-C", directory, "rev-list", "--count", `HEAD..refs/heads/${base}`])
+  return Number(counted.trim())
+})
+
+/**
+ * Rebases onto `base` in `directory`, or says the rebase conflicted.
+ *
+ * A conflict is told apart from every other way `git rebase` refuses by asking
+ * `git` to abort: an abort succeeds only where a rebase is in progress, which
+ * is exactly the case where the replay stopped on a conflict. Anything else -
+ * no committer identity, a base that is not there - failed before the rebase
+ * started, and is worth its own words rather than being reported as a conflict
+ * that never happened.
+ *
+ * Either way nothing half-finished is left behind: the worktree is thrown away
+ * with the run, and the abort puts the branch back where it was first.
+ */
+const replayOnto = Effect.fn("git.replayOnto")(function* (directory: string, base: string) {
+  const rebased = yield* Effect.result(git(["-C", directory, "rebase", `refs/heads/${base}`]))
+  if (Result.isSuccess(rebased)) {
+    return true
+  }
+  const aborted = yield* Effect.result(git(["-C", directory, "rebase", "--abort"]))
+  if (Result.isFailure(aborted)) {
+    return yield* rebased.failure
+  }
+  return false
+})
+
+/**
+ * Brings a pull request's branch up to date with its base: rebase onto the
+ * base and push with a lease, in a worktree thrown away either way.
+ *
+ * This is the only write the tool makes to GitHub, and everything about how it
+ * is done is about that. The lease names the commit the rebase started from,
+ * so a push lands only where the branch is still where this run read it, and a
+ * commit pushed from somewhere else while the rebase ran refuses rather than
+ * being overwritten. The branch is named in full on both sides of the push,
+ * because the worktree stands on a detached head and has no branch of its own
+ * to push from.
+ *
+ * My own checkout is not involved: the worktree is cut from the tool's own
+ * clone, like every other run's.
+ */
+export const rebaseOnto = Effect.fn("git.rebaseOnto")(function* (
+  repo: string,
+  number: number,
+  base: string,
+  branch: string
+) {
+  return yield* withWorktree(repo, number, (worktree) =>
+    Effect.gen(function* () {
+      const behind = yield* behindBy(worktree.directory, base)
+      if (behind === 0) {
+        return { _tag: "up-to-date" } satisfies Rebased
+      }
+      if (!(yield* replayOnto(worktree.directory, base))) {
+        return { _tag: "conflicted" } satisfies Rebased
+      }
+
+      const after = yield* git(["-C", worktree.directory, "rev-parse", "HEAD"])
+      yield* git([
+        "-C",
+        worktree.directory,
+        "push",
+        `--force-with-lease=refs/heads/${branch}:${worktree.head}`,
+        "origin",
+        `HEAD:refs/heads/${branch}`
+      ])
+      return { _tag: "pushed", before: worktree.head, after, behind } satisfies Rebased
+    })
+  )
 })

@@ -71,6 +71,7 @@ const swept = (over: Partial<Facts> = {}) =>
       reviewDecision: "none",
       checks: "green",
       ciFlaky: null,
+      rebaseConflictAt: null,
       newestHumanCommentAt: null,
       myLastCommentAt: null,
       myLastCommitAt: DateTime.makeUnsafe("2026-09-16T10:05:57Z"),
