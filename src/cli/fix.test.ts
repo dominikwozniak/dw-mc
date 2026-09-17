@@ -75,6 +75,7 @@ const machine = (options: {
             isDraft: false,
             headRefOid: options.headRefOid ?? head,
             headRefName: branch,
+            baseRefName: "main",
             mergeable: "MERGEABLE",
             reviewDecision: "",
             statusCheckRollup: []

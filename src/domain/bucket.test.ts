@@ -18,6 +18,7 @@ const clean: Facts = {
   reviewDecision: "none",
   checks: "green",
   ciFlaky: null,
+  rebaseConflictAt: null,
   newestHumanCommentAt: null,
   myLastCommentAt: null,
   myLastCommitAt: at("2026-09-16T10:05:57Z"),
@@ -34,6 +35,17 @@ describe("place", () => {
         bucket: "needs-me",
         reason: "merge conflict"
       })
+    })
+
+    it("claims a PR whose rebase onto its base conflicted", () => {
+      assert.deepStrictEqual(place(facts({ rebaseConflictAt: clean.head })), {
+        bucket: "needs-me",
+        reason: "a rebase onto the base conflicted"
+      })
+    })
+
+    it("forgets a conflict from a head the PR has moved past", () => {
+      assert.strictEqual(place(facts({ rebaseConflictAt: "9f2b0c1d4e5a6b7c8d9e0f1a2b3c4d5e6f708192" })).bucket, "ready")
     })
 
     it("claims a PR whose CI is red", () => {

@@ -25,6 +25,7 @@ import { blocking } from "#domain/findings.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
+import { conflictedAt } from "#domain/rebase.ts"
 import { reportedBy, ReviewRun, runKey } from "#domain/review.ts"
 
 /** Something a sweep could not read, and what GitHub said about it. */
@@ -117,6 +118,11 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
             }
           )
 
+  // A rebase that conflicted is about the code the branch is at, so it holds
+  // for that head alone: a branch that has moved since is one nothing here has
+  // tried to rebase yet.
+  const conflicted = yield* conflictedAt(found.repo, found.number)
+
   const facts: Facts = {
     repo: found.repo,
     number: found.number,
@@ -128,6 +134,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
     reviewDecision: reviewDecisionOf(view.reviewDecision),
     checks,
     ciFlaky,
+    rebaseConflictAt: conflicted === view.headRefOid ? conflicted : null,
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,

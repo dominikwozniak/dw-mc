@@ -35,6 +35,8 @@ export const Facts = Schema.Struct({
   checks: ChecksState,
   /** Why the flaky classifier excuses this red CI, or null where it does not. */
   ciFlaky: Schema.NullOr(Schema.String),
+  /** The head a rebase onto the base conflicted at, or null where none has. */
+  rebaseConflictAt: Schema.NullOr(Schema.String),
   /** The newest comment from a person who is not me, bots excluded. */
   newestHumanCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   myLastCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -66,13 +68,16 @@ export interface Placed {
 export const order: ReadonlyArray<Bucket> = ["needs-me", "needs-review-run", "waiting-on-others", "ready"]
 
 /**
- * The first of the five rules that makes a PR mine to move, or null when none
+ * The first of the rules that makes a PR mine to move, or null when none
  * does. The order is the order I would fix them in: a conflict makes every
  * other signal on the PR stale, and a red build is worth more than a comment.
  */
 const needsMe = (facts: Facts): string | null => {
   if (facts.mergeable === "conflicting") {
     return "merge conflict"
+  }
+  if (facts.rebaseConflictAt === facts.head) {
+    return "a rebase onto the base conflicted"
   }
   if (facts.checks === "red" && facts.ciFlaky === null) {
     return "CI is red"

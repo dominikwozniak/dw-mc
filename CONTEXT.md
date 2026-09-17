@@ -39,6 +39,16 @@ The bucket for a PR with nothing left for me: a human review is pending.
 **Ready**:
 The bucket for a PR that is approved, green and mergeable. Only my merge is left.
 
+### Rebase
+
+**Rebase**:
+Bringing a tracked PR's branch up to date with its base: rebased onto the base and pushed with a lease, in a throwaway worktree. Off until a repository turns it on, never while CI is running, and the only place mission control writes to GitHub.
+_Avoid_: update branch, sync, merge base
+
+**Stack**:
+Pull requests built on each other, where one's branch is another's base. Mission control recognises one, reports where a tracked PR sits in it, and never drives it.
+_Avoid_: chain, train
+
 ### CI
 
 **Flaky failure**:

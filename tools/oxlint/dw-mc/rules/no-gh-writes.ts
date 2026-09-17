@@ -15,6 +15,7 @@ const reads: ReadonlyArray<ReadonlyArray<string>> = [
   ["--version"],
   ["api"],
   ["auth", "status"],
+  ["pr", "list"],
   ["pr", "view"],
   ["repo", "view"],
   ["run", "list"],
