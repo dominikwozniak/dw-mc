@@ -1,25 +1,24 @@
 {
   "$schema": "https://raw.githubusercontent.com/Effect-TS/language-service/refs/heads/main/schema.json",
-  "include": ["src"],
-  "exclude": ["src/**/*.test.ts"],
+  // One configuration, because nothing here builds: `tsdown` bundles and `tsc` only checks.
+  // `tools/` is a lint plugin and `tsdown.config.ts` is the build's own configuration; neither
+  // ships, and both break the gate when they stop compiling. The vendored rules are excluded
+  // because they are upstream's to typecheck, not this repository's.
+  "include": ["src", "tools", "tsdown.config.ts"],
+  "exclude": ["src/**/*.test.ts", "tools/oxlint/anti-slop"],
   "compilerOptions": {
-    "incremental": true,
-    "composite": true,
     "target": "ES2023",
     "module": "NodeNext",
     "moduleDetection": "force",
     "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
     "rewriteRelativeImportExtensions": true,
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noUnusedLocals": true,
     "noImplicitOverride": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "skipLibCheck": true,
-    "rootDir": "src",
-    "outDir": "dist",
+    "noEmit": true,
     "plugins": [{ "name": "@effect/language-service", "diagnostics": false }]
   }
 }

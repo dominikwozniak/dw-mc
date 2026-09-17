@@ -18,6 +18,6 @@ The layout grows with the code and not ahead of it. A directory appears when the
 
 ## Consequences
 
-- A module's public surface carries its own fake, so `dist` ships the fakes too. That is the price of a caller importing the thing and its double from one path; a separate test-only entry point buys nothing back for a private CLI.
+- A module's public surface carries its own fake. The price is paid in the source and not in the package: the bundler starts at the entry point, so a fake no command reaches is shaken out and never lands in `dist`. A separate test-only entry point would buy nothing back.
 - Three of the rules above are invisible in a diff that only adds an import, so `no-restricted-imports` in [`.oxlintrc.json`](../../.oxlintrc.json) holds all three: an import reaching up a layer, a relative specifier anywhere in `src/`, and `@effect/platform-node` outside the entry point and the tests that assemble their own layers each fail `pnpm lint`. The direction's patterns have to match both spellings a module has, the subpath name and the relative path, or half the ways in go unguarded. An override replaces the rule's configuration in full rather than merging into it, which is where this is easiest to get wrong; [ADR 0005](./0005-quality-toolchain.md) carries that trap.
 - The layer names are structural and stay out of [`CONTEXT.md`](../../CONTEXT.md). A directory _inside_ a layer is a domain concept and needs the glossary's word for it; a folder the glossary cannot name is the signal to reach for `/domain-modeling` first.

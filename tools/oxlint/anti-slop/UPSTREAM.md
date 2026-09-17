@@ -55,5 +55,5 @@ relative import specifiers, and ADR 0006 means there are none here, so it can ne
 5. Record the new commit here and run `pnpm check`.
 
 This directory is excluded from lint, format and typecheck — one entry each in `.oxlintrc.json`,
-`.oxfmtrc.json` and `tsconfig.check.json` — so upstream's own style is not this repository's problem on
+`.oxfmtrc.json` and `tsconfig.json` — so upstream's own style is not this repository's problem on
 every run. It is not excluded from the test suite, which is the point of keeping the tests.
