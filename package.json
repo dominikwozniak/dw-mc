@@ -28,6 +28,7 @@
     "format:fix": "oxfmt --disable-nested-config .",
     "test": "vitest run",
     "check": "pnpm lint && pnpm format && pnpm typecheck && pnpm test && pnpm build",
+    "release": "pnpm check && changeset publish",
     "prepare": "effect-tsgo patch --oxlint && husky"
   },
   "dependencies": {

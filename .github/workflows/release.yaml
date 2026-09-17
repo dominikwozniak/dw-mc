@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# A publish cut in half leaves a tag in git with no package on npm, or a package on npm
+# that no tag points at, so a second merge waits rather than cancelling the first.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  # The version pull request is a branch, a commit and a pull request; the release is a
+  # tag and a GitHub Release. `id-token` is what sigstore signs the provenance attestation
+  # with, so a release says which commit and which workflow built it.
+  contents: write
+  pull-requests: write
+  id-token: write
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The action pushes through the GitHub API rather than the git CLI, so it signs what
+      # it writes and needs no credential left behind by the checkout.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/cache@v6
+        id: node-modules
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
+
+      # With changesets waiting, this opens the version pull request and stops. Merging
+      # that pull request brings it back here with nothing left to version, and `pnpm
+      # release` runs the whole gate before it publishes: the quality gate skips the push
+      # a squash merge makes, and this is the artifact that leaves the machine.
+      - uses: changesets/action@v2
+        with:
+          version-script: pnpm changeset version
+          publish-script: pnpm release
+          # The version pull request lands as a squash merge, so its title becomes a
+          # commit subject on `main` and follows the same convention as any other.
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
+        env:
+          # `changeset publish` calls `pnpm publish`, which reads both of these as
+          # configuration: the token authorises the publish, and provenance asks sigstore
+          # for the attestation that `id-token` above makes possible.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
