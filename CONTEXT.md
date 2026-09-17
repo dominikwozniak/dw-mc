@@ -119,3 +119,13 @@ _Avoid_: auto-fix, repair run
 
 **Note**:
 What I say about a finding when I pick it for a fix session. It is my word on the finding and outranks what the review run said about it.
+
+### Screen
+
+**Marker**:
+The one character that says which bucket a row is in without being read: `●` needs me, `◐` needs a review run, `○` waiting on others, `◆` ready. It carries the bucket's colour, and it is what the row still says where there is no colour.
+_Avoid_: icon, badge, glyph
+
+**Block**:
+How a command that reports rather than tabulates writes: a heading, an indented body, and a blank line before the next one. What each command says is its own; the shape is not.
+_Avoid_: section, panel, group

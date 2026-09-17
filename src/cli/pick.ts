@@ -3,11 +3,12 @@ import type { Prompt } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import { Paint, ink, plain } from "#adapters/paint.ts"
 import { pick, width } from "#adapters/picker.ts"
 import { prKey } from "#adapters/store.ts"
-import { cells, heading, rule } from "#cli/row.ts"
+import { cells, rule } from "#cli/row.ts"
 import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
-import { table, truncate } from "#cli/table.ts"
+import { table, truncate, visible } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 import type { Offer, Standing } from "#domain/pick.ts"
@@ -15,7 +16,7 @@ import { actionsFor, argvFor } from "#domain/pick.ts"
 import { rerunFor } from "#domain/rerun.ts"
 import { stampedAmong } from "#domain/stamp.ts"
 
-/** A title cut this short says nothing, so a row that tight overflows instead. */
+/** A title cut this short says nothing, so a row that tight loses the column instead. */
 const shortest = 12
 
 /** The cursor, the marker and the padding a prompt draws around every row of its list. */
@@ -27,8 +28,14 @@ const frame = 6
  * A row that wraps takes the whole list's alignment with it. Nothing is piping
  * into a prompt, so no screen to measure means the writing is going somewhere
  * that does not wrap either.
+ *
+ * A prompt counts the rows it has to erase from the length of what it drew,
+ * and colour is length it never shows, so a coloured row has to be shorter by
+ * exactly what the colour costs or the prompt erases a line above itself on
+ * every keypress.
  */
-const screenRoom = (screen: number): number => (screen === 0 ? Number.POSITIVE_INFINITY : screen - frame)
+const screenRoom = (screen: number, paint: Paint): number =>
+  screen === 0 ? Number.POSITIVE_INFINITY : screen - frame - (paint === plain ? 0 : ink)
 
 /**
  * One row of the list I pick a pull request from: its bucket, and then the row
@@ -36,43 +43,41 @@ const screenRoom = (screen: number): number => (screen === 0 ? Number.POSITIVE_I
  *
  * The cells come from there rather than being built again here, so the list I
  * pick from and the table I read are the same rows with the bucket moved onto
- * each of them. A prompt has no headings to group under, so the bucket is said
+ * each of them. A prompt has no headings to group under, so the bucket is named
  * on every row; the rows are still in the order the buckets are acted on.
  */
-const cellsOf = ({ placed, stamped }: Standing, room: number): ReadonlyArray<string> => [
-  heading[placed.placement.bucket],
-  ...cells(placed, stamped, room)
-]
+const cellsOf = ({ placed, stamped }: Standing, room: number, paint: Paint): ReadonlyArray<string> =>
+  cells(placed, stamped, room, paint, "named")
 
 /**
- * What is left for the title once every other cell has the width it needs.
+ * Every tracked PR as something to pick, aligned down the whole list.
  *
- * The title is the one cell worth cutting. The bucket and what the PR waits on
- * are why I am looking at the list at all, and the pull request is how I know
- * which one I am picking; a commit subject I have half of still tells me which
- * pull request it is.
+ * The title is the one cell worth cutting, and then the one worth dropping. The
+ * bucket and what the PR waits on are why I am looking at the list at all, and
+ * the pull request is how I know which one I am picking; a commit subject I
+ * have half of still tells me which pull request it is, and one cut to nothing
+ * tells me less than the room it took. A screen too narrow for all four columns
+ * loses the title's column rather than the reason's words.
  */
-const titleRoom = (rows: ReadonlyArray<ReadonlyArray<string>>, screen: number): number => {
-  const widest = (index: number) => Math.max(...rows.map((row) => (row[index] ?? "").length))
-  const fixed = widest(0) + widest(1) + widest(3) + rule.length * 3
-  return Math.max(screenRoom(screen) - fixed, shortest)
-}
-
-/** Every tracked PR as something to pick, aligned down the whole list. */
 const choicesOf = (
   standings: ReadonlyArray<Standing>,
-  screen: number
+  screen: number,
+  paint: Paint
 ): ReadonlyArray<Prompt.SelectChoice<Standing>> => {
-  const room = titleRoom(
-    standings.map((it) => cellsOf(it, Number.POSITIVE_INFINITY)),
-    screen
-  )
+  const measured = standings.map((it) => cellsOf(it, Number.POSITIVE_INFINITY, paint))
+  const widest = (index: number) => Math.max(...measured.map((row) => visible(row[index] ?? "")))
+  const room = screenRoom(screen, paint) - (widest(0) + widest(1) + widest(3)) - rule.length * 3
+  const told = room >= shortest
+
   const rows = table(
-    standings.map((it) => cellsOf(it, room)),
+    standings.map((it) => {
+      const row = cellsOf(it, told ? room : 0, paint)
+      return told ? row : [row[0] ?? "", row[1] ?? "", row[3] ?? ""]
+    }),
     rule
   )
   return standings.map((standing, index) => ({
-    title: truncate(rows[index] ?? "", screenRoom(screen)),
+    title: truncate(rows[index] ?? "", screenRoom(screen, paint)),
     value: standing
   }))
 }
@@ -128,7 +133,7 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
         return
       }
 
-      const chosen = yield* pick("Which pull request?", choicesOf(standings, yield* width))
+      const chosen = yield* pick("Which pull request?", choicesOf(standings, yield* width, yield* Paint))
       if (Option.isNone(chosen)) {
         return
       }

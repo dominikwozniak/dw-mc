@@ -2,6 +2,8 @@ import type { Cause } from "effect"
 import { Effect, Layer, Option, Queue, Terminal } from "effect"
 import { Prompt } from "effect/unstable/cli"
 
+import { Paint, plain } from "#adapters/paint.ts"
+
 /**
  * Turns quitting into an answer rather than a failure.
  *
@@ -12,12 +14,38 @@ const orNone = <A, R>(
   prompt: Effect.Effect<Option.Option<A>, Terminal.QuitError, R>
 ): Effect.Effect<Option.Option<A>, never, R> => Effect.catchTag(prompt, "QuitError", () => Effect.succeedNone)
 
+/**
+ * What a prompt looks like in this tool: the marker the rows already use, and
+ * the same colour for the choice I am standing on.
+ *
+ * It is set here rather than at each prompt, because this module is the only
+ * thing that opens one and four prompts that themed themselves would be four
+ * looks.
+ */
+const theme = (paint: Paint): Partial<Prompt.Theme> =>
+  paint === plain
+    ? { prefix: "▸", pointer: "●" }
+    : { prefix: "▸", pointer: "●", primaryColor: "cyan", mutedColor: "gray" }
+
+/**
+ * What the keyboard does, said under the question.
+ *
+ * It rides in the message rather than being printed above the prompt, so it
+ * leaves with the prompt: a hint that outlives the answer is scrollback I did
+ * not ask for.
+ */
+const moves = "↑↓ move · enter choose · q quit"
+
+const asked = (paint: Paint, message: string): string => `${message}\n${paint.dim(moves)}`
+
 /** Asks which one of `choices` to act on. */
 export const pick = <A>(
   message: string,
   choices: ReadonlyArray<Prompt.SelectChoice<A>>
 ): Effect.Effect<Option.Option<A>, never, Prompt.Environment> =>
-  orNone(Effect.asSome(Prompt.Select({ message, choices })))
+  Effect.flatMap(Paint, (paint) =>
+    orNone(Effect.asSome(Prompt.Select({ message: asked(paint, message), choices, theme: theme(paint) })))
+  )
 
 /**
  * Asks which of `choices` to act on, as many as I like.
@@ -30,7 +58,17 @@ export const choose = <A>(
   message: string,
   choices: ReadonlyArray<Prompt.SelectChoice<A>>
 ): Effect.Effect<Option.Option<ReadonlyArray<A>>, never, Prompt.Environment> =>
-  orNone(Effect.asSome(Prompt.MultiSelect({ message, choices })))
+  Effect.flatMap(Paint, (paint) =>
+    orNone(
+      Effect.asSome(
+        Prompt.MultiSelect({
+          message: `${message}\n${paint.dim("↑↓ move · space pick · enter confirm · q quit")}`,
+          choices,
+          theme: theme(paint)
+        })
+      )
+    )
+  )
 
 /**
  * Asks for a line of prose, where having nothing to say is the ordinary answer.

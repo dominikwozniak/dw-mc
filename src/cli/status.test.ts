@@ -4,6 +4,7 @@ import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { ConfigStore, write } from "#adapters/config.ts"
+import { coloured, Paint } from "#adapters/paint.ts"
 import { layerScripted } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
@@ -255,13 +256,31 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs me",
-        "  dominikwozniak/dw-mc#2 │ feat: conflicted            │ merge conflict",
+        "  ● dominikwozniak/dw-mc#2 │ feat: conflicted            │ merge conflict",
         "",
         "Needs review run",
-        "  dominikwozniak/dw-mc#1 │ feat: ready to merge        │ no review run on this head",
-        "  dominikwozniak/dw-mc#3 │ feat: waiting on a reviewer │ no review run on this head"
+        "  ◐ dominikwozniak/dw-mc#1 │ feat: ready to merge        │ no review run on this head",
+        "  ◐ dominikwozniak/dw-mc#3 │ feat: waiting on a reviewer │ no review run on this head"
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("says the bucket in colour where a terminal is watching", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: { "dominikwozniak/dw-mc": [{ number: 1, title: "feat: conflicted", mergeable: "CONFLICTING" }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("status")
+
+      const row = printed.find((line) => line.includes("#1")) ?? ""
+      assert.include(row, `${coloured.red("●")} dominikwozniak/dw-mc#1`, "the marker carries the bucket's colour")
+      assert.include(row, coloured.red("merge conflict"), "and so does what it waits on")
+      assert.include(row, coloured.dim("feat: conflicted"), "the title is context, so it is dimmed")
+      assert.strictEqual(printed[0], "Needs me", "the heading is prose, and prose is never coloured")
+    }).pipe(Effect.provide(machine(spawner)), Effect.provideService(Paint, coloured), recording(printed))
   })
 
   it.effect("says why a PR needs me, so I never open GitHub to find out", () => {
@@ -392,7 +411,7 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        "  dominikwozniak/dw-mc#7 (draft) │ feat: not yet │ no review run on this head"
+        "  ◐ dominikwozniak/dw-mc#7 (draft) │ feat: not yet │ no review run on this head"
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -412,7 +431,7 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        "  dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head",
+        "  ◐ dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head",
         "",
         "Could not load",
         "  dominikwozniak/gone  gh search prs failed: could not resolve to a Repository"
@@ -435,7 +454,7 @@ describe("dw-mc status", () => {
       yield* registered("dominikwozniak/dw-mc")
       yield* run("status")
 
-      assert.include(printed, "  dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head")
+      assert.include(printed, "  ◐ dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head")
       assert.include(printed, "  dominikwozniak/dw-mc#2  gh pr view failed: GraphQL: Something went wrong")
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -817,10 +836,10 @@ describe("the stamp in the table", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        `  ${repo}#2   │ feat: unreviewed │ no review run on this head`,
+        `  ◐ ${repo}#2   │ feat: unreviewed │ no review run on this head`,
         "",
         "Ready",
-        `  ${repo}#1 ✓ │ feat: stamped    │ green, mergeable`
+        `  ◆ ${repo}#1 ✓ │ feat: stamped    │ green, mergeable`
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -835,7 +854,7 @@ describe("the stamp in the table", () => {
       yield* withdraw(repo, 1, head)
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1 │ feat: stamped │ green, mergeable`])
+      assert.deepStrictEqual(printed, ["Ready", `  ◆ ${repo}#1 │ feat: stamped │ green, mergeable`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
@@ -848,7 +867,7 @@ describe("the stamp in the table", () => {
       yield* reviewed(repo, 1, head, [warning])
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Needs me", `  ${repo}#1 │ feat: one warning │ 1 blocking finding`])
+      assert.deepStrictEqual(printed, ["Needs me", `  ● ${repo}#1 │ feat: one warning │ 1 blocking finding`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
@@ -861,7 +880,7 @@ describe("the stamp in the table", () => {
       yield* reviewed(repo, 1, head, [warning])
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1 ✓ │ feat: one warning │ green, mergeable`])
+      assert.deepStrictEqual(printed, ["Ready", `  ◆ ${repo}#1 ✓ │ feat: one warning │ green, mergeable`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })

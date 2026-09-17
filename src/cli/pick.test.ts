@@ -98,6 +98,7 @@ const machine = (options: {
   readonly keys: ReadonlyArray<Terminal.UserInput>
   readonly spawned?: Array<string> | undefined
   readonly drawn?: Array<string> | undefined
+  readonly columns?: number | undefined
 }) =>
   Layer.provideMerge(
     Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
@@ -107,7 +108,7 @@ const machine = (options: {
       Path.layer,
       Stdio.layerTest({}),
       github(options.prs, options.spawned ?? []),
-      layerScripted(options.keys, options.drawn)
+      layerScripted(options.keys, options.drawn, options.columns)
     )
   )
 
@@ -174,8 +175,8 @@ describe("dw-mc with no arguments", () => {
       yield* run()
 
       const rows = frame(drawn)
-      assert.include(rows, "Needs me         │ dominikwozniak/dw-mc#2")
-      assert.include(rows, "Needs review run │ dominikwozniak/dw-mc#1")
+      assert.include(rows, "● Needs me         │ dominikwozniak/dw-mc#2")
+      assert.include(rows, "◐ Needs review run │ dominikwozniak/dw-mc#1")
       assert.include(rows, "merge conflict")
     }).pipe(
       Effect.provide(
@@ -186,6 +187,49 @@ describe("dw-mc with no arguments", () => {
           ],
           keys: [],
           drawn
+        })
+      ),
+      recording(printed)
+    )
+  })
+
+  it.effect("says what the keyboard does, where the hint leaves with the prompt", () => {
+    const drawn: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* run()
+
+      assert.include(frame(drawn), "↑↓ move · enter choose · q quit")
+      assert.isFalse(
+        printed.some((line) => line.includes("↑↓")),
+        "the hint is the prompt's, so it is not left behind on the screen"
+      )
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1, title: "feat: a first one" }], keys: [], drawn })),
+      recording(printed)
+    )
+  })
+
+  it.effect("drops the title's column before it cuts what a PR waits on", () => {
+    const drawn: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* run()
+
+      const rows = frame(drawn)
+      assert.include(rows, "merge conflict", "the reason is why I am reading the list, so it stays whole")
+      assert.notInclude(rows, "feat: conflicted", "and the title is what gives way")
+    }).pipe(
+      Effect.provide(
+        machine({
+          prs: [{ number: 2, title: "feat: conflicted", mergeable: "CONFLICTING" }],
+          keys: [],
+          drawn,
+          columns: 60
         })
       ),
       recording(printed)
