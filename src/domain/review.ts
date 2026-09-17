@@ -6,10 +6,11 @@ import { matchesGlob } from "node:path"
 
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import { Effort, Runner } from "#adapters/config.ts"
+import type { Severity } from "#adapters/config.ts"
+import { Effort, Runner, runners } from "#adapters/config.ts"
 import { storeFor } from "#adapters/store.ts"
 import type { Findings } from "#domain/findings.ts"
-import { Finding, Verdict } from "#domain/findings.ts"
+import { blocking, Finding, Verdict } from "#domain/findings.ts"
 
 /**
  * What a review run came to, which is what its second turn reported.
@@ -38,8 +39,13 @@ export const ReviewRun = Schema.Struct({
   head: Schema.String,
   runner: Runner,
   effort: Effort,
-  /** The agent session the report came out of, which the follow-up turn resumed. */
-  sessionId: Schema.String,
+  /**
+   * The agent session the run happened in, or null where it never reached one.
+   *
+   * A runner that would not start or exited before it said anything has no
+   * session, and the run is still recorded: a failure is recorded as what it is.
+   */
+  sessionId: Schema.NullOr(Schema.String),
   ranAt: Schema.DateTimeUtcFromString,
   outcome: Outcome
 })
@@ -49,13 +55,20 @@ export type ReviewRun = typeof ReviewRun.Type
 export const short = (head: string): string => head.slice(0, 7)
 
 /**
- * Where a run is kept: one key per head, so a run and the code it read cannot
- * drift apart, and a re-review of the same head replaces the run before it.
+ * Where a run is kept: one key per head and runner, so a run and the code it
+ * read cannot drift apart, and a re-review on the same runner replaces the run
+ * before it.
+ *
+ * The runner is in the key because a head can carry two opinions: the review
+ * that is my bar and the second one beside it. Without it the second opinion
+ * would overwrite the first and the stamp would rest on whichever ran last.
  */
-export const runKey = (repo: string, number: number, head: string): string => `${repo}#${number}@${head}`
+export const runKey = (repo: string, number: number, head: string, runner: Runner): string =>
+  `${repo}#${number}@${head}:${runner}`
 
 /** Where the run's report is kept: beside the run, as the Markdown it is. */
-export const reportKey = (repo: string, number: number, head: string): string => `${runKey(repo, number, head)}.md`
+export const reportKey = (repo: string, number: number, head: string, runner: Runner): string =>
+  `${runKey(repo, number, head, runner)}.md`
 
 /**
  * Which head a pull request was last reviewed at: an index beside `runKey` and
@@ -70,24 +83,45 @@ export const LastReviewed = Schema.Struct({ head: Schema.String })
 export type LastReviewed = typeof LastReviewed.Type
 
 /** Where that head is kept. No head is spelled `latest`, so nothing collides. */
-export const latestKey = (repo: string, number: number): string => `${repo}#${number}@latest`
+export const latestKey = (repo: string, number: number, runner: Runner): string => `${repo}#${number}@latest:${runner}`
 
 /**
- * The last review run on a pull request, or none where it has had none.
+ * The last review run of one runner on a pull request, or none where it has had
+ * none.
+ *
+ * It is per runner because the re-run rule is: a second opinion that has never
+ * seen this pull request is not skipped because the primary review saw it.
  *
  * A run this version cannot read is a run another version of this record wrote,
  * and the state directory is a cache of work that can be done again: forgetting
  * it costs one review, where failing here would cost me the command I asked for.
  */
-export const lastRun = Effect.fn("review.lastRun")(function* (repo: string, number: number) {
+export const lastRun = Effect.fn("review.lastRun")(function* (repo: string, number: number, runner: Runner) {
   const heads = yield* storeFor("runs", LastReviewed)
-  const at = yield* Effect.orElseSucceed(heads.get(latestKey(repo, number)), () => Option.none<LastReviewed>())
+  const at = yield* Effect.orElseSucceed(heads.get(latestKey(repo, number, runner)), () => Option.none<LastReviewed>())
   if (Option.isNone(at)) {
     return Option.none<ReviewRun>()
   }
 
   const runs = yield* storeFor("runs", ReviewRun)
-  return yield* Effect.orElseSucceed(runs.get(runKey(repo, number, at.value.head)), () => Option.none<ReviewRun>())
+  return yield* Effect.orElseSucceed(runs.get(runKey(repo, number, at.value.head, runner)), () =>
+    Option.none<ReviewRun>()
+  )
+})
+
+/**
+ * Every runner's run at one head, in the order the runners are named.
+ *
+ * A head is where the question is asked - the stamp, the bucket and `dw-mc
+ * findings` all ask about one commit - and a head may carry a run from each
+ * runner. Three reads off the disk answer it without an index to keep in step.
+ */
+export const runsAt = Effect.fn("review.runsAt")(function* (repo: string, number: number, head: string) {
+  const runs = yield* storeFor("runs", ReviewRun)
+  const found = yield* Effect.forEach(runners, (runner) =>
+    Effect.orElseSucceed(runs.get(runKey(repo, number, head, runner)), () => Option.none<ReviewRun>())
+  )
+  return found.flatMap((run) => (Option.isSome(run) ? [run.value] : []))
 })
 
 /**
@@ -100,6 +134,15 @@ export const lastRun = Effect.fn("review.lastRun")(function* (repo: string, numb
  */
 export const reportedBy = (run: ReviewRun): Findings | null =>
   run.outcome._tag === "reported" ? { verdict: run.outcome.verdict, findings: run.outcome.findings } : null
+
+/**
+ * Why a run reported nothing, or null where it reported.
+ *
+ * The sibling of `reportedBy`, and here for the same reason: the two halves of
+ * an outcome are read through one place each rather than re-narrowed at every
+ * caller.
+ */
+export const detailOf = (run: ReviewRun): string | null => (run.outcome._tag === "failed" ? run.outcome.detail : null)
 
 /**
  * Whether the files changed since the last run are worth paying for another.
@@ -160,12 +203,68 @@ export const reportDocument = (run: ReviewRun, title: string, prose: string): st
   ].join("\n")
 
 /**
- * The runner a review run executes on, or null while none of the configured
- * ones is built.
+ * The runners one review run executes, in the order the file names them and
+ * without repeats.
  *
- * `builtin` is the only runner there is so far. A repository configured for
- * another is told so rather than quietly reviewed on this one: which runner
- * read the code is half of what a review run means.
+ * The order is the precedence everything downstream reads: it is the order the
+ * runners run in, and the first of them is the run `dw-mc findings` and a fix
+ * session reach for when I do not name one.
  */
-export const runnerFor = (runners: ReadonlyArray<Runner>): Runner | null =>
-  runners.includes("builtin") ? "builtin" : null
+export const runnersFor = (configured: ReadonlyArray<Runner>): ReadonlyArray<Runner> => [...new Set(configured)]
+
+/** Which agent CLI a runner reaches. `builtin` and `prompt` are Claude Code's. */
+export const onCodex = (runner: Runner): boolean => runner === "codex"
+
+/**
+ * The configured runners that are a second opinion rather than my bar.
+ *
+ * Codex is supporting because something else is the review: a machine that
+ * configured Codex alone did not ask for a second opinion, it asked for a
+ * review, and nothing there could ever earn a stamp if this called it
+ * supporting.
+ */
+export const supportingIn = (configured: ReadonlyArray<Runner>): ReadonlyArray<Runner> => {
+  const all = runnersFor(configured)
+  return all.some((runner) => !onCodex(runner)) ? all.filter(onCodex) : []
+}
+
+/**
+ * The configured runners whose findings decide the stamp.
+ *
+ * A second opinion informs me without gating my bar, which is what
+ * `stamp.supporting_blocks` turns off: set, every configured runner decides.
+ */
+export const decidingIn = (configured: ReadonlyArray<Runner>, supportingBlocks: boolean): ReadonlyArray<Runner> => {
+  const all = runnersFor(configured)
+  if (supportingBlocks) {
+    return all
+  }
+  const supporting = supportingIn(configured)
+  return all.filter((runner) => !supporting.includes(runner))
+}
+
+/**
+ * Whether `head` has the review it needs: every deciding runner has reported on
+ * it.
+ *
+ * Every rather than any, because a pull request reviewed by half of what I
+ * configured is one that still waits on the other half. A run that reported
+ * nothing does not count, which is the same rule `reportedBy` draws everywhere
+ * else: a failure has found nothing, not found nothing wrong.
+ */
+export const reviewedBy = (runs: ReadonlyArray<ReviewRun>, deciding: ReadonlyArray<Runner>): boolean =>
+  deciding.length > 0 &&
+  deciding.every((runner) => runs.some((run) => run.runner === runner && reportedBy(run) !== null))
+
+/** The findings at one head that withhold the stamp, from the runners that decide it. */
+export const blockingIn = (
+  runs: ReadonlyArray<ReviewRun>,
+  deciding: ReadonlyArray<Runner>,
+  blocksOn: Severity
+): ReadonlyArray<Finding> =>
+  runs
+    .filter((run) => deciding.includes(run.runner))
+    .flatMap((run) => {
+      const found = reportedBy(run)
+      return found === null ? [] : blocking(found.findings, blocksOn)
+    })

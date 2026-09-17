@@ -4,13 +4,17 @@ import { DateTime } from "effect"
 import { builtIn } from "#adapters/config.ts"
 import type { ReviewRun } from "#domain/review.ts"
 import {
+  blockingIn,
+  decidingIn,
   latestKey,
   reportDocument,
   reportedBy,
   reportKey,
+  reviewedBy,
   runKey,
-  runnerFor,
+  runnersFor,
   skippedSince,
+  supportingIn,
   worthRerunning
 } from "#domain/review.ts"
 
@@ -26,18 +30,31 @@ const run: ReviewRun = {
 }
 
 describe("review run", () => {
-  it("keys a run to the head it covers", () => {
-    assert.strictEqual(runKey(run.repo, run.number, run.head), `dominikwozniak/dw-mc#28@${run.head}`)
-    assert.notStrictEqual(runKey(run.repo, run.number, "another-head"), runKey(run.repo, run.number, run.head))
+  it("keys a run to the head it covers and the runner that read it", () => {
+    assert.strictEqual(runKey(run.repo, run.number, run.head, "builtin"), `dominikwozniak/dw-mc#28@${run.head}:builtin`)
+    assert.notStrictEqual(
+      runKey(run.repo, run.number, "another-head", "builtin"),
+      runKey(run.repo, run.number, run.head, "builtin")
+    )
+  })
+
+  it("keeps a second opinion at the same head apart from the review it stands beside", () => {
+    assert.notStrictEqual(
+      runKey(run.repo, run.number, run.head, "codex"),
+      runKey(run.repo, run.number, run.head, "prompt")
+    )
   })
 
   it("keeps the report beside the run it came from", () => {
-    assert.strictEqual(reportKey(run.repo, run.number, run.head), `${runKey(run.repo, run.number, run.head)}.md`)
+    assert.strictEqual(
+      reportKey(run.repo, run.number, run.head, "builtin"),
+      `${runKey(run.repo, run.number, run.head, "builtin")}.md`
+    )
   })
 
-  it("keys the head last reviewed to the pull request, not to a head", () => {
-    assert.strictEqual(latestKey(run.repo, run.number), "dominikwozniak/dw-mc#28@latest")
-    assert.notStrictEqual(latestKey(run.repo, run.number), runKey(run.repo, run.number, run.head))
+  it("keys the head last reviewed to the pull request and the runner, not to a head", () => {
+    assert.strictEqual(latestKey(run.repo, run.number, "builtin"), "dominikwozniak/dw-mc#28@latest:builtin")
+    assert.notStrictEqual(latestKey(run.repo, run.number, "builtin"), runKey(run.repo, run.number, run.head, "builtin"))
   })
 
   it("says what the report is of, above the report", () => {
@@ -56,15 +73,92 @@ describe("review run", () => {
   })
 })
 
-describe("the runner a review run executes on", () => {
-  it("is the built-in one, which is the only one built", () => {
-    assert.strictEqual(runnerFor(["builtin"]), "builtin")
-    assert.strictEqual(runnerFor(["prompt", "builtin"]), "builtin")
+describe("the runners a review run executes", () => {
+  it("are the configured ones, in the order the file names them", () => {
+    assert.deepStrictEqual(runnersFor(["prompt", "codex"]), ["prompt", "codex"])
+    assert.deepStrictEqual(runnersFor(["codex", "builtin"]), ["codex", "builtin"])
   })
 
-  it("is none at all where the configured runners are not built", () => {
-    assert.strictEqual(runnerFor(["prompt"]), null)
-    assert.strictEqual(runnerFor([]), null)
+  it("are named once however often the file names them", () => {
+    assert.deepStrictEqual(runnersFor(["prompt", "prompt", "codex"]), ["prompt", "codex"])
+  })
+
+  it("are none at all where the file configured none", () => {
+    assert.deepStrictEqual(runnersFor([]), [])
+  })
+})
+
+describe("the second opinion", () => {
+  it("is Codex, wherever a review of my own runs beside it", () => {
+    assert.deepStrictEqual(supportingIn(["prompt", "codex"]), ["codex"])
+    assert.deepStrictEqual(supportingIn(["builtin", "codex"]), ["codex"])
+  })
+
+  it("is nothing where Codex is the review rather than a second opinion", () => {
+    assert.deepStrictEqual(supportingIn(["codex"]), [])
+  })
+
+  it("does not decide the stamp until the configuration says it does", () => {
+    assert.deepStrictEqual(decidingIn(["prompt", "codex"], false), ["prompt"])
+    assert.deepStrictEqual(decidingIn(["prompt", "codex"], true), ["prompt", "codex"])
+  })
+
+  it("decides the stamp where it is the only runner configured", () => {
+    assert.deepStrictEqual(decidingIn(["codex"], false), ["codex"])
+  })
+})
+
+describe("whether a head has the review it needs", () => {
+  const reported = (runner: ReviewRun["runner"]): ReviewRun => ({ ...run, runner })
+  const failed = (runner: ReviewRun["runner"]): ReviewRun => ({
+    ...run,
+    runner,
+    outcome: { _tag: "failed", detail: "it exited 1" }
+  })
+
+  it("is true once every deciding runner has reported on it", () => {
+    assert.isTrue(reviewedBy([reported("prompt"), reported("codex")], ["prompt", "codex"]))
+  })
+
+  it("is false while one of them has not", () => {
+    assert.isFalse(reviewedBy([reported("prompt")], ["prompt", "codex"]))
+  })
+
+  it("ignores a run that reported nothing, which found nothing rather than nothing wrong", () => {
+    assert.isFalse(reviewedBy([failed("prompt")], ["prompt"]))
+  })
+
+  it("ignores a second opinion that does not decide", () => {
+    assert.isTrue(reviewedBy([reported("prompt"), failed("codex")], ["prompt"]))
+  })
+
+  it("is false where nothing decides, so no stamp rests on an empty configuration", () => {
+    assert.isFalse(reviewedBy([reported("prompt")], []))
+  })
+})
+
+describe("the findings that withhold the stamp", () => {
+  const found = (runner: ReviewRun["runner"], severity: "error" | "warning"): ReviewRun => ({
+    ...run,
+    runner,
+    outcome: {
+      _tag: "reported",
+      verdict: "findings",
+      findings: [{ file: "src/cli/review.ts", line: 88, severity, summary: "The run is never recorded." }]
+    }
+  })
+
+  it("are the deciding runners' findings at or above the bar", () => {
+    assert.lengthOf(blockingIn([found("prompt", "error")], ["prompt"], "error"), 1)
+    assert.lengthOf(blockingIn([found("prompt", "warning")], ["prompt"], "error"), 0)
+    assert.lengthOf(blockingIn([found("prompt", "warning")], ["prompt"], "warning"), 1)
+  })
+
+  it("leave a second opinion's findings out until it decides", () => {
+    const runs = [found("prompt", "warning"), found("codex", "error")]
+
+    assert.lengthOf(blockingIn(runs, ["prompt"], "error"), 0)
+    assert.lengthOf(blockingIn(runs, ["prompt", "codex"], "error"), 1)
   })
 })
 

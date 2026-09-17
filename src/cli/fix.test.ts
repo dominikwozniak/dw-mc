@@ -125,7 +125,7 @@ const ran = (outcome: Outcome) =>
   Effect.gen(function* () {
     const runs = yield* storeFor("runs", ReviewRun)
     const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, head), {
+    yield* runs.set(runKey(repo, 28, head, "builtin"), {
       repo,
       number: 28,
       head,
@@ -135,7 +135,7 @@ const ran = (outcome: Outcome) =>
       ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
       outcome
     })
-    yield* latest.set(latestKey(repo, 28), { head })
+    yield* latest.set(latestKey(repo, 28, "builtin"), { head })
   })
 
 /** The prompt the session was opened on, or nothing where no session was opened. */

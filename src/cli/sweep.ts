@@ -21,12 +21,11 @@ import { prKey, storeFor } from "#adapters/store.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
-import { blocking } from "#domain/findings.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
 import { conflictFor } from "#domain/rebase.ts"
-import { reportedBy, ReviewRun, runKey } from "#domain/review.ts"
+import { blockingIn, decidingIn, reviewedBy, runsAt } from "#domain/review.ts"
 
 /** Something a sweep could not read, and what GitHub said about it. */
 export interface Trouble {
@@ -42,7 +41,6 @@ export interface Report {
 }
 
 type Store = KeyValueStore.SchemaStore<typeof FactsSchema>
-type Runs = KeyValueStore.SchemaStore<typeof ReviewRun>
 
 const writtenBy = (comments: ReadonlyArray<Comment>, login: string): ReadonlyArray<DateTime.Utc> =>
   comments.filter((comment) => comment.login === login).map((comment) => comment.at)
@@ -58,13 +56,7 @@ const byHumansOtherThan = (comments: ReadonlyArray<Comment>, login: string): Rea
  * message in full, and on a PR that is where the last sweep left it that whole
  * read buys a timestamp the state directory already has.
  */
-const sweepPr = Effect.fn("sweep.pullRequest")(function* (
-  store: Store,
-  runs: Runs,
-  me: string,
-  found: Found,
-  settings: Settings
-) {
+const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: string, found: Found, settings: Settings) {
   const view = yield* prView(found.repo, found.number)
   const [onThePr, inReviews] = yield* Effect.all(
     [prComments(found.repo, found.number), prReviews(found.repo, found.number)],
@@ -85,10 +77,12 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
   // own has not been reviewed however many sweeps have seen the pull request.
   // A run that could not report findings does not count, either: its verdict is
   // what takes a pull request out of Needs review run, and it reached none.
-  const run = yield* Effect.orElseSucceed(runs.get(runKey(found.repo, found.number, view.headRefOid)), () =>
-    Option.none<ReviewRun>()
-  )
-  const reported = Option.match(run, { onNone: () => null, onSome: reportedBy })
+  // A head may carry a run from each configured runner, and it is reviewed once
+  // every runner that decides my bar has reported on it. A second opinion's
+  // findings are read here only where the configuration lets them block.
+  const deciding = decidingIn(settings.review.runners, settings.stamp.supporting_blocks)
+  const atHead = yield* runsAt(found.repo, found.number, view.headRefOid)
+  const reviewed = reviewedBy(atHead, deciding)
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
       ? previous
@@ -135,8 +129,8 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
-    reviewRunHead: reported === null ? null : view.headRefOid,
-    blockingFindings: reported === null ? 0 : blocking(reported.findings, settings.stamp.blocks_on).length
+    reviewRunHead: reviewed ? view.headRefOid : null,
+    blockingFindings: blockingIn(atHead, deciding, settings.stamp.blocks_on).length
   }
 
   yield* store.set(key, facts)
@@ -178,7 +172,6 @@ export const sweep = Effect.gen(function* () {
   }
 
   const store = yield* storeFor("prs", FactsSchema)
-  const runs = yield* storeFor("runs", ReviewRun)
   const me = yield* viewer
 
   const found = gather(yield* Effect.forEach(repos, (repo) => attempt(repo, searchPrs(repo)), { concurrency }))
@@ -189,7 +182,7 @@ export const sweep = Effect.gen(function* () {
       (pr: Found) =>
         attempt(
           `${pr.repo}#${pr.number}`,
-          Effect.map(sweepPr(store, runs, me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
+          Effect.map(sweepPr(store, me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
         ),
       { concurrency }
     )

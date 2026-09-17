@@ -2,12 +2,17 @@ import { Console, Effect, Option } from "effect"
 import { CliError, Command, Flag, Prompt } from "effect/unstable/cli"
 
 import type { ConfigFile, Runner, SettingsPatch } from "#adapters/config.ts"
-import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, write } from "#adapters/config.ts"
+import { builtIn, ConfigStore, encode, merge, read, runners, withDefaults, withRepo, write } from "#adapters/config.ts"
 import { currentRepo, requireAuth } from "#adapters/gh.ts"
 import { stateDirectory } from "#adapters/store.ts"
 
-const runnerFlag = Flag.Literals("runner", ["builtin", "prompt"]).pipe(
-  Flag.withDescription("Which runner review runs execute on, on this machine"),
+const runnerFlag = Flag.Literals("runner", [...runners]).pipe(
+  Flag.withDescription("Which runner is my bar, on this machine"),
+  Flag.optional
+)
+
+const codexFlag = Flag.Boolean("codex").pipe(
+  Flag.withDescription("Ask Codex for a second opinion beside the runner that is my bar"),
   Flag.optional
 )
 
@@ -22,20 +27,40 @@ const baseFlag = Flag.String("base").pipe(
 )
 
 const askRunner: Prompt.Prompt<Runner> = Prompt.Select({
-  message: "Which runner should review runs execute on?",
+  message: "Which runner is your bar?",
   choices: [
     { title: "builtin", value: "builtin", description: "Claude Code's own code review" },
-    {
-      title: "prompt",
-      value: "prompt",
-      description: "The tool's own review prompt, on Claude Code or Codex"
-    }
+    { title: "prompt", value: "prompt", description: "The tool's own review prompt, on Claude Code" },
+    { title: "codex", value: "codex", description: "The tool's own review prompt, on the Codex CLI" }
   ]
 })
 
+/**
+ * The second question, and only where the first did not already answer it.
+ *
+ * Codex is the second opinion, so it is not one more thing in the list of what
+ * my bar could be: it is a runner that runs beside it. A machine whose bar is
+ * Codex has nothing left to ask.
+ */
+const askSecondOpinion: Prompt.Prompt<boolean> = Prompt.Confirm({
+  message: "Also ask Codex for a second opinion on every review run?",
+  initial: false
+})
+
+/**
+ * What the file should name: the runner that is my bar, and Codex beside it
+ * where I asked for one.
+ *
+ * Codex alone is the review rather than a second opinion, which is the rule
+ * `#domain/review.ts` draws too, so it is never listed twice.
+ */
+const listing = (bar: Runner, secondOpinion: boolean): ReadonlyArray<Runner> =>
+  bar === "codex" || !secondOpinion ? [bar] : [bar, "codex"]
+
 const noRunnerChosen =
   "No runner chosen, so nothing was written. " +
-  "Pass --runner builtin or --runner prompt to choose without the prompt."
+  "Pass --runner builtin, --runner prompt or --runner codex to choose without the prompt, " +
+  "and --codex for a second opinion beside it."
 
 /** The settings the flags asked for, and only those. */
 const asked = (base: Option.Option<string>, effort: Option.Option<"low" | "medium" | "high">): SettingsPatch => ({
@@ -62,9 +87,9 @@ const row = (label: string, value: string): string => `${label.padEnd(12)}${valu
  */
 export const init = Command.make(
   "init",
-  { runner: runnerFlag, effort: effortFlag, base: baseFlag },
+  { runner: runnerFlag, codex: codexFlag, effort: effortFlag, base: baseFlag },
   Effect.fn("init")(
-    function* ({ base, effort, runner }) {
+    function* ({ base, codex, effort, runner }) {
       yield* requireAuth
 
       const config = yield* ConfigStore
@@ -79,10 +104,23 @@ export const init = Command.make(
           ? Option.some(yield* askRunner)
           : Option.none()
 
+      const listed = file.defaults?.review?.runners ?? builtIn.review.runners
+      const bar = Option.getOrElse(chosen, () => listed.find((it) => it !== "codex") ?? "builtin")
+      // Only where the runner was asked for too: `--runner` is what sets a
+      // machine up without a terminal, and a prompt after it would take that
+      // back.
+      const asksCodex = firstRun && bar !== "codex" && Option.isNone(runner) && Option.isNone(codex)
+      const secondOpinion: Option.Option<boolean> = asksCodex ? Option.some(yield* askSecondOpinion) : codex
+
+      // The two questions are one setting, and each is remembered on its own: a
+      // later run that names only one of them keeps the answer to the other.
+      const decided = Option.isSome(chosen) || Option.isSome(secondOpinion)
+      const beside = Option.getOrElse(secondOpinion, () => listed.includes("codex"))
+
       // On a first run the built-in defaults go under whatever the file already
       // said, so spelling them out cannot overwrite a setting I chose by hand.
       const inherited = firstRun ? merge(builtIn, file.defaults ?? {}) : (file.defaults ?? {})
-      const defaults = merge(inherited, Option.isSome(chosen) ? { review: { runners: [chosen.value] } } : {})
+      const defaults = merge(inherited, decided ? { review: { runners: listing(bar, beside) } } : {})
 
       const state = yield* stateDirectory
       const repo = yield* currentRepo.pipe(
@@ -99,8 +137,8 @@ export const init = Command.make(
         yield* write(written)
       }
 
-      const runners = written.defaults?.review?.runners ?? builtIn.review.runners
-      yield* Console.log(row("runner", runners.join(", ")))
+      const settled = written.defaults?.review?.runners ?? builtIn.review.runners
+      yield* Console.log(row("runner", settled.join(", ")))
       yield* Console.log(row("config", config.path))
       yield* Console.log(row("state", state))
       yield* Console.log(

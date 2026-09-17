@@ -75,7 +75,7 @@ describe("config file", () => {
         },
         ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
         rebase: { enabled: true },
-        stamp: { blocks_on: "warning" }
+        stamp: { blocks_on: "warning", supporting_blocks: true }
       }
       const file: ConfigFile = { defaults: everything, repos: { "dominikwozniak/dw-mc": everything } }
 
@@ -173,7 +173,7 @@ describe("config file", () => {
   it.effect("carries a hand-written launcher through a rewrite, so init never drops it", () =>
     Effect.gen(function* () {
       const file: ConfigFile = {
-        launcher: { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"] },
+        launcher: { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"], codex: ["cswap", "codex"] },
         repos: { "dominikwozniak/dw-mc": {} }
       }
 
@@ -195,6 +195,17 @@ describe("config file", () => {
     }).pipe(home())
   )
 
+  it.effect("rejects a codex launcher that names no program", () =>
+    Effect.gen(function* () {
+      yield* put("launcher:\n  codex: []\n")
+
+      const error = yield* Effect.flip(read)
+
+      assert.strictEqual(error._tag, "ConfigMalformed")
+      assert.include(error.message, "codex")
+    }).pipe(home())
+  )
+
   it.effect("keeps the store to itself, so state and configuration never collide", () =>
     Effect.gen(function* () {
       yield* write({})
@@ -213,14 +224,24 @@ describe("launcherOf", () => {
   it("starts what the file names, with the arguments it puts in front", () => {
     assert.deepStrictEqual(launcherOf({ launcher: { command: ["cswap", "run", "--"] } }), {
       command: ["cswap", "run", "--"],
-      fix_args: []
+      fix_args: [],
+      codex: ["codex"]
     })
   })
 
   it("keeps the flags only a fix session gets", () => {
     assert.deepStrictEqual(launcherOf({ launcher: { fix_args: ["--enable-auto-mode"] } }), {
       command: ["claude"],
-      fix_args: ["--enable-auto-mode"]
+      fix_args: ["--enable-auto-mode"],
+      codex: ["codex"]
+    })
+  })
+
+  it("starts the second CLI with what the file names for it", () => {
+    assert.deepStrictEqual(launcherOf({ launcher: { codex: ["cswap", "codex"] } }), {
+      command: ["claude"],
+      fix_args: [],
+      codex: ["cswap", "codex"]
     })
   })
 })
@@ -228,6 +249,13 @@ describe("launcherOf", () => {
 describe("settingsFor", () => {
   it("falls back to the built-in defaults when the file says nothing", () => {
     assert.deepStrictEqual(settingsFor({}, "dominikwozniak/dw-mc"), builtIn)
+  })
+
+  it("keeps the second opinion out of my bar until the file says otherwise", () => {
+    assert.isFalse(settingsFor({}, "dominikwozniak/dw-mc").stamp.supporting_blocks)
+    assert.isTrue(
+      settingsFor({ defaults: { stamp: { supporting_blocks: true } } }, "dominikwozniak/dw-mc").stamp.supporting_blocks
+    )
   })
 
   it("resolves the global defaults over the built-in ones", () => {
@@ -285,7 +313,7 @@ describe("settingsFor", () => {
       ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
       fix: { commits: true },
       rebase: { enabled: true },
-      stamp: { blocks_on: "info" }
+      stamp: { blocks_on: "info", supporting_blocks: true }
     }
 
     assert.deepStrictEqual(settingsFor({ defaults: settings }, "dominikwozniak/dw-mc"), settings)

@@ -1,18 +1,23 @@
 import { Console, Effect, Option, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
-import type { ConfigFile, Severity } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import type { ConfigFile, Runner, Severity } from "#adapters/config.ts"
+import { read as readConfig, runners, settingsFor } from "#adapters/config.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError } from "#cli/sweep.ts"
 import { count, table } from "#cli/table.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Findings as FindingsSchema } from "#domain/findings.ts"
 import type { ReviewRun } from "#domain/review.ts"
-import { lastRun, reportedBy, short } from "#domain/review.ts"
+import { lastRun, reportedBy, runnersFor, short } from "#domain/review.ts"
 
 /** The findings as the JSON the schema defines, rather than as this file spells it. */
 const asJson = Schema.encodeEffect(Schema.fromJsonString(FindingsSchema))
+
+const runnerFlag = Flag.Literals("runner", [...runners]).pipe(
+  Flag.withDescription("Which runner's findings to print, over the first the repository configured"),
+  Flag.optional
+)
 
 const jsonFlag = Flag.Boolean("json").pipe(
   Flag.withDefault(false),
@@ -30,7 +35,7 @@ export const summary = (found: Findings, blocksOn: Severity): string => {
 
 /** Which run these findings are, and what they come to: the line above the list. */
 export const header = (run: ReviewRun, found: Findings, blocksOn: Severity): string =>
-  `${run.repo}#${run.number}  ${short(run.head)}  ${summary(found, blocksOn)}`
+  `${run.repo}#${run.number}  ${short(run.head)}  ${run.runner}  ${summary(found, blocksOn)}`
 
 /**
  * The findings one to a line, in the order the runner reported them, ruled so
@@ -50,13 +55,23 @@ export const lines = (found: Findings): ReadonlyArray<string> =>
  * off the state directory rather than worked out from GitHub: this command is
  * one I run inside a fix session, where another round trip to GitHub buys
  * nothing the run it is about to fix does not already say.
+ *
+ * Which run, where a head carries more than one, is the first of `runners` that
+ * has one - the order the repository names them in, unless I name one myself.
+ * A second opinion is worth reading and is not what I fix by default.
  */
-export const currentRun = Effect.fn("findings.currentRun")(function* (repo: string, number: number) {
-  const run = yield* lastRun(repo, number)
-  if (Option.isNone(run)) {
-    return yield* asUserError(`No review run on ${repo}#${number}. Run dw-mc review ${number} first.`)
+export const currentRun = Effect.fn("findings.currentRun")(function* (
+  repo: string,
+  number: number,
+  configured: ReadonlyArray<Runner>
+) {
+  for (const runner of runnersFor(configured)) {
+    const run = yield* lastRun(repo, number, runner)
+    if (Option.isSome(run)) {
+      return run.value
+    }
   }
-  return run.value
+  return yield* asUserError(`No review run on ${repo}#${number}. Run dw-mc review ${number} first.`)
 })
 
 /**
@@ -92,14 +107,18 @@ export const whatItFound = (run: ReviewRun): Effect.Effect<Findings, CliError.Us
  */
 export const findings = Command.make(
   "findings",
-  { pr: prArgument, json: jsonFlag },
+  { pr: prArgument, runner: runnerFlag, json: jsonFlag },
   Effect.fn("findings")(
-    function* ({ json, pr }) {
+    function* ({ json, pr, runner }) {
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
 
-      const run = yield* currentRun(repo, number)
+      const run = yield* currentRun(
+        repo,
+        number,
+        Option.match(runner, { onNone: () => settings.review.runners, onSome: (only) => [only] })
+      )
       const found = yield* whatItFound(run)
       if (json) {
         yield* Console.log(yield* asJson(found))

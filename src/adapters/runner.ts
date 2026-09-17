@@ -1,17 +1,14 @@
-import { Duration, Effect, Option, Schema, Stream } from "effect"
+/**
+ * Claude Code as a runner: its own review command, the tool's own prompt, and
+ * the sessions I steer.
+ */
+import { Effect, FileSystem, Option, PlatformError, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
-import type { Effort, Launcher } from "#adapters/config.ts"
-
-/** A review run that would not start, would not finish, or finished badly. */
-export class RunnerFailed extends Schema.TaggedError<RunnerFailed>()("RunnerFailed", {
-  runner: Schema.String,
-  detail: Schema.String
-}) {
-  override get message(): string {
-    return `The ${this.runner} review run failed: ${this.detail}`
-  }
-}
+import type { Reported, RunnerFailed } from "#adapters/agent.ts"
+import { failedBy, patience, turn } from "#adapters/agent.ts"
+import { codexReview } from "#adapters/codex.ts"
+import type { Effort, Launcher, Runner } from "#adapters/config.ts"
 
 /** What one turn on a runner came back with. */
 export interface Turn {
@@ -74,79 +71,6 @@ interface SoFar {
 }
 
 /**
- * Failures in the name of the program that was spawned.
- *
- * Where the launcher starts `claude` through another program, it is that
- * program that would not start or exited badly, and saying `claude` sends the
- * search to the wrong process.
- */
-const failedBy = (program: string) => (detail: string) => new RunnerFailed({ runner: program, detail })
-
-/**
- * How long each turn gets before it is given up on.
- *
- * The review is the turn that thinks, and a high-effort one that fans out to
- * subagents takes real minutes, so its limit is there to catch a runner that has
- * stopped rather than one that is slow. The second turn reads no code and
- * decides nothing - the review it reports on is already in the session it
- * resumes - and every run of it by hand came back in seconds.
- *
- * Either way, a command that hangs forever is worse than one that says it
- * failed: a review I walked away from is one I need to be able to come back to.
- */
-const patience = {
-  reviewing: Duration.minutes(45),
-  reporting: Duration.minutes(5)
-}
-
-/**
- * One turn of the launcher in `directory`, with `read` over its standard output.
- *
- * The launcher's own arguments go in front of the turn's, because they are what
- * gets `claude` started at all. The two output streams are drained together,
- * because draining one to the end first can block a runner that is still writing
- * to the other. Every way a turn can fail to finish comes back from here as a
- * `RunnerFailed`, so a caller is left with the turn's own answer and nothing else
- * to translate - a turn that never comes back included.
- */
-const turn = Effect.fnUntraced(function* <A, E extends { readonly message: string }, R>(options: {
-  readonly launcher: Launcher
-  readonly directory: string
-  readonly args: ReadonlyArray<string>
-  /** What this turn is called when it is late, and how long it has. */
-  readonly patience: { readonly turn: string; readonly duration: Duration.Duration }
-  readonly read: (stdout: ChildProcessSpawner.ChildProcessHandle["stdout"]) => Effect.Effect<A, E, R>
-}) {
-  const [program, ...prefix] = options.launcher.command
-  const failed = failedBy(program)
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-
-  const running = Effect.gen(function* () {
-    const handle = yield* Effect.mapError(
-      spawner.spawn(ChildProcess.make(program, [...prefix, ...options.args], { cwd: options.directory })),
-      (error) => failed(error.message)
-    )
-
-    const [got, stderr] = yield* Effect.mapError(
-      Effect.all([options.read(handle.stdout), Stream.mkString(Stream.decodeText(handle.stderr))], { concurrency: 2 }),
-      (error) => failed(error.message)
-    )
-
-    const exitCode = yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
-    if (exitCode !== 0) {
-      return yield* failed(stderr.trim() === "" ? `${program} exited ${exitCode}` : stderr.trim())
-    }
-    return got
-  })
-
-  return yield* Effect.timeoutOrElse(running, {
-    duration: options.patience.duration,
-    orElse: () =>
-      failed(`${options.patience.turn} did not come back within ${Duration.format(options.patience.duration)}`)
-  })
-})
-
-/**
  * The result a turn ended on, or the failure it really was.
  *
  * A turn that said nothing this can read and a turn the runner itself calls an
@@ -163,6 +87,33 @@ const ended = (program: string, result: Option.Option<typeof Result.Type>) => {
     ? Effect.fail(failed(`${subtype}: ${lastWord ?? "nothing else was said"}`))
     : Effect.succeed(result.value)
 }
+
+/**
+ * A Claude Code `stream-json` turn, read as it arrives: what it reached for goes
+ * to `onTool` while the run is still going, and what it said and how it ended
+ * are what comes back.
+ *
+ * Both of Claude Code's runners read a turn the same way, so the fold is here
+ * rather than once per runner.
+ */
+const transcript =
+  (onTool: (tool: string) => Effect.Effect<void>) =>
+  (stdout: ChildProcessSpawner.ChildProcessHandle["stdout"]): Effect.Effect<SoFar, PlatformError.PlatformError> =>
+    stdout.pipe(
+      Stream.decodeText(),
+      Stream.splitLines,
+      Stream.mapEffect((line) => {
+        const heard = heardIn(line)
+        return Effect.as(Effect.forEach(heard.tools, onTool, { discard: true }), { line, heard })
+      }),
+      Stream.runFold(
+        (): SoFar => ({ said: [], result: Option.none() }),
+        (soFar, { heard, line }): SoFar => ({
+          said: [...soFar.said, ...heard.said],
+          result: Option.orElse(asResult(line), () => soFar.result)
+        })
+      )
+    )
 
 /**
  * One review run of Claude Code's own code review, headless, in `directory`.
@@ -186,26 +137,11 @@ export const builtinReview = Effect.fn("runner.builtinReview")(function* (option
 }) {
   const [program] = options.launcher.command
   const run = yield* turn({
-    launcher: options.launcher,
+    command: options.launcher.command,
     directory: options.directory,
     args: ["-p", `/code-review ${options.effort}`, "--output-format", "stream-json", "--verbose"],
     patience: { turn: "the review", duration: patience.reviewing },
-    read: (stdout) =>
-      stdout.pipe(
-        Stream.decodeText(),
-        Stream.splitLines,
-        Stream.mapEffect((line) => {
-          const heard = heardIn(line)
-          return Effect.as(Effect.forEach(heard.tools, options.onTool, { discard: true }), { line, heard })
-        }),
-        Stream.runFold(
-          (): SoFar => ({ said: [], result: Option.none() }),
-          (soFar, { heard, line }): SoFar => ({
-            said: [...soFar.said, ...heard.said],
-            result: Option.orElse(asResult(line), () => soFar.result)
-          })
-        )
-      )
+    read: transcript(options.onTool)
   })
 
   const { result: lastWord, session_id } = yield* ended(program, run.result)
@@ -256,7 +192,7 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(function* (op
 }) {
   const [program] = options.launcher.command
   const printed = yield* turn({
-    launcher: options.launcher,
+    command: options.launcher.command,
     directory: options.directory,
     patience: { turn: "the findings turn", duration: patience.reporting },
     args: [
@@ -278,6 +214,73 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(function* (op
   }
   return structured_output
 }, Effect.scoped)
+
+/**
+ * One review run of the tool's own review prompt on Claude Code, in `directory`.
+ *
+ * It is one turn rather than two: verified by running it, `--json-schema`
+ * beside an ordinary prompt gives both the prose the run wrote and the
+ * `structured_output` it validated, where the same flag on the built-in
+ * `/code-review` breaks the run. The schema arrives as inline JSON and never as
+ * a path - a path is where Claude Code reports `--json-schema is not valid
+ * JSON`.
+ *
+ * `review.model` reaches the run here, and nowhere in the built-in runner: the
+ * prompt is the tool's, so which model reads the code is mine to choose.
+ */
+export const promptReview = Effect.fn("runner.promptReview")(function* (options: {
+  readonly launcher: Launcher
+  readonly directory: string
+  readonly prompt: string
+  /** The model to run the prompt on, or null for whatever the CLI would pick. */
+  readonly model: string | null
+  readonly jsonSchema: string
+  readonly onTool: (tool: string) => Effect.Effect<void>
+}) {
+  const [program] = options.launcher.command
+  const run = yield* turn({
+    command: options.launcher.command,
+    directory: options.directory,
+    patience: { turn: "the review", duration: patience.reviewing },
+    args: [
+      "-p",
+      options.prompt,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--json-schema",
+      options.jsonSchema,
+      ...(options.model === null ? [] : ["--model", options.model])
+    ],
+    read: transcript(options.onTool)
+  })
+
+  const { session_id, structured_output } = yield* ended(program, run.result)
+  if (structured_output === undefined) {
+    return yield* failedBy(program)("the review came back with no structured output")
+  }
+
+  const prose = run.said.join("\n\n").trim()
+  return { findings: structured_output, sessionId: session_id, prose: prose === "" ? null : prose } satisfies Reported
+}, Effect.scoped)
+
+/**
+ * The tool's own review prompt, on whichever CLI the runner names.
+ *
+ * The two CLIs are spawned differently and answer differently, and which of
+ * them a runner means is the adapter's knowledge: a caller hands over the
+ * runner and gets the same `Reported` back either way.
+ */
+export const promptRun = (options: {
+  readonly runner: Runner
+  readonly launcher: Launcher
+  readonly directory: string
+  readonly prompt: string
+  readonly model: string | null
+  readonly jsonSchema: string
+  readonly onTool: (tool: string) => Effect.Effect<void>
+}): Effect.Effect<Reported, RunnerFailed, ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem> =>
+  options.runner === "codex" ? codexReview(options) : promptReview(options)
 
 /**
  * An interactive `claude` in `directory`, opened on `prompt`, with my terminal

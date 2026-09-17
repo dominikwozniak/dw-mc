@@ -79,6 +79,20 @@ export const jsonSchema: string = JSON.stringify(
   SchemaRepresentation.toJsonSchemaDocument(SchemaRepresentation.toRepresentation(Findings.ast)).schema
 )
 
+/**
+ * The findings as the Markdown a report is written in.
+ *
+ * It is what the `prompt` runner's report says: with a schema in force a runner
+ * answers in findings and not in prose, so the report kept beside the run is
+ * written from the findings themselves rather than left empty.
+ */
+export const asMarkdown = (found: Findings): string =>
+  found.findings.length === 0
+    ? "Clean: the run found nothing to report."
+    : found.findings
+        .map((finding) => `- \`${finding.file}:${finding.line}\` ${finding.severity}: ${finding.summary}`)
+        .join("\n")
+
 /** Where each severity sits against the others, so the bar can be compared with it. */
 const rank: Record<Severity, number> = { info: 0, warning: 1, error: 2 }
 

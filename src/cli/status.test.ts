@@ -224,7 +224,7 @@ const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version 
 /** What `dw-mc review` leaves behind: a review run against one head. */
 const reviewed = (repo: string, number: number, head: string, findings: ReadonlyArray<Finding> = []) =>
   Effect.flatMap(storeFor("runs", ReviewRun), (runs) =>
-    runs.set(runKey(repo, number, head), {
+    runs.set(runKey(repo, number, head, "builtin"), {
       repo,
       number,
       head,

@@ -5,7 +5,7 @@ import type { ChildProcess } from "effect/unstable/process"
 
 import type { Launcher } from "#adapters/config.ts"
 import { builtInLauncher } from "#adapters/config.ts"
-import { builtinFindings, builtinReview, steeredSession } from "#adapters/runner.ts"
+import { builtinFindings, builtinReview, promptReview, steeredSession } from "#adapters/runner.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const launcher = builtInLauncher
@@ -317,6 +317,95 @@ describe("the built-in runner's second turn", () => {
   )
 })
 
+describe("the prompt runner on Claude Code", () => {
+  const schema = `{"type":"object","properties":{"verdict":{"type":"string"}}}`
+  const prompt = "You are an experienced staff engineer conducting a thorough code review."
+  const found = {
+    verdict: "findings",
+    findings: [{ file: "src/cli/review.ts", line: 88, severity: "error", summary: "The run is never recorded." }]
+  }
+
+  /** What one stream-json turn given a schema really prints: prose, then a result carrying both. */
+  const answered = (result: Record<string, unknown>) =>
+    [
+      { type: "assistant", message: { content: [{ type: "text", text: report }] } },
+      { type: "assistant", message: { content: [{ type: "tool_use", name: "Read" }] } },
+      { ...success, structured_output: found, result: JSON.stringify(found), ...result }
+    ]
+      .map((event) => JSON.stringify(event))
+      .join("\n")
+
+  it.effect("reviews on the tool's own prompt and brings back what one turn validated", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const reported = yield* promptReview({
+        launcher,
+        directory: "/worktree",
+        prompt,
+        model: null,
+        jsonSchema: schema,
+        onTool: nothing
+      })
+
+      assert.deepStrictEqual(reported, { findings: found, sessionId: session, prose: report })
+      assert.deepStrictEqual(
+        spawned.map((command) => [command.command, ...command.args]),
+        [["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--json-schema", schema]]
+      )
+      assert.strictEqual(spawned[0]?.options.cwd, "/worktree")
+    }).pipe(Effect.provide(claude({ spawned, stdout: answered({}) })))
+  })
+
+  it.effect("runs the prompt on the model the repository configured", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      yield* promptReview({
+        launcher,
+        directory: "/worktree",
+        prompt,
+        model: "claude-opus-5",
+        jsonSchema: schema,
+        onTool: nothing
+      })
+
+      assert.deepStrictEqual(spawned[0]?.args.slice(-2), ["--model", "claude-opus-5"])
+    }).pipe(Effect.provide(claude({ spawned, stdout: answered({}) })))
+  })
+
+  it.effect("says what the run is reaching for while it is still running", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const tools: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* promptReview({
+        launcher,
+        directory: "/worktree",
+        prompt,
+        model: null,
+        jsonSchema: schema,
+        onTool: (tool) => Effect.sync(() => tools.push(tool))
+      })
+
+      assert.deepStrictEqual(tools, ["Read"])
+    }).pipe(Effect.provide(claude({ spawned, stdout: answered({}) })))
+  })
+
+  it.effect("a run that validated nothing is a failure, never a clean verdict", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        promptReview({ launcher, directory: "/worktree", prompt, model: null, jsonSchema: schema, onTool: nothing })
+      )
+
+      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.include(error.message, "no structured output")
+    }).pipe(Effect.provide(claude({ spawned, stdout: JSON.stringify(success) })))
+  })
+})
+
 describe("steeredSession", () => {
   it.effect("opens claude in the worktree, on the prompt, with my terminal handed to it", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
@@ -341,7 +430,7 @@ describe("steeredSession", () => {
 
   it.effect("starts what the launcher names, its own arguments first and the prompt last", () => {
     const spawned: Array<ChildProcess.StandardCommand> = []
-    const wrapper: Launcher = { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"] }
+    const wrapper: Launcher = { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"], codex: ["codex"] }
 
     return Effect.gen(function* () {
       yield* steeredSession({ launcher: wrapper, directory: "/fixes/28", prompt: "Work through these findings" })
