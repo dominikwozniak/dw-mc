@@ -56,7 +56,11 @@ export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHe
  * The head comes from the pull request's ref rather than from what a sweep last
  * saw, so what is cut is the commit the run really reads.
  */
-const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: number, under: "worktrees" | "fixes") {
+const whereToCut = Effect.fn("git.whereToCut")(function* (
+  repo: string,
+  number: number,
+  under: "worktrees" | "fixes" | "rebases"
+) {
   const path = yield* Path.Path
   const state = yield* stateDirectory
   const clone = path.join(state, "repos", `${repo}.git`)
@@ -148,20 +152,45 @@ const perWorktreeConfig = Effect.fn("git.perWorktreeConfig")(function* (clone: s
   yield* Effect.ignore(git(["-C", clone, "config", "--unset", "core.bare"]))
 })
 
+/** What a standing worktree is for, which names its branch and the directory it is cut in. */
+export type Session = "fix" | "rebase"
+
+/** Where each kind of session's worktrees live under the state directory. */
+const under = { fix: "fixes", rebase: "rebases" } as const
+
 /**
- * A worktree for a fix session, on a branch of the tool's own, and left
+ * Turns the clone's reuse of a resolution on, which is what the session on a
+ * conflict is worth beyond the one conflict.
+ *
+ * The recording lives in the clone rather than in the worktree, so a conflict I
+ * resolve here is one `git` replays by itself the next time a throwaway rebase
+ * hits it, with no model involved at all. `autoUpdate` is what makes that a
+ * replay rather than a reminder: without it the resolution is written into the
+ * worktree and left unstaged, and the rebase stops on a file that is already
+ * resolved.
+ */
+const reuseResolutions = Effect.fn("git.reuseResolutions")(function* (clone: string) {
+  yield* git(["-C", clone, "config", "rerere.enabled", "true"])
+  yield* git(["-C", clone, "config", "rerere.autoUpdate", "true"])
+})
+
+/**
+ * A worktree for a session I steer, on a branch of the tool's own, and left
  * standing when the session ends.
  *
  * It outlives the session because the work in it is mine: I commit and push
  * from inside the session, and a worktree taken down at the end would take an
  * unpushed commit with it.
  *
- * The branch is `dw-mc/fix/<number>` and never the pull request's own, which is
- * verified rather than a preference: `git` refuses to fetch into a branch that
- * a worktree has checked out, so a worktree standing on the pull request's
- * branch would fail the next fetch of this clone and take every command that
- * reads it down with it. The branch tracks the pull request's, so a plain
- * `git push` from inside the session lands on the pull request.
+ * The branch is `dw-mc/<session>/<number>` and never the pull request's own,
+ * which is verified rather than a preference: `git` refuses to fetch into a
+ * branch that a worktree has checked out, so a worktree standing on the pull
+ * request's branch would fail the next fetch of this clone and take every
+ * command that reads it down with it. It carries the session's name because a
+ * fix session and a session on a conflict stand at the same time on the same
+ * pull request, and one branch between them would be one holding the other's
+ * commits. The branch tracks the pull request's, so a plain `git push` from
+ * inside the session lands on the pull request.
  *
  * A previous session's work stops this before anything is cut: a branch that
  * has gone past the head says so in its own words rather than being reset over
@@ -170,9 +199,14 @@ const perWorktreeConfig = Effect.fn("git.perWorktreeConfig")(function* (clone: s
  * the branch is clear, the previous worktree is removed without `--force`, so
  * changes I have not committed refuse in `git`'s own words.
  */
-export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string, number: number, prBranch: string) {
-  const { clone, directory, head } = yield* whereToCut(repo, number, "fixes")
-  const branch = `dw-mc/fix/${number}`
+export const standingWorktree = Effect.fn("git.standingWorktree")(function* (
+  repo: string,
+  number: number,
+  prBranch: string,
+  session: Session
+) {
+  const { clone, directory, head } = yield* whereToCut(repo, number, under[session])
+  const branch = `dw-mc/${session}/${number}`
 
   const ahead = yield* aheadOf(clone, branch, head)
   if (ahead > 0) {
@@ -187,6 +221,9 @@ export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string,
     yield* git(["-C", clone, "worktree", "remove", directory])
   }
   yield* perWorktreeConfig(clone)
+  if (session === "rebase") {
+    yield* reuseResolutions(clone)
+  }
   yield* git(["-C", clone, "worktree", "add", "-B", branch, directory, head])
 
   // What makes `git push` inside the session land on the pull request: the
@@ -230,34 +267,94 @@ const unmergedIn = Effect.fn("git.unmergedIn")(function* (directory: string) {
 type Replayed = { readonly _tag: "replayed" } | { readonly _tag: "conflicted"; readonly paths: ReadonlyArray<string> }
 
 /**
- * Rebases onto `base` in `directory`, or says which files the rebase conflicted
- * on.
+ * Whether a rebase is in progress in `directory`.
  *
- * A conflict is told apart from every other way `git rebase` refuses by asking
- * `git` to abort: an abort succeeds only where a rebase is in progress, which
- * is exactly the case where the replay stopped on a conflict. Anything else -
- * no committer identity, a base that is not there - failed before the rebase
- * started, and is worth its own words rather than being reported as a conflict
- * that never happened.
- *
- * The unmerged files are read before the abort, which is the only moment they
- * exist: the abort puts the branch back and takes the stopped replay's index
- * with it.
- *
- * Either way nothing half-finished is left behind: the worktree is thrown away
- * with the run, and the abort puts the branch back where it was first.
+ * Asked of `git` by the one command that answers it with an exit code alone:
+ * the stopped replay's patch is there to show while the rebase is, and gone
+ * when it is not.
  */
-const replayOnto = Effect.fn("git.replayOnto")(function* (directory: string, base: string) {
-  const rebased = yield* Effect.result(git(["-C", directory, "rebase", `refs/heads/${base}`]))
-  if (Result.isSuccess(rebased)) {
-    return { _tag: "replayed" } satisfies Replayed
+const rebasing = Effect.fn("git.rebasing")(function* (directory: string) {
+  return Result.isSuccess(yield* Effect.result(git(["-C", directory, "rebase", "--show-current-patch"])))
+})
+
+/** Whether anything is staged in `directory`, which `git` says by refusing. */
+const stagedIn = Effect.fn("git.stagedIn")(function* (directory: string) {
+  return Result.isFailure(yield* Effect.result(git(["-C", directory, "diff", "--cached", "--quiet"])))
+})
+
+/**
+ * How many stops one replay may be carried past before this gives up on it.
+ *
+ * A replay of n commits can stop n times and `rerere` can answer every one of
+ * them, so the number is only here so that a stop which neither resolves nor
+ * moves cannot spin forever.
+ */
+const stops = 100
+
+/**
+ * Replays the worktree's commits onto `base`, and says where the replay
+ * stopped: nowhere, or on the files it could not merge.
+ *
+ * A conflict is told from every other way `git rebase` refuses by what it left
+ * unmerged, which `git` names itself rather than being read out of its prose.
+ * The unmerged files are read before anything is aborted, because that is the
+ * only moment they exist.
+ *
+ * A stop with nothing unmerged is where `rerere` has been: verified by running
+ * it, a replay of a conflict I resolved once stages the old resolution and
+ * still exits non-zero, with no unmerged file left to name. That is a replay to
+ * carry on rather than one to report, so it is continued - with `core.editor`
+ * off, because the continue is the tool's and the message is the commit's own.
+ * Anything else with nothing unmerged and nothing staged never started, and is
+ * worth `git`'s own words rather than a conflict that did not happen.
+ *
+ * `onConflict` is the whole difference between the two worktrees that replay.
+ * `abort` is for the one the tool cuts and throws away, where nothing
+ * half-finished may be left behind; `leave` is for the one I asked for and
+ * which stands, where the stopped rebase is what I came for.
+ */
+const replayOnto = Effect.fn("git.replayOnto")(function* (
+  directory: string,
+  base: string,
+  onConflict: "abort" | "leave"
+) {
+  let stopped = yield* Effect.result(git(["-C", directory, "rebase", `refs/heads/${base}`]))
+
+  for (let step = 0; step < stops; step += 1) {
+    if (Result.isSuccess(stopped)) {
+      return { _tag: "replayed" } satisfies Replayed
+    }
+    const paths = yield* unmergedIn(directory)
+    if (paths.length > 0) {
+      if (onConflict === "abort") {
+        const aborted = yield* Effect.result(git(["-C", directory, "rebase", "--abort"]))
+        if (Result.isFailure(aborted)) {
+          return yield* stopped.failure
+        }
+      }
+      return { _tag: "conflicted", paths } satisfies Replayed
+    }
+    if (!((yield* rebasing(directory)) && (yield* stagedIn(directory)))) {
+      return yield* stopped.failure
+    }
+    stopped = yield* Effect.result(git(["-C", directory, "-c", "core.editor=true", "rebase", "--continue"]))
   }
-  const paths = yield* unmergedIn(directory)
-  const aborted = yield* Effect.result(git(["-C", directory, "rebase", "--abort"]))
-  if (Result.isFailure(aborted)) {
-    return yield* rebased.failure
-  }
-  return { _tag: "conflicted", paths } satisfies Replayed
+
+  return Result.isSuccess(stopped) ? ({ _tag: "replayed" } satisfies Replayed) : yield* stopped.failure
+})
+
+/**
+ * Replays onto `base` in a worktree that stands, and leaves a conflict exactly
+ * where it stopped.
+ *
+ * This is the other half of the rebase the throwaway worktree aborts: the
+ * conflict is the point here, so the rebase stays in progress and the files
+ * stay unmerged for the session to work on and for me to finish. The two are
+ * not the same invariant - nothing half-finished is left in a worktree the tool
+ * cuts and throws away, and this one is mine, asked for and left standing.
+ */
+export const rebaseInPlace = Effect.fn("git.rebaseInPlace")(function* (directory: string, base: string) {
+  return yield* replayOnto(directory, base, "leave")
 })
 
 /**
@@ -287,7 +384,7 @@ export const rebaseOnto = Effect.fn("git.rebaseOnto")(function* (
       if (behind === 0) {
         return { _tag: "up-to-date" } satisfies Rebased
       }
-      const replayed = yield* replayOnto(worktree.directory, base)
+      const replayed = yield* replayOnto(worktree.directory, base, "abort")
       if (replayed._tag === "conflicted") {
         return replayed satisfies Rebased
       }

@@ -5,6 +5,7 @@ import { findings } from "#cli/findings.ts"
 import { fix } from "#cli/fix.ts"
 import { init } from "#cli/init.ts"
 import { rebase } from "#cli/rebase.ts"
+import { resolve } from "#cli/resolve.ts"
 import { review } from "#cli/review.ts"
 import { stampCommand } from "#cli/stamp.ts"
 import { status } from "#cli/status.ts"
@@ -23,5 +24,5 @@ export const dwMc = Command.make(
   })
 ).pipe(
   Command.withDescription("Keeps the state of my open pull requests on disk and shows what every PR waits on"),
-  Command.withSubcommands([init, review, findings, fix, rebase, sweepCommand, status, stampCommand])
+  Command.withSubcommands([init, review, findings, fix, rebase, resolve, sweepCommand, status, stampCommand])
 )

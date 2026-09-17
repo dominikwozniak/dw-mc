@@ -73,21 +73,64 @@ export const stackOf = (number: number, open: ReadonlyArray<Branches>): Position
   return below === 0 && above === 0 ? null : { position: below + 1, length: below + above + 1 }
 }
 
-/** Everything the rebase guards are allowed to know about a pull request. */
-export interface Situation {
+/** What every guard about the branch itself reads, whatever is about to be done to it. */
+export interface Branch {
   readonly repo: string
   readonly number: number
-  /** The branch the pull request merges into, which is what it would be rebased onto. */
-  readonly base: string
-  readonly enabled: boolean
   /** Whether I opened the pull request, which is the only kind whose branch is mine to push. */
   readonly mine: boolean
   /** Whether the head branch lives in a fork rather than in the repository that was read. */
   readonly fromFork: boolean
   /** Whether the pull request was among the open ones the stack was read from. */
   readonly listed: boolean
-  readonly checks: ChecksState
   readonly stack: Position | null
+}
+
+/**
+ * Why this branch is nobody's to touch here, or null where it is mine.
+ *
+ * These are the guards about the branch rather than about what is done to it,
+ * which is why they are their own and why they say nothing about pushing: who
+ * authored the pull request and where its branch lives is the boundary itself -
+ * a branch somebody else authored and a branch in a fork are not mine to work
+ * on, whatever else is true of them and whichever command asks. A stack comes
+ * next, and a pull request the stack was not read from counts as one, because a
+ * stack the tool cannot see is one it could drive: the tool does not understand
+ * stacks, so the one thing it has to say about one is where the pull request
+ * sits in it.
+ */
+export const boundary = (branch: Branch): string | null => {
+  const where = `${branch.repo}#${branch.number}`
+  if (!branch.mine) {
+    return `${where} is not mine. dw-mc works on branches I author and on nothing else.`
+  }
+  if (branch.fromFork) {
+    return (
+      `${where} is opened from a fork, so its branch is not in ${branch.repo}. ` +
+      `dw-mc works only on a branch in the repository it read.`
+    )
+  }
+  if (!branch.listed) {
+    return (
+      `${where} was not among the open pull requests of ${branch.repo}, so nothing here can say whether ` +
+      `it is in a stack. Read it again before touching the branch.`
+    )
+  }
+  if (branch.stack !== null) {
+    return (
+      `${where} is ${branch.stack.position} of ${branch.stack.length} in a stack. ` +
+      `dw-mc does not understand stacks and will not drive one; rebase it with whatever built the stack.`
+    )
+  }
+  return null
+}
+
+/** Everything the rebase guards are allowed to know about a pull request. */
+export interface Situation extends Branch {
+  /** The branch the pull request merges into, which is what it would be rebased onto. */
+  readonly base: string
+  readonly enabled: boolean
+  readonly checks: ChecksState
 }
 
 /**
@@ -99,14 +142,9 @@ export interface Situation {
  *
  * Being off is said first, because a repository that has not turned rebase on
  * has decided the question and nothing else about the pull request changes it.
- * Then who the branch belongs to and where it lives, which is the boundary
- * itself: a branch somebody else authored and a branch in a fork are not mine
- * to push, whatever else is true of them. A stack comes next, and a pull
- * request the stack was not read from counts as one, because a stack the tool
- * cannot see is one it could drive: the tool does not understand stacks, so the
- * one thing it has to say about one is where the pull request sits in it. CI is
- * last and costs the most to get wrong - rebasing while a run is in flight cancels the
- * run I am waiting on, and a red build is mine to fix where it is.
+ * The branch's own guards come next. CI is last and costs the most to get
+ * wrong - rebasing while a run is in flight cancels the run I am waiting on,
+ * and a red build is mine to fix where it is.
  */
 export const decide = (situation: Situation): string | null => {
   const where = `${situation.repo}#${situation.number}`
@@ -116,26 +154,9 @@ export const decide = (situation: Situation): string | null => {
       `so a force push is never a surprise.`
     )
   }
-  if (!situation.mine) {
-    return `${where} is not mine. dw-mc pushes to branches I author and to nothing else.`
-  }
-  if (situation.fromFork) {
-    return (
-      `${where} is opened from a fork, so its branch is not in ${situation.repo}. ` +
-      `dw-mc pushes only to a branch in the repository it read.`
-    )
-  }
-  if (!situation.listed) {
-    return (
-      `${where} was not among the open pull requests of ${situation.repo}, so nothing here can say whether ` +
-      `it is in a stack. Read it again before rebasing it.`
-    )
-  }
-  if (situation.stack !== null) {
-    return (
-      `${where} is ${situation.stack.position} of ${situation.stack.length} in a stack. ` +
-      `dw-mc does not understand stacks and will not drive one; rebase it with whatever built the stack.`
-    )
+  const refused = boundary(situation)
+  if (refused !== null) {
+    return refused
   }
   if (situation.checks === "pending") {
     return `CI is still running on ${where}. A rebase now would cancel the run you are waiting on.`
@@ -168,17 +189,18 @@ export const Conflict = Schema.Struct({
 export type Conflict = typeof Conflict.Type
 
 /**
- * The head a rebase last conflicted at, or null where none has.
+ * The conflict a rebase last left on this pull request, or null where it left
+ * none.
  *
  * A record this version cannot read is one another version of it wrote, and a
  * conflict is worth a bucket rather than a failed sweep: forgetting it costs
  * the pull request one reason to be in Needs me, where failing here would cost
  * me the whole table.
  */
-export const conflictedAt = Effect.fn("rebase.conflictedAt")(function* (repo: string, number: number) {
+export const conflictFor = Effect.fn("rebase.conflictFor")(function* (repo: string, number: number) {
   const store = yield* storeFor("rebases", Conflict)
   const conflict = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Conflict>())
-  return Option.match(conflict, { onNone: () => null, onSome: (it) => it.head })
+  return Option.getOrNull(conflict)
 })
 
 /** Writes down that a rebase of `head` conflicted on `paths`, which is the only head it holds for. */
