@@ -34,20 +34,23 @@ Print findings again in the turn that needs them. The printed run is the state; 
 
 These change something, so run one only when I ask for it by name.
 
-| I want                                                 | run                               |
-| ------------------------------------------------------ | --------------------------------- |
-| a review run against the current head                  | `dw-mc review <pr>`               |
-| that run where the re-run rule would skip it           | `dw-mc review <pr> --force`       |
-| that run at a chosen effort, over the configured one   | `dw-mc review <pr> --effort high` |
-| the stamp off, until the head changes                  | `dw-mc stamp <pr> --withdraw`     |
-| the branch rebased onto its base and pushed            | `dw-mc rebase <pr>`               |
-| a flaky red CI run again, once                         | `dw-mc rerun <pr>`                |
-| a Ready, stamped pull request landed                   | `dw-mc merge <pr>`                |
-| this machine set up and the repository I am in tracked | `dw-mc init`                      |
+| I want                                                      | run                               |
+| ----------------------------------------------------------- | --------------------------------- |
+| a review run against the current head                       | `dw-mc review <pr>`               |
+| that run where the re-run rule would skip it                | `dw-mc review <pr> --force`       |
+| that run at a chosen effort, over the configured one        | `dw-mc review <pr> --effort high` |
+| the stamp off, until the head changes                       | `dw-mc stamp <pr> --withdraw`     |
+| the branch rebased onto its base and pushed                 | `dw-mc rebase <pr>`               |
+| a flaky red CI run again, once                              | `dw-mc rerun <pr>`                |
+| a Ready, stamped pull request landed                        | `dw-mc merge <pr>`                |
+| this machine set up and the repository I am in tracked      | `dw-mc init`                      |
+| the disk the tool spent on clones and review worktrees back | `dw-mc cleanup`                   |
 
 `dw-mc review` runs a model and takes minutes.
 
 `dw-mc init` is what "No repositories registered" asks for. It writes my config on this machine and reaches nothing else.
+
+`dw-mc cleanup` removes only what the tool rebuilds by itself, and never a worktree a session stands in. `dw-mc uninstall` removes everything the tool wrote and is mine to run, never yours: ask me for it rather than running it.
 
 `dw-mc rebase`, `dw-mc rerun` and `dw-mc merge` are the three commands that write to GitHub, and the CLI owns all three: run them as they are, and leave every write of my own - comment, review, label, approval, status - unmade (ADR 0002).
 

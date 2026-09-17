@@ -1,7 +1,8 @@
 import { Effect, Path, Result, Schema } from "effect"
 
 import { capture } from "#adapters/spawner.ts"
-import { stateDirectory } from "#adapters/store.ts"
+import type { Cut, Session } from "#adapters/store.ts"
+import { clonesIn, stateDirectory, under } from "#adapters/store.ts"
 
 /** A `git` command that ran and refused, or would not run at all. */
 export class GitFailed extends Schema.TaggedError<GitFailed>()("GitFailed", {
@@ -41,7 +42,7 @@ export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHe
 /**
  * Where a worktree is cut from, what it is cut at, and where it goes: the tool's
  * own bare clone of `repo`, the pull request's head, and a directory under
- * `under` in the state directory.
+ * `cut` in the state directory.
  *
  * Everything happens in this clone and never in my checkout: a run that reached
  * into the directory I am working in would read whatever I had half finished
@@ -56,14 +57,10 @@ export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHe
  * The head comes from the pull request's ref rather than from what a sweep last
  * saw, so what is cut is the commit the run really reads.
  */
-const whereToCut = Effect.fn("git.whereToCut")(function* (
-  repo: string,
-  number: number,
-  under: "worktrees" | "fixes" | "rebases"
-) {
+const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: number, cut: Cut) {
   const path = yield* Path.Path
   const state = yield* stateDirectory
-  const clone = path.join(state, "repos", `${repo}.git`)
+  const clone = path.join(state, clonesIn, `${repo}.git`)
 
   const bare = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", "--is-bare-repository"]), () => "")
   if (bare !== "true") {
@@ -82,7 +79,7 @@ const whereToCut = Effect.fn("git.whereToCut")(function* (
     "+refs/heads/*:refs/heads/*"
   ])
   const head = yield* git(["-C", clone, "rev-parse", pullRef])
-  return { clone, head, directory: path.join(state, under, repo, String(number)) }
+  return { clone, head, directory: path.join(state, cut, repo, String(number)) }
 })
 
 /**
@@ -151,12 +148,6 @@ const perWorktreeConfig = Effect.fn("git.perWorktreeConfig")(function* (clone: s
   yield* git(["-C", clone, "config", "--worktree", "core.bare", "true"])
   yield* Effect.ignore(git(["-C", clone, "config", "--unset", "core.bare"]))
 })
-
-/** What a standing worktree is for, which names its branch and the directory it is cut in. */
-export type Session = "fix" | "rebase"
-
-/** Where each kind of session's worktrees live under the state directory. */
-const under = { fix: "fixes", rebase: "rebases" } as const
 
 /**
  * Turns the clone's reuse of a resolution on, which is what the session on a
@@ -401,4 +392,74 @@ export const rebaseOnto = Effect.fn("git.rebaseOnto")(function* (
       return { _tag: "pushed", before: worktree.head, after, behind } satisfies Rebased
     })
   )
+})
+
+/** What a standing session worktree still holds, or nothing at all. */
+export type Holding = { readonly _tag: "clear" } | { readonly _tag: "held"; readonly detail: string }
+
+const clear: Holding = { _tag: "clear" }
+
+/**
+ * What the worktree of a fix or resolve session still holds, asked without
+ * reaching GitHub.
+ *
+ * Nothing that takes a directory away may fetch first: a command asked to
+ * remove things would be cloning to answer whether it may, and a machine that
+ * is offline would be told its work is gone. So the pull request's head is read
+ * from the ref the last run left in the clone, and where there is no ref to
+ * read the answer is that this cannot be told - which holds the worktree rather
+ * than letting it through, because the one mistake worth avoiding here is
+ * taking away a commit I have not pushed.
+ *
+ * Uncommitted changes are asked of the worktree and commits are asked of the
+ * branch, for the reason `standingWorktree` asks the same two: a worktree
+ * pruned or moved by hand still leaves the branch holding the commits.
+ */
+export const holding = Effect.fn("git.holding")(function* (repo: string, number: number, session: Session) {
+  const path = yield* Path.Path
+  const state = yield* stateDirectory
+  const clone = path.join(state, clonesIn, `${repo}.git`)
+  const directory = path.join(state, under[session], repo, String(number))
+  const branch = `dw-mc/${session}/${number}`
+
+  const changes = yield* Effect.orElseSucceed(git(["-C", directory, "status", "--porcelain"]), () => "")
+  if (changes.trim() !== "") {
+    return { _tag: "held", detail: "changes that are not committed" } satisfies Holding
+  }
+
+  const ref = `refs/heads/${branch}`
+  const found = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", "--verify", "--quiet", ref]), () => "")
+  if (found.trim() === "") {
+    return clear
+  }
+
+  const head = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", `refs/dw-mc/pr/${number}`]), () => "")
+  if (head.trim() === "") {
+    return {
+      _tag: "held",
+      detail: `the clone no longer knows what ${repo}#${number} points at, so what ${branch} holds cannot be told`
+    } satisfies Holding
+  }
+
+  const ahead = yield* aheadOf(clone, branch, head.trim())
+  return ahead === 0
+    ? clear
+    : ({
+        _tag: "held",
+        detail: `${ahead} commit${ahead === 1 ? "" : "s"} that the pull request's head does not have`
+      } satisfies Holding)
+})
+
+/**
+ * Forgets the worktrees a clone has been left with, once their directories are
+ * gone.
+ *
+ * A directory taken from under the clone leaves the clone's record of it
+ * behind, and the next session on that pull request is cut at the same path,
+ * which is then refused as already registered. Pruning is the whole repair, and
+ * only a clone that stays needs it: one being removed takes its records with
+ * it.
+ */
+export const prune = Effect.fn("git.prune")(function* (clone: string) {
+  yield* Effect.ignore(git(["-C", clone, "worktree", "prune"]))
 })

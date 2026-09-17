@@ -1,5 +1,6 @@
 import { Command } from "effect/unstable/cli"
 
+import { cleanup } from "#cli/cleanup.ts"
 import { comments } from "#cli/comments.ts"
 import { findings } from "#cli/findings.ts"
 import { fix } from "#cli/fix.ts"
@@ -13,6 +14,7 @@ import { review } from "#cli/review.ts"
 import { stampCommand } from "#cli/stamp.ts"
 import { status } from "#cli/status.ts"
 import { sweepCommand } from "#cli/sweep.ts"
+import { uninstall } from "#cli/uninstall.ts"
 
 declare const __VERSION__: string | undefined
 
@@ -39,7 +41,9 @@ const subcommands = [
   merge,
   sweepCommand,
   status,
-  stampCommand
+  stampCommand,
+  cleanup,
+  uninstall
 ] as const
 
 /**
