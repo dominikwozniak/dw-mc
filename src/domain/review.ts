@@ -136,6 +136,15 @@ export const reportedBy = (run: ReviewRun): Findings | null =>
   run.outcome._tag === "reported" ? { verdict: run.outcome.verdict, findings: run.outcome.findings } : null
 
 /**
+ * Why a run reported nothing, or null where it reported.
+ *
+ * The sibling of `reportedBy`, and here for the same reason: the two halves of
+ * an outcome are read through one place each rather than re-narrowed at every
+ * caller.
+ */
+export const detailOf = (run: ReviewRun): string | null => (run.outcome._tag === "failed" ? run.outcome.detail : null)
+
+/**
  * Whether the files changed since the last run are worth paying for another.
  *
  * The question is deliberately about what changed rather than how much: one

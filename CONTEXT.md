@@ -35,7 +35,7 @@ _Avoid_: column, lane, status
 The bucket for a PR only I can move: a conflict, red CI that is not flaky, changes requested, a human comment newer than my last activity, or a blocking finding.
 
 **Needs review run**:
-The bucket for a PR whose current head has no review run.
+The bucket for a PR whose current head has no review run from every deciding runner.
 
 **Waiting on others**:
 The bucket for a PR with nothing left for me: a human review is pending.
@@ -80,6 +80,10 @@ _Avoid_: check, audit, scan
 **Runner**:
 What a review run executes. `builtin` is Claude Code's own review command; `prompt` is the tool's own review prompt on Claude Code; `codex` is that same prompt on the Codex CLI. A repository configures one or more, and a head carries one run per runner.
 _Avoid_: reviewer, provider, model
+
+**Deciding runner**:
+A configured runner whose findings are my bar: every configured runner but the supporting one, and every one of them where `stamp.supporting_blocks` is set. A head is reviewed once every deciding runner has reported on it.
+_Avoid_: primary, blocking, real
 
 **Supporting runner**:
 A runner whose findings inform me without gating my bar: Codex, wherever a review of my own runs beside it. Its findings withhold no stamp until `stamp.supporting_blocks` says they may. Configured alone it is not supporting - it is the review.

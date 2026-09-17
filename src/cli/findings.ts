@@ -2,7 +2,7 @@ import { Console, Effect, Option, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { ConfigFile, Runner, Severity } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import { read as readConfig, runners, settingsFor } from "#adapters/config.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError } from "#cli/sweep.ts"
 import { count, table } from "#cli/table.ts"
@@ -14,7 +14,7 @@ import { lastRun, reportedBy, runnersFor, short } from "#domain/review.ts"
 /** The findings as the JSON the schema defines, rather than as this file spells it. */
 const asJson = Schema.encodeEffect(Schema.fromJsonString(FindingsSchema))
 
-const runnerFlag = Flag.Literals("runner", ["builtin", "prompt", "codex"]).pipe(
+const runnerFlag = Flag.Literals("runner", [...runners]).pipe(
   Flag.withDescription("Which runner's findings to print, over the first the repository configured"),
   Flag.optional
 )
@@ -63,9 +63,9 @@ export const lines = (found: Findings): ReadonlyArray<string> =>
 export const currentRun = Effect.fn("findings.currentRun")(function* (
   repo: string,
   number: number,
-  runners: ReadonlyArray<Runner>
+  configured: ReadonlyArray<Runner>
 ) {
-  for (const runner of runnersFor(runners)) {
+  for (const runner of runnersFor(configured)) {
     const run = yield* lastRun(repo, number, runner)
     if (Option.isSome(run)) {
       return run.value

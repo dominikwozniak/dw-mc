@@ -1,7 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
+import { ConfigProvider, Console, DateTime, Effect, Layer, Option, Path, Stdio } from "effect"
 import { Command } from "effect/unstable/cli"
 
+import { layerFakeSchemaFile } from "#adapters/codex.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { builtInLauncher, ConfigStore, write } from "#adapters/config.ts"
 import { layerScripted } from "#adapters/picker.ts"
@@ -222,13 +223,10 @@ const machine = (options: {
     Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
     Layer.mergeAll(
       ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      // Codex takes its schema in a file, and this is the only thing any run
-      // writes anywhere: the worktree is git's and the state directory is the
-      // store's.
-      FileSystem.layerNoop({
-        makeTempFileScoped: () => Effect.succeed("/tmp/dw-mc-findings-1.json"),
-        writeFileString: () => Effect.void
-      }),
+      // Codex takes its schema in a file, and writing it is the only thing any
+      // run writes anywhere: the worktree is git's and the state directory is
+      // the store's.
+      layerFakeSchemaFile(),
       Path.layer,
       Stdio.layerTest({}),
       spawner,

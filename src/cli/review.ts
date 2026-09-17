@@ -1,6 +1,7 @@
 import { Console, DateTime, Effect, Exit, Option, Result, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
+import type { RunnerFailed } from "#adapters/agent.ts"
 import type { ConfigFile, Effort, Launcher, Runner, Settings } from "#adapters/config.ts"
 import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
@@ -8,7 +9,6 @@ import { withWorktree } from "#adapters/git.ts"
 import { announce } from "#adapters/notify.ts"
 import type { Doing } from "#adapters/progress.ts"
 import { spinning } from "#adapters/progress.ts"
-import type { RunnerFailed } from "#adapters/runner.ts"
 import { builtinFindings, builtinReview, promptRun } from "#adapters/runner.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
 import { lines, summary } from "#cli/findings.ts"
@@ -24,6 +24,7 @@ import {
   LastReviewed,
   lastRun,
   latestKey,
+  detailOf,
   reportDocument,
   reportedBy,
   reportKey,
@@ -35,7 +36,7 @@ import {
 } from "#domain/review.ts"
 
 /** What the spinner says a run has got through, while it is still going. */
-const reviewing =
+const saying =
   (runner: Runner) =>
   (doing: Doing, since: string): string =>
     [
@@ -100,8 +101,12 @@ const askedOf = Effect.fn("review.askedOf")(function* (repo: string, number: num
  * `review.model` drives the prompt the tool owns, so each run says the one that
  * decided anything about it.
  */
-const spending = (runner: Runner, effort: Effort, model: string | null): string =>
-  runner === "builtin" ? `${runner}, effort ${effort}` : model === null ? runner : `${runner}, model ${model}`
+const spending = (runner: Runner, effort: Effort, model: string | null): string => {
+  if (runner === "builtin") {
+    return `${runner}, effort ${effort}`
+  }
+  return model === null ? runner : `${runner}, model ${model}`
+}
 
 /** What one runner came back with, as far as the runner itself gets. */
 interface Reviewed {
@@ -120,8 +125,8 @@ interface Reviewed {
 /** What is written down about one runner's review. */
 interface Ran {
   readonly sessionId: string | null
-  /** The prose the report document is written from. */
-  readonly prose: string
+  /** The prose the report document is written from, or null where there is none. */
+  readonly prose: string | null
   readonly outcome: Outcome
 }
 
@@ -146,7 +151,7 @@ const reviewOn = Effect.fn("review.reviewOn")(function* (options: {
   /** What the run is about, which is what the tool's own prompt is written from. */
   readonly about: Reviewing
 }) {
-  const said = reviewing(options.runner)
+  const said = saying(options.runner)
   const { directory, launcher, settings } = options
 
   if (options.runner === "builtin") {
@@ -187,11 +192,11 @@ const reviewOn = Effect.fn("review.reviewOn")(function* (options: {
  */
 const ranBy = (got: Result.Result<Reviewed, RunnerFailed>): Ran => {
   if (Result.isFailure(got)) {
-    return { sessionId: null, prose: "", outcome: { _tag: "failed", detail: got.failure.detail } }
+    return { sessionId: null, prose: null, outcome: { _tag: "failed", detail: got.failure.detail } }
   }
   const { prose, reported, sessionId } = got.success
   if (Result.isFailure(reported)) {
-    return { sessionId, prose: prose ?? "", outcome: { _tag: "failed", detail: reported.failure.message } }
+    return { sessionId, prose, outcome: { _tag: "failed", detail: reported.failure.message } }
   }
   const found = reported.success
   return {
@@ -203,12 +208,6 @@ const ranBy = (got: Result.Result<Reviewed, RunnerFailed>): Ran => {
   }
 }
 
-/** One runner's review, once it has been written down. */
-interface Recorded {
-  readonly run: ReviewRun
-  readonly prose: string
-}
-
 /**
  * The command's own failure where a runner that decides my bar reported
  * nothing, and nothing where they all reported.
@@ -218,15 +217,17 @@ interface Recorded {
  * said out loud and no more: it informs me, so its silence is not my command
  * failing.
  */
-const unreported = (recorded: ReadonlyArray<Recorded>, deciding: ReadonlyArray<Runner>, number: number) => {
-  const failed = recorded.filter((it) => deciding.includes(it.run.runner) && it.run.outcome._tag === "failed")
+const unreported = (recorded: ReadonlyArray<ReviewRun>, deciding: ReadonlyArray<Runner>, number: number) => {
+  const failed = recorded.flatMap((run) => {
+    const detail = detailOf(run)
+    return deciding.includes(run.runner) && detail !== null ? [`${run.runner}: ${detail}`] : []
+  })
   return failed.length === 0
     ? Effect.void
     : Effect.fail(
         new CliError.UserError({
           cause:
-            `The review ran and its findings did not: ` +
-            `${failed.map((it) => `${it.run.runner}: ${it.run.outcome._tag === "failed" ? it.run.outcome.detail : ""}`).join("; ")}. ` +
+            `The review ran and its findings did not: ${failed.join("; ")}. ` +
             `Run dw-mc review ${number} --force to run it again.`
         })
       )
@@ -322,7 +323,7 @@ export const review = Command.make(
         const latest = yield* storeFor("runs", LastReviewed)
         const reports = yield* textStoreFor("runs")
 
-        const recorded: Array<Recorded> = []
+        const recorded: Array<ReviewRun> = []
         for (const { ran: got, runner } of ran.done) {
           const run: ReviewRun = {
             repo,
@@ -336,24 +337,29 @@ export const review = Command.make(
           }
           yield* runs.set(runKey(repo, number, run.head, runner), run)
           yield* latest.set(latestKey(repo, number, runner), { head: run.head })
-          yield* reports.set(reportKey(repo, number, run.head, runner), reportDocument(run, view.title, got.prose))
-          recorded.push({ run, prose: got.prose })
-        }
+          yield* reports.set(
+            reportKey(repo, number, run.head, runner),
+            reportDocument(run, view.title, got.prose ?? "")
+          )
+          recorded.push(run)
 
-        for (const { prose, run } of recorded) {
           yield* Console.log("")
           // One runner says which it was on the line above its run already; more
           // than one and the reports need telling apart.
-          if (recorded.length > 1) {
-            yield* Console.log(`${run.runner}:`)
+          if (ran.done.length > 1) {
+            yield* Console.log(`${runner}:`)
+          }
+          const detail = detailOf(run)
+          if (detail !== null) {
+            yield* Console.log(`  reported nothing: ${detail}`)
+            continue
           }
           const found = reportedBy(run)
           if (found === null) {
-            yield* Console.log(`  reported nothing: ${run.outcome._tag === "failed" ? run.outcome.detail : ""}`)
             continue
           }
-          if (prose !== "") {
-            yield* Console.log(prose)
+          if (got.prose !== null) {
+            yield* Console.log(got.prose)
             yield* Console.log("")
           }
           yield* Console.log(summary(found, settings.stamp.blocks_on))

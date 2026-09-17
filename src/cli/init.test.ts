@@ -135,7 +135,9 @@ describe("dw-mc init", () => {
         repos: { "dominikwozniak/dw-mc": {} }
       })
     }).pipe(
-      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }), keys: [key("enter")] })),
+      Effect.provide(
+        machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }), keys: [key("enter"), key("enter")] })
+      ),
       recording(printed)
     )
   })
@@ -185,6 +187,53 @@ describe("dw-mc init", () => {
       const file = Option.getOrThrow(yield* read)
       assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["prompt"])
       assert.strictEqual(printed[0], "runner      prompt")
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
+  })
+
+  it.effect("puts Codex beside the runner that is my bar when I ask for a second opinion", () => {
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* init("--runner", "builtin", "--codex")
+
+      const file = Option.getOrThrow(yield* read)
+      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["builtin", "codex"])
+      assert.strictEqual(printed[0], "runner      builtin, codex")
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
+  })
+
+  it.effect("keeps the second opinion when a later run names only the bar", () => {
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* init("--runner", "builtin", "--codex")
+      yield* init("--runner", "prompt")
+
+      const file = Option.getOrThrow(yield* read)
+      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["prompt", "codex"])
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
+  })
+
+  it.effect("keeps the bar when a later run names only the second opinion", () => {
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* init("--runner", "prompt")
+      yield* init("--codex")
+
+      const file = Option.getOrThrow(yield* read)
+      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["prompt", "codex"])
+    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
+  })
+
+  it.effect("names Codex once where Codex is the bar, because then it is the review", () => {
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* init("--runner", "codex", "--codex")
+
+      const file = Option.getOrThrow(yield* read)
+      assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").review.runners, ["codex"])
     }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
   })
 
@@ -239,7 +288,10 @@ describe("dw-mc init", () => {
 
       assert.strictEqual(printed[3], "repository  none here - run dw-mc init inside a repository to register it")
       assert.isUndefined(Option.getOrThrow(yield* read).repos)
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }), keys: [key("enter")] })), recording(printed))
+    }).pipe(
+      Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }), keys: [key("enter"), key("enter")] })),
+      recording(printed)
+    )
   })
 
   it.effect("leaves the state directory behind on the first run", () => {
