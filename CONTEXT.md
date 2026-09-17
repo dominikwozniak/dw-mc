@@ -17,6 +17,10 @@ A tracked PR that GitHub marks as a draft. Shown, never acted on unless I ask.
 One pass over every tracked PR that refreshes what mission control knows about it. A sweep only reads.
 _Avoid_: poll, refresh, sync
 
+**Picker**:
+The front door that covers the common loop without a flag: `dw-mc` with no arguments lists every tracked PR under the bucket it sits in, offers what can be done to the one I choose, and runs that command. A prompt and a table, never a full-screen TUI.
+_Avoid_: menu, dashboard, TUI
+
 **Stamp**:
 My local mark that a tracked PR has passed my own bar. Computed from review runs and CI, and I can withdraw it by hand, at the head I read, until that head changes. It lives only on this machine and is never a GitHub approval, label, comment or status.
 _Avoid_: approval, label, status
