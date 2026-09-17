@@ -1,11 +1,11 @@
 /**
- * Claude Code as the runner: a slash command, the tool's own prompt, and the
- * sessions I steer.
+ * Claude Code: a review on a slash command, a review on the tool's own prompt,
+ * and the sessions I steer.
  */
 import { Effect, Option, PlatformError, Result, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
-import type { Reported, RunnerFailed } from "#adapters/agent.ts"
+import type { Reported, AgentFailed } from "#adapters/agent.ts"
 import { failedBy, patience, turn } from "#adapters/agent.ts"
 import type { Launcher } from "#adapters/config.ts"
 
@@ -40,7 +40,7 @@ export interface Reviewed {
   /** What the run said in prose, or null where a schema left it none to say. */
   readonly prose: string | null
   /** What it reported, or the failure the reporting was. */
-  readonly findings: Result.Result<unknown, RunnerFailed>
+  readonly findings: Result.Result<unknown, AgentFailed>
 }
 
 /**
@@ -160,7 +160,7 @@ const transcript =
  * running it, a repository whose review command fans out to subagents can end on
  * a remark about them, and the report is the turn before that.
  */
-export const commandReview = Effect.fn("runner.commandReview")(function* (options: {
+export const commandReview = Effect.fn("claude.commandReview")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
   readonly line: string
@@ -222,10 +222,10 @@ const reportFindings = [
  * handed on as it arrived: what the findings must look like belongs to the
  * domain, and the schema the run is held to comes in from there too.
  *
- * Every way this can end badly ends as a `RunnerFailed`, because a review run
+ * Every way this can end badly ends as an `AgentFailed`, because a review run
  * that could not report is a failure and never a clean verdict.
  */
-export const findingsTurn = Effect.fn("runner.findingsTurn")(function* (options: {
+export const findingsTurn = Effect.fn("claude.findingsTurn")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
   readonly sessionId: string
@@ -265,7 +265,7 @@ export const findingsTurn = Effect.fn("runner.findingsTurn")(function* (options:
  * breaks the run. The schema arrives as inline JSON and never as a path - a path
  * is where Claude Code reports `--json-schema is not valid JSON`.
  */
-export const promptReview = Effect.fn("runner.promptReview")(function* (options: {
+export const promptReview = Effect.fn("claude.promptReview")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
   readonly prompt: string
@@ -312,7 +312,7 @@ export const promptReview = Effect.fn("runner.promptReview")(function* (options:
  * replacing it. A review that ran and could not report is still worth reading,
  * and it is recorded as the failure it is.
  */
-export const reviewTurns = Effect.fn("runner.reviewTurns")(function* (options: {
+export const reviewTurns = Effect.fn("claude.reviewTurns")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
   readonly turn: ReviewTurn
@@ -360,7 +360,7 @@ export const reviewTurns = Effect.fn("runner.reviewTurns")(function* (options: {
  * Ctrl-C ended badly for `claude` and not for me, so this reports it rather
  * than failing on it; only a `claude` that would not start at all is a failure.
  */
-export const steeredSession = Effect.fn("runner.steeredSession")(function* (options: {
+export const steeredSession = Effect.fn("claude.steeredSession")(function* (options: {
   readonly launcher: Launcher
   readonly directory: string
   readonly prompt: string

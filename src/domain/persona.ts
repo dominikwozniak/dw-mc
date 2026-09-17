@@ -3,9 +3,9 @@
  *
  * Where a slash command drives the agent's own review, this is a prompt of the
  * tool's own, so my bar is not one agent's idea of a code review. How a turn is
- * spawned belongs to the runner adapter; which turn it is belongs here.
+ * spawned belongs to the Claude Code adapter; which turn it is belongs here.
  */
-import type { ReviewTurn } from "#adapters/runner.ts"
+import type { ReviewTurn } from "#adapters/claude.ts"
 
 /**
  * The reviewer persona, derived from Addy Osmani's `code-reviewer` agent

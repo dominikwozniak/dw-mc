@@ -14,7 +14,7 @@ import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, reportKey, ReviewRun, runKey } from "#domain/review.ts"
 
 const me = "dominikwozniak"
-/** The program a runner is spawned as, which the launcher names and the default spells `claude`. */
+/** The program a run is spawned as, which the launcher names and the default spells `claude`. */
 const launching = builtInLauncher.command[0]
 
 const repo = "dominikwozniak/dw-mc"
@@ -63,7 +63,7 @@ const weighed: ReadonlyArray<Finding> = [
   { file: "docs/v1-design.md", line: 3, severity: "info", summary: "The build order is out of date." }
 ]
 
-/** What the prompt runner's one turn prints: the prose it wrote, then the findings it validated. */
+/** What a promptless run's one turn prints: the prose it wrote, then the findings it validated. */
 const answered = (fields: Record<string, unknown>) =>
   [
     { type: "system", subtype: "init", session_id: session },
@@ -112,7 +112,7 @@ const machine = (options: {
   /** How wide the screen is. Zero is a pipe, where the run writes lines instead.  */
   readonly columns?: number | undefined
   /** The first turn of a review run on a slash command, which writes the report. */
-  readonly runner?: Turn | undefined
+  readonly review?: Turn | undefined
   /** The second turn, which reports the findings. */
   readonly findings?: Turn | undefined
   /** The one turn a review with no slash command takes. */
@@ -147,7 +147,7 @@ const machine = (options: {
       // is the constraint itself, rather than which command the prompt names.
       return command.args.includes("--json-schema")
         ? turn(options.prompt, answered({}))
-        : turn(options.runner, finished)
+        : turn(options.review, finished)
     }
     if (command.command === "osascript") {
       return Effect.succeed(fakeHandle({}))
@@ -362,7 +362,7 @@ describe("dw-mc review", () => {
       const handed = /--json-schema (.+)$/.exec(spawned[7] ?? "")?.[1] ?? ""
 
       // The document itself is `#domain/findings.ts`'s to get right, and its own
-      // test holds it. What this holds is that the document reaching the runner
+      // test holds it. What this holds is that the document reaching the run
       // is that one: the severities the tool will accept, asked for by name.
       assert.include(handed, `"severity":{"type":"string","enum":["error","warning","info"]}`)
       assert.include(handed, `"required":["verdict","findings"]`)
@@ -407,7 +407,7 @@ describe("dw-mc review", () => {
     }).pipe(Effect.provide(machine({ spawned, drawn })), recording([]))
   })
 
-  it.effect("takes the worktree down when the runner gives up, and records the failure", () => {
+  it.effect("takes the worktree down when the run gives up, and records the failure", () => {
     const spawned: Array<string> = []
     const drawn: Array<string> = []
 
@@ -419,7 +419,7 @@ describe("dw-mc review", () => {
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "Invalid API key")
       assert.include(spawned, `git -C ${clone} worktree remove --force ${worktree}`)
-      // A runner that would not run is recorded as the failure it is, never as
+      // A run that would not start is recorded as the failure it is, never as
       // a clean verdict and never as nothing at all.
       const recorded = Option.getOrThrow(yield* runOf(head))
       assert.strictEqual(recorded.outcome._tag, "failed")
@@ -428,7 +428,7 @@ describe("dw-mc review", () => {
       assert.include(drawn, "")
       assert.include(spawned.at(-1) ?? "", `${repo}#28 could not be reviewed`)
     }).pipe(
-      Effect.provide(machine({ spawned, drawn, runner: { stderr: "Invalid API key · Run /login\n", exitCode: 1 } })),
+      Effect.provide(machine({ spawned, drawn, review: { stderr: "Invalid API key · Run /login\n", exitCode: 1 } })),
       recording([])
     )
   })

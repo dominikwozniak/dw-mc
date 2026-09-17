@@ -1,7 +1,9 @@
 import { Console, DateTime, Effect, Exit, Option, Result, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
-import type { RunnerFailed } from "#adapters/agent.ts"
+import type { AgentFailed } from "#adapters/agent.ts"
+import type { ReviewTurn } from "#adapters/claude.ts"
+import { reviewTurns } from "#adapters/claude.ts"
 import type { ConfigFile, Effort, Launcher, Settings } from "#adapters/config.ts"
 import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
@@ -9,8 +11,6 @@ import { withWorktree } from "#adapters/git.ts"
 import { announce } from "#adapters/notify.ts"
 import type { Doing } from "#adapters/progress.ts"
 import { spinning } from "#adapters/progress.ts"
-import type { ReviewTurn } from "#adapters/runner.ts"
-import { reviewTurns } from "#adapters/runner.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
 import { lines, summary } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
@@ -134,11 +134,11 @@ const spending = (turn: ReviewTurn, model: string | null): string =>
     .filter((part) => part !== null)
     .join(", ")
 
-/** What one runner came back with, as far as the runner itself gets. */
+/** What the review came back with, as far as the adapter itself gets. */
 interface Reviewed {
   /** The session the run happened in. */
   readonly sessionId: string
-  /** What the runner said in prose, or null where a schema left it none to say. */
+  /** What the run said in prose, or null where a schema left it none to say. */
   readonly prose: string | null
   /**
    * The findings as they weighed, or whatever stopped them weighing: a turn
@@ -191,7 +191,7 @@ const reviewOn = Effect.fn("review.reviewOn")(function* (options: {
  * shape that does not validate, and both are recorded: the head has been tried
  * and nothing was found, which is not the same as nothing being wrong.
  */
-const ranBy = (got: Result.Result<Reviewed, RunnerFailed>): Ran => {
+const ranBy = (got: Result.Result<Reviewed, AgentFailed>): Ran => {
   if (Result.isFailure(got)) {
     return { sessionId: null, prose: null, outcome: { _tag: "failed", detail: got.failure.detail } }
   }
@@ -347,7 +347,7 @@ export const review = Command.make(
         )
       )
     },
-    // No `RunnerFailed` here: the run's own failure is caught where it happens
+    // No `AgentFailed` here: the run's own failure is caught where it happens
     // and written down as the run's outcome, so it never reaches this far.
     Effect.catchTag([...userFacing, "GitFailed"], asUserError)
   )

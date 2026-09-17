@@ -13,7 +13,7 @@ import { dwMc, version } from "#cli/cli.ts"
 import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
 
-/** The program a runner is spawned as, which the launcher names and the default spells `claude`. */
+/** The program a run is spawned as, which the launcher names and the default spells `claude`. */
 const launching = builtInLauncher.command[0]
 
 const repo = "dominikwozniak/dw-mc"

@@ -9,7 +9,7 @@ import { Duration, Effect, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 /** A review run that would not start, would not finish, or finished badly. */
-export class RunnerFailed extends Schema.TaggedError<RunnerFailed>()("RunnerFailed", {
+export class AgentFailed extends Schema.TaggedError<AgentFailed>()("AgentFailed", {
   /** The program that was spawned, which is what a search for it has to name. */
   program: Schema.String,
   detail: Schema.String
@@ -36,7 +36,7 @@ export interface Reported {
  * program that would not start or exited badly, and saying `claude` sends the
  * search to the wrong process.
  */
-export const failedBy = (program: string) => (detail: string) => new RunnerFailed({ program, detail })
+export const failedBy = (program: string) => (detail: string) => new AgentFailed({ program, detail })
 
 /**
  * How long each turn gets before it is given up on.
@@ -62,7 +62,7 @@ export const patience = {
  * gets `claude` started at all. The two output streams are drained together,
  * because draining one to the end first can block a run that is still writing to
  * the other. Every way a turn can fail to finish comes back from here as a
- * `RunnerFailed`, so a caller is left with the turn's own answer and nothing else
+ * `AgentFailed`, so a caller is left with the turn's own answer and nothing else
  * to translate - a turn that never comes back included.
  */
 export const turn = Effect.fnUntraced(function* <A, E extends { readonly message: string }, R>(options: {

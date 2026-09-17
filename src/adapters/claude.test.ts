@@ -3,9 +3,9 @@ import { Duration, Effect, Fiber, PlatformError, Result } from "effect"
 import { TestClock } from "effect/testing"
 import type { ChildProcess } from "effect/unstable/process"
 
+import { commandReview, findingsTurn, promptReview, reviewTurns, steeredSession } from "#adapters/claude.ts"
 import type { Launcher } from "#adapters/config.ts"
 import { builtInLauncher } from "#adapters/config.ts"
-import { commandReview, findingsTurn, promptReview, reviewTurns, steeredSession } from "#adapters/runner.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const launcher = builtInLauncher
@@ -196,7 +196,7 @@ describe("a review run on a slash command", () => {
         })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "Invalid API key")
     }).pipe(Effect.provide(claude({ spawned, stderr: "Invalid API key · Run /login\n", exitCode: 1 })))
   })
@@ -216,7 +216,7 @@ describe("a review run on a slash command", () => {
         })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "no result")
     }).pipe(Effect.provide(claude({ spawned, stdout: `{"type":"system","subtype":"init"}\n` })))
   })
@@ -237,7 +237,7 @@ describe("a review run on a slash command", () => {
         })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "error_max_turns")
     }).pipe(Effect.provide(claude({ spawned, stdout: transcript(gaveUp) })))
   })
@@ -307,7 +307,7 @@ describe("the findings turn", () => {
         findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "No conversation found")
     }).pipe(Effect.provide(claude({ spawned, stderr: "No conversation found\n", exitCode: 1 })))
   })
@@ -320,7 +320,7 @@ describe("the findings turn", () => {
         findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "no structured output")
     }).pipe(Effect.provide(claude({ spawned, stdout: answer({}) })))
   })
@@ -333,7 +333,7 @@ describe("the findings turn", () => {
         findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "no result")
     }).pipe(Effect.provide(claude({ spawned, stdout: "Command completed" })))
   })
@@ -346,7 +346,7 @@ describe("the findings turn", () => {
         findingsTurn({ launcher, directory: "/worktree", sessionId: session, jsonSchema: schema })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "error_during_execution")
     }).pipe(
       Effect.provide(
@@ -364,7 +364,7 @@ describe("the findings turn", () => {
       yield* TestClock.adjust(Duration.minutes(6))
 
       const error = yield* Fiber.join(turn)
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "did not come back")
     }).pipe(Effect.provide(layerFake(() => Effect.never)))
   )
@@ -453,7 +453,7 @@ describe("the prompt runner on Claude Code", () => {
         promptReview({ launcher, directory: "/worktree", prompt, model: null, jsonSchema: schema, onTool: nothing })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "no structured output")
     }).pipe(Effect.provide(claude({ spawned, stdout: JSON.stringify(success) })))
   })
@@ -591,7 +591,7 @@ describe("steeredSession", () => {
         steeredSession({ launcher, directory: "/fixes/28", prompt: "Work through these" })
       )
 
-      assert.strictEqual(error._tag, "RunnerFailed")
+      assert.strictEqual(error._tag, "AgentFailed")
       assert.include(error.message, "no claude on this machine")
     }).pipe(
       Effect.provide(
