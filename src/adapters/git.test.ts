@@ -37,6 +37,8 @@ const git = (options: {
   readonly ahead?: number | undefined
   /** How many commits the base has that the pull request's head does not. */
   readonly behind?: number | undefined
+  /** The files a conflicted replay left unmerged in the worktree. */
+  readonly unmerged?: ReadonlyArray<string> | undefined
 }) =>
   layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -69,6 +71,9 @@ const git = (options: {
     }
     if (argv === `-C ${worktree} rev-parse HEAD`) {
       return Effect.succeed(fakeHandle({ stdout: `${rebased}\n` }))
+    }
+    if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
+      return Effect.succeed(fakeHandle({ stdout: (options.unmerged ?? []).map((path) => `${path}\n`).join("") }))
     }
     if (argv === `-C ${clone} worktree list --porcelain`) {
       const listed = (options.worktrees ?? []).map((directory) => `worktree ${directory}\nbare\n`)
@@ -312,11 +317,34 @@ describe("rebasing a branch onto its base", () => {
     return Effect.gen(function* () {
       const done = yield* rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch")
 
-      assert.deepStrictEqual(done, { _tag: "conflicted" })
+      assert.deepStrictEqual(done, { _tag: "conflicted", paths: ["src/cli/rebase.ts", "pnpm-lock.yaml"] })
       assert.include(spawned, `git -C ${worktree} rebase --abort`)
       assert.isFalse(spawned.some((vector) => vector.includes(" push ")))
       assert.strictEqual(spawned.at(-1), `git -C ${clone} worktree remove --force ${worktree}`)
-    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, behind: 3, refuses }))))
+    }).pipe(
+      Effect.provide(
+        machine(git({ spawned, cloned: true, behind: 3, refuses, unmerged: ["src/cli/rebase.ts", "pnpm-lock.yaml"] }))
+      )
+    )
+  })
+
+  it.effect("reads the unmerged files while the conflict is still there, before the abort", () => {
+    const spawned: Array<string> = []
+    const refuses = { argv: `-C ${worktree} rebase refs/heads/main`, detail: said.rebaseConflict }
+
+    return Effect.gen(function* () {
+      yield* rebaseOnto("dominikwozniak/dw-mc", 28, "main", "feat/28-a-branch")
+
+      // An abort puts the branch back, and with it every unmerged path: read
+      // after it, the conflict record would carry nothing.
+      assert.include(spawned, `git -C ${worktree} diff --name-only --diff-filter=U`)
+      assert.isBelow(
+        spawned.indexOf(`git -C ${worktree} diff --name-only --diff-filter=U`),
+        spawned.indexOf(`git -C ${worktree} rebase --abort`)
+      )
+    }).pipe(
+      Effect.provide(machine(git({ spawned, cloned: true, behind: 3, refuses, unmerged: ["src/cli/rebase.ts"] })))
+    )
   })
 
   it.effect("reports a rebase that never started as what it is, and not as a conflict", () => {
