@@ -1,6 +1,6 @@
 # Local-first: nothing leaves the machine but calls to GitHub and to local agent CLIs
 
-The reference projects (Talyn, pr-shepherd) are services: a backend, webhooks, a GitHub App, agents on cloud VMs. Mission control is for me alone, so it is a CLI on my machine: state lives on disk, GitHub is reached only through `gh` as me, and agents run only as local CLIs (Claude Code, Codex). No server, no GitHub App, no webhooks, no cloud provider.
+The reference projects (Talyn, pr-shepherd) are services: a backend, webhooks, a GitHub App, agents on cloud VMs. Mission control is for me alone, so it is a CLI on my machine: state lives on disk, GitHub is reached only through `gh` as me, and the agent runs only as a local CLI (Claude Code). No server, no GitHub App, no webhooks, no cloud provider.
 
 ## Consequences
 

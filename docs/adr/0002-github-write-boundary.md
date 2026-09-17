@@ -9,5 +9,5 @@ Merging is not a fourth item here. It moves a shared branch and no reflog of min
 ## Consequences
 
 - A repo that already runs comment-triggered reviewers (CodeRabbit, a `@claude-review` workflow) gets them observed, never triggered, because the trigger is a comment.
-- The `code-review` marketplace plugin is out as a runner: it comments on the PR. The built-in `/code-review` is fine: it comments only with `--comment`, which the tool never passes.
+- The `code-review` marketplace plugin is out as a review command: it comments on the PR. The built-in `/code-review` is fine: it comments only with `--comment`, which the tool never passes.
 - A sweep still only reads. Every write here belongs to a command I typed, so nothing the tool does on its own reaches GitHub.

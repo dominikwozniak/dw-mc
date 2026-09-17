@@ -5,7 +5,7 @@ someone else is listed here.
 
 ## The reviewer persona
 
-`src/domain/persona.ts` holds the review prompt the `prompt` runner opens on. Its
+`src/domain/persona.ts` holds the review prompt a run with no slash command opens on. Its
 body is derived from the `code-reviewer` agent of
 [`addyosmani/agent-skills`](https://github.com/addyosmani/agent-skills)
 (`agents/code-reviewer.md`, commit `be4e44a`), by Addy Osmani, MIT licensed.

@@ -40,7 +40,7 @@ This is one person's project, not a staffed security team — the timings are wh
 - credentials, tokens or state written where they should not be, or with permissions they should not have
 - a merge, a force push or a branch deletion the tool makes without clearing both bars it is meant to clear
 
-Out of scope: vulnerabilities in `gh`, `git`, Claude Code, the Codex CLI or Node itself — report those to their own projects; anything that needs an attacker to already have your shell.
+Out of scope: vulnerabilities in `gh`, `git`, Claude Code or Node itself — report those to their own projects; anything that needs an attacker to already have your shell.
 
 ## Disclosure
 
