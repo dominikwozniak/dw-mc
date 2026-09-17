@@ -7,9 +7,9 @@ const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "
 const frameFor = Duration.millis(120)
 
 /** What the run has reached for so far. */
-interface Doing {
-  tools: number
-  subagents: number
+export interface Doing {
+  readonly tools: number
+  readonly subagents: number
 }
 
 /** A stretch of time as a terminal says it: `1m12s`, or `9s` under the minute. */
@@ -18,18 +18,8 @@ const elapsed = (millis: number): string => {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`
 }
 
-/** `n` of something, pluralised the one way English usually is. */
-const many = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`
-
-/** The one line a run draws while it is going. */
-const frame = (label: string, doing: Doing, since: number, turn: number): string => {
-  const counts = [
-    many(doing.tools, "tool"),
-    doing.subagents === 0 ? null : many(doing.subagents, "subagent"),
-    elapsed(since)
-  ]
-  return `${frames[turn % frames.length]} ${label} · ${counts.filter((part) => part !== null).join(" · ")}`
-}
+/** How the line reads: the spinner, and whatever the caller makes of the counts. */
+type Reads = (doing: Doing, since: string) => string
 
 /**
  * Runs `use` while the screen says it is still going, and hands `use` the way
@@ -42,12 +32,16 @@ const frame = (label: string, doing: Doing, since: number, turn: number): string
  * got, and the line is gone when the run is over, so what stays on the screen is
  * the report.
  *
+ * How that line reads is `reads` and not this module's business. What a count
+ * is worth saying belongs to the command that is counting, and a screen that
+ * worded it here would need the words a command already has.
+ *
  * Where there is no screen to measure - a pipe, a CI log, a test - the counts
  * would be a mess of half-drawn lines, so the tools go out one to a line as
  * they did before. `columns` is zero exactly there.
  */
 export const spinning = Effect.fnUntraced(function* <A, E, R>(
-  label: string,
+  reads: Reads,
   use: (onTool: (tool: string) => Effect.Effect<void>) => Effect.Effect<A, E, R>
 ) {
   const terminal = yield* Terminal.Terminal
@@ -56,13 +50,10 @@ export const spinning = Effect.fnUntraced(function* <A, E, R>(
     return yield* use((tool) => Console.log(`  · ${tool}`))
   }
 
-  const doing: Doing = { tools: 0, subagents: 0 }
+  let doing: Doing = { tools: 0, subagents: 0 }
   const onTool = (tool: string) =>
     Effect.sync(() => {
-      doing.tools = doing.tools + 1
-      if (tool === "Agent") {
-        doing.subagents = doing.subagents + 1
-      }
+      doing = { tools: doing.tools + 1, subagents: doing.subagents + (tool === "Agent" ? 1 : 0) }
     })
 
   const started = yield* Clock.currentTimeMillis
@@ -70,12 +61,14 @@ export const spinning = Effect.fnUntraced(function* <A, E, R>(
 
   // The first frame is drawn here rather than in the fiber, so the line is on
   // the screen the moment the run starts rather than one frame into it.
-  yield* draw(frame(label, doing, 0, 0))
+  const frame = (since: number, turn: number) => `${frames[turn % frames.length]} ${reads(doing, elapsed(since))}`
+
+  yield* draw(frame(0, 0))
   const turning = yield* Effect.forkChild(
     Effect.gen(function* () {
       for (let turn = 1; ; turn = turn + 1) {
         yield* Effect.sleep(frameFor)
-        yield* draw(frame(label, doing, (yield* Clock.currentTimeMillis) - started, turn))
+        yield* draw(frame((yield* Clock.currentTimeMillis) - started, turn))
       }
     })
   )

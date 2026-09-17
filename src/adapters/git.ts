@@ -34,7 +34,7 @@ export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHe
   detail: Schema.String
 }) {
   override get message(): string {
-    return `${this.detail}\nThe worktree is at ${this.directory}.`
+    return `${this.detail}\nThe fix worktree's directory is ${this.directory}.`
   }
 }
 
@@ -116,10 +116,36 @@ const worktreesOf = Effect.fn("git.worktreesOf")(function* (clone: string) {
   return listed.split("\n").flatMap((line) => (line.startsWith("worktree ") ? [line.slice("worktree ".length)] : []))
 })
 
-/** How far the branch a fix worktree stands on has gone past `head`. */
+/**
+ * How far the branch a fix session works on has gone past `head`.
+ *
+ * Asked of the branch and never of the worktree that stands on it: a worktree
+ * can be pruned or moved away by hand, and the branch it left behind still
+ * holds the commits. A branch that is not there yet is nothing to hold.
+ */
 const aheadOf = Effect.fn("git.aheadOf")(function* (clone: string, branch: string, head: string) {
-  const counted = yield* git(["-C", clone, "rev-list", "--count", branch, `^${head}`])
+  const ref = `refs/heads/${branch}`
+  const found = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", "--verify", "--quiet", ref]), () => "")
+  if (found === "") {
+    return 0
+  }
+  const counted = yield* git(["-C", clone, "rev-list", "--count", ref, `^${head}`])
   return Number(counted.trim())
+})
+
+/**
+ * The clone, ready to keep a setting per worktree rather than for all of them.
+ *
+ * Verified by running it: turning `extensions.worktreeConfig` on in a bare
+ * repository makes its linked worktrees read `core.bare` too, and every one of
+ * them then refuses to work as a checkout. Git's own answer is to move
+ * `core.bare` into the main worktree's config, which is what these three lines
+ * do. `--unset` on a key already moved is not a failure, it is the second run.
+ */
+const perWorktreeConfig = Effect.fn("git.perWorktreeConfig")(function* (clone: string) {
+  yield* git(["-C", clone, "config", "extensions.worktreeConfig", "true"])
+  yield* git(["-C", clone, "config", "--worktree", "core.bare", "true"])
+  yield* Effect.ignore(git(["-C", clone, "config", "--unset", "core.bare"]))
 })
 
 /**
@@ -137,40 +163,27 @@ const aheadOf = Effect.fn("git.aheadOf")(function* (clone: string, branch: strin
  * reads it down with it. The branch tracks the pull request's, so a plain
  * `git push` from inside the session lands on the pull request.
  *
- * A previous session's worktree is cut away first, and only where there is
- * nothing of mine in it: `git worktree remove` without `--force` refuses over
- * changes I have not committed, and a branch that has gone past the head stops
- * this in its own words rather than losing commits I have not pushed.
+ * A previous session's work stops this before anything is cut: a branch that
+ * has gone past the head says so in its own words rather than being reset over
+ * commits I have not pushed, and that is asked of the branch alone, so a
+ * worktree pruned or removed by hand does not let the commits through. Where
+ * the branch is clear, the previous worktree is removed without `--force`, so
+ * changes I have not committed refuse in `git`'s own words.
  */
-/**
- * The clone, ready to keep a setting per worktree rather than for all of them.
- *
- * Verified by running it: turning `extensions.worktreeConfig` on in a bare
- * repository makes its linked worktrees read `core.bare` too, and every one of
- * them then refuses to work as a checkout. Git's own answer is to move
- * `core.bare` into the main worktree's config, which is what these three lines
- * do. `--unset` on a key already moved is not a failure, it is the second run.
- */
-const perWorktreeConfig = Effect.fn("git.perWorktreeConfig")(function* (clone: string) {
-  yield* git(["-C", clone, "config", "extensions.worktreeConfig", "true"])
-  yield* git(["-C", clone, "config", "--worktree", "core.bare", "true"])
-  yield* Effect.ignore(git(["-C", clone, "config", "--unset", "core.bare"]))
-})
-
 export const fixWorktree = Effect.fn("git.fixWorktree")(function* (repo: string, number: number, prBranch: string) {
   const { clone, directory, head } = yield* whereToCut(repo, number, "fixes")
   const branch = `dw-mc/fix/${number}`
 
+  const ahead = yield* aheadOf(clone, branch, head)
+  if (ahead > 0) {
+    return yield* new WorktreeHeld({
+      directory,
+      detail:
+        `The last fix session on ${repo}#${number} left ${ahead} commit${ahead === 1 ? "" : "s"} ` +
+        `that the pull request's head does not have. Push them or drop them before opening another session.`
+    })
+  }
   if ((yield* worktreesOf(clone)).includes(directory)) {
-    const ahead = yield* aheadOf(clone, branch, head)
-    if (ahead > 0) {
-      return yield* new WorktreeHeld({
-        directory,
-        detail:
-          `The last fix session on ${repo}#${number} left ${ahead} commit${ahead === 1 ? "" : "s"} ` +
-          `that the pull request's head does not have. Push them or drop them before opening another session.`
-      })
-    }
     yield* git(["-C", clone, "worktree", "remove", directory])
   }
   yield* perWorktreeConfig(clone)

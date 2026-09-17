@@ -3,7 +3,12 @@ import { Console, Duration, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import { layerScripted } from "#adapters/picker.ts"
+import type { Doing } from "#adapters/progress.ts"
 import { spinning } from "#adapters/progress.ts"
+
+/** How the line reads, as the command that counts would word it. */
+const reads = (doing: Doing, since: string) =>
+  `reviewing · ${doing.tools} tools · ${doing.subagents} subagents · ${since}`
 
 /** Collects what was printed a line at a time, beside what was drawn in place. */
 const recording = (printed: Array<string>) => {
@@ -30,10 +35,10 @@ describe("spinning", () => {
     const printed: Array<string> = []
 
     return Effect.gen(function* () {
-      assert.strictEqual(yield* spinning("reviewing", reaching), "reviewed")
+      assert.strictEqual(yield* spinning(reads, reaching), "reviewed")
 
       const screen = drawn.join("\n")
-      assert.include(screen, "reviewing · 3 tools · 1 subagent · 1m15s")
+      assert.include(screen, "reviewing · 3 tools · 1 subagents · 1m15s")
       assert.deepStrictEqual(printed, [])
       // What the run leaves on the screen is the report, not its own progress.
       assert.match(drawn.at(-1) ?? "", /^\r +\r$/)
@@ -45,7 +50,7 @@ describe("spinning", () => {
     const printed: Array<string> = []
 
     return Effect.gen(function* () {
-      assert.strictEqual(yield* spinning("reviewing", reaching), "reviewed")
+      assert.strictEqual(yield* spinning(reads, reaching), "reviewed")
 
       assert.deepStrictEqual(printed, ["  · Bash", "  · Agent", "  · Bash"])
       assert.deepStrictEqual(drawn, [])
@@ -57,7 +62,7 @@ describe("spinning", () => {
     const printed: Array<string> = []
 
     return Effect.gen(function* () {
-      const error = yield* Effect.flip(spinning("reviewing", () => Effect.fail("the runner gave up" as const)))
+      const error = yield* Effect.flip(spinning(reads, () => Effect.fail("the runner gave up" as const)))
 
       assert.strictEqual(error, "the runner gave up")
       assert.match(drawn.at(-1) ?? "", /^\r +\r$/)
