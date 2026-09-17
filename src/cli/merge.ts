@@ -5,7 +5,7 @@ import { rollupState } from "#adapters/ci.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { mergeabilityOf, mergePr, prView, reviewDecisionOf, viewer } from "#adapters/gh.ts"
-import { named, prArgument, refuse } from "#cli/pr.ts"
+import { named, prArgument, reading, refuse } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { decide } from "#domain/merge.ts"
 import { reviewedAt, short } from "#domain/review.ts"
@@ -41,8 +41,7 @@ export const merge = Command.make(
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
 
-      const view = yield* prView(repo, number)
-      const me = yield* viewer
+      const [view, me] = yield* reading(`${repo}#${number}`, Effect.all([prView(repo, number), viewer]))
 
       const head = view.headRefOid
 

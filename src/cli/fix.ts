@@ -8,7 +8,7 @@ import { prView } from "#adapters/gh.ts"
 import { standingWorktree } from "#adapters/git.ts"
 import { choose, note, width } from "#adapters/picker.ts"
 import { currentRun, header, lines, whatItFound } from "#cli/findings.ts"
-import { named, prArgument } from "#cli/pr.ts"
+import { named, prArgument, reading } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { truncate } from "#cli/table.ts"
 import type { Finding, Findings } from "#domain/findings.ts"
@@ -95,7 +95,7 @@ export const fix = Command.make(
         return
       }
 
-      const view = yield* prView(repo, number)
+      const view = yield* reading(`${repo}#${number}`, prView(repo, number))
       yield* fixable(number, run.head, view.headRefOid)
 
       const picked = yield* choose("Which findings does the session carry?", choicesOf(found, yield* width))

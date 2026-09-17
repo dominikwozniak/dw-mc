@@ -5,7 +5,7 @@ import { failedRuns, rerunFailed, rollupState } from "#adapters/ci.ts"
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { prView, viewer } from "#adapters/gh.ts"
-import { named, prArgument, refuse } from "#cli/pr.ts"
+import { named, prArgument, reading, refuse } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { count } from "#cli/table.ts"
 import { flakyReason } from "#domain/flaky.ts"
@@ -39,8 +39,7 @@ export const rerun = Command.make(
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
 
-      const view = yield* prView(repo, number)
-      const me = yield* viewer
+      const [view, me] = yield* reading(`${repo}#${number}`, Effect.all([prView(repo, number), viewer]))
 
       const unclassified = {
         repo,

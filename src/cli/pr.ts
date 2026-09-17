@@ -1,6 +1,7 @@
 import { Effect, Option } from "effect"
 import { Argument, CliError } from "effect/unstable/cli"
 
+import { beating } from "#adapters/heartbeat.ts"
 import { prKey, storeFor } from "#adapters/store.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Reference } from "#domain/reference.ts"
@@ -64,3 +65,22 @@ export const swept = Effect.fn("pr.swept")(function* (repo: string, number: numb
   }
   return facts.value
 })
+
+/**
+ * The guard reads of one command, under a heartbeat.
+ *
+ * Every command that acts on a pull request reads its guards live rather than
+ * off the last sweep, because each of them is about the pull request as it is
+ * now. That read is a second or two against GitHub before a word can be
+ * printed, and it used to be spent on a blank screen.
+ *
+ * There is nothing to count here - two or three calls, and a number counting to
+ * three says less than the words do - so the line is what is being read and how
+ * long it has taken. It gives the heartbeat no aside, so a piped command prints
+ * what it always printed.
+ */
+export const reading = <A, E, R>(where: string, read: Effect.Effect<A, E, R>) =>
+  beating(
+    (since) => `reading ${where} · ${since}`,
+    () => read
+  )

@@ -6,7 +6,7 @@ import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseOnto } from "#adapters/git.ts"
-import { named, prArgument, refuse } from "#cli/pr.ts"
+import { named, prArgument, reading, refuse } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { count } from "#cli/table.ts"
 import { decide, recordConflict, stackOf } from "#domain/rebase.ts"
@@ -49,9 +49,10 @@ export const rebase = Command.make(
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
 
-      const view = yield* prView(repo, number)
-      const open = yield* openPrs(repo)
-      const me = yield* viewer
+      const [view, open, me] = yield* reading(
+        `${repo}#${number}`,
+        Effect.all([prView(repo, number), openPrs(repo), viewer])
+      )
 
       yield* refuse(
         decide({

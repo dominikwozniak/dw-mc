@@ -32,6 +32,8 @@ const machine = (options: {
   readonly author?: string | undefined
   /** What `gh pr merge` said when it refused, where it refused. */
   readonly refusal?: string | undefined
+  /** Where a test is about the heartbeat, what it drew in place. */
+  readonly drawn?: Array<string> | undefined
 }) => {
   const spawner = layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -79,7 +81,7 @@ const machine = (options: {
       Path.layer,
       Stdio.layerTest({}),
       spawner,
-      layerScripted([])
+      layerScripted([], options.drawn)
     )
   )
 }
@@ -142,6 +144,24 @@ const dwmc = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version
 const merges = (spawned: ReadonlyArray<string>) => spawned.filter((vector) => vector.startsWith("gh pr merge"))
 
 describe("dw-mc merge", () => {
+  it.effect("says it is reading the pull request while it reads its guards", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+    const drawn: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered
+      yield* reviewed(head)
+
+      yield* dwmc("merge", "28")
+
+      assert.include(drawn.join("\n"), `reading ${repo}#28`)
+      // What is left on the screen is what the merge said, not the reading of it.
+      assert.match(drawn.at(-1) ?? "", /^\r +\r$/)
+      assert.notInclude(printed.join("\n"), "reading")
+    }).pipe(Effect.provide(machine({ spawned, drawn })), recording(printed))
+  })
+
   it.effect("squash-merges a Ready, stamped pull request and deletes its branch", () => {
     const spawned: Array<string> = []
     const printed: Array<string> = []

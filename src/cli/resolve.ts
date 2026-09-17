@@ -6,7 +6,7 @@ import type { ConfigFile } from "#adapters/config.ts"
 import { launcherOf, read as readConfig } from "#adapters/config.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseInPlace, standingWorktree } from "#adapters/git.ts"
-import { named, prArgument } from "#cli/pr.ts"
+import { named, prArgument, reading } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import { count } from "#cli/table.ts"
 import { conflictFor, stackOf } from "#domain/rebase.ts"
@@ -53,9 +53,10 @@ export const resolve = Command.make(
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
 
-      const view = yield* prView(repo, number)
-      const open = yield* openPrs(repo)
-      const me = yield* viewer
+      const [view, open, me] = yield* reading(
+        `${repo}#${number}`,
+        Effect.all([prView(repo, number), openPrs(repo), viewer])
+      )
       const conflict = yield* conflictFor(repo, number)
 
       yield* allowed({
