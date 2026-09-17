@@ -226,6 +226,9 @@ const unmergedIn = Effect.fn("git.unmergedIn")(function* (directory: string) {
   return listed.split("\n").filter((line) => line !== "")
 })
 
+/** What replaying a branch's commits onto its base came to, inside the worktree. */
+type Replayed = { readonly _tag: "replayed" } | { readonly _tag: "conflicted"; readonly paths: ReadonlyArray<string> }
+
 /**
  * Rebases onto `base` in `directory`, or says which files the rebase conflicted
  * on.
@@ -247,14 +250,14 @@ const unmergedIn = Effect.fn("git.unmergedIn")(function* (directory: string) {
 const replayOnto = Effect.fn("git.replayOnto")(function* (directory: string, base: string) {
   const rebased = yield* Effect.result(git(["-C", directory, "rebase", `refs/heads/${base}`]))
   if (Result.isSuccess(rebased)) {
-    return null
+    return { _tag: "replayed" } satisfies Replayed
   }
   const paths = yield* unmergedIn(directory)
   const aborted = yield* Effect.result(git(["-C", directory, "rebase", "--abort"]))
   if (Result.isFailure(aborted)) {
     return yield* rebased.failure
   }
-  return paths
+  return { _tag: "conflicted", paths } satisfies Replayed
 })
 
 /**
@@ -284,9 +287,9 @@ export const rebaseOnto = Effect.fn("git.rebaseOnto")(function* (
       if (behind === 0) {
         return { _tag: "up-to-date" } satisfies Rebased
       }
-      const conflicted = yield* replayOnto(worktree.directory, base)
-      if (conflicted !== null) {
-        return { _tag: "conflicted", paths: conflicted } satisfies Rebased
+      const replayed = yield* replayOnto(worktree.directory, base)
+      if (replayed._tag === "conflicted") {
+        return replayed satisfies Rebased
       }
 
       const after = yield* git(["-C", worktree.directory, "rev-parse", "HEAD"])
