@@ -276,11 +276,46 @@ describe("dw-mc status", () => {
       yield* run("status")
 
       const row = printed.find((line) => line.includes("#1")) ?? ""
-      assert.include(row, `${coloured.red("●")} dominikwozniak/dw-mc#1`, "the marker carries the bucket's colour")
+      assert.include(row, coloured.red("●"), "the marker carries the bucket's colour")
       assert.include(row, coloured.red("merge conflict"), "and so does what it waits on")
       assert.include(row, coloured.dim("feat: conflicted"), "the title is context, so it is dimmed")
       assert.strictEqual(printed[0], "Needs me", "the heading is prose, and prose is never coloured")
     }).pipe(Effect.provide(machine(spawner)), Effect.provideService(Paint, coloured), recording(printed))
+  })
+
+  it.effect("gives the pull request the URL it opens at, where a terminal can follow one", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: { "dominikwozniak/dw-mc": [{ number: 1, title: "feat: a pull request" }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("status")
+
+      const row = printed.find((line) => line.includes("#1")) ?? ""
+      assert.include(
+        row,
+        coloured.link("dominikwozniak/dw-mc#1", "https://github.com/dominikwozniak/dw-mc/pull/1"),
+        "the reference carries the pull request's URL"
+      )
+    }).pipe(Effect.provide(machine(spawner)), Effect.provideService(Paint, coloured), recording(printed))
+  })
+
+  it.effect("leaves the link out where nothing is watching, so a pipe reads the plain reference", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: { "dominikwozniak/dw-mc": [{ number: 1, title: "feat: a pull request" }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("status")
+
+      const row = printed.find((line) => line.includes("#1")) ?? ""
+      assert.notInclude(row, "https://github.com", "a pipe gets what a terminal gets, minus the colour and the link")
+      assert.notInclude(row, "\x1b")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
   it.effect("says why a PR needs me, so I never open GitHub to find out", () => {

@@ -8,6 +8,10 @@ import { Config, Context, Effect, Layer, Option, Stdio } from "effect"
  * shade means the screen is drawn in my terminal's own palette, so it keeps its
  * contrast whatever I set that palette to.
  *
+ * A link is ink as well, and the one piece of it that is not a colour: it says
+ * where a word leads rather than what it is worth, so it withholds nothing from
+ * the marker and takes no colour of its own.
+ *
  * What each colour is worth is not decided here. This is the ink; which word
  * takes which colour belongs to whatever is doing the writing.
  */
@@ -18,12 +22,14 @@ export interface Paint {
   readonly cyan: (text: string) => string
   readonly bold: (text: string) => string
   readonly dim: (text: string) => string
+  /** `text`, carrying `url` for the terminal to open. */
+  readonly link: (text: string, url: string) => string
 }
 
 const same = (text: string): string => text
 
 /** The same screen, written where nothing is watching in colour. */
-export const plain: Paint = { red: same, yellow: same, green: same, cyan: same, bold: same, dim: same }
+export const plain: Paint = { red: same, yellow: same, green: same, cyan: same, bold: same, dim: same, link: same }
 
 const tint =
   (code: string) =>
@@ -33,6 +39,16 @@ const tint =
 /** What a colour costs a line: the escape that opens it and the one that closes it. */
 export const ink = 9
 
+/**
+ * A word a terminal opens: OSC 8, which wraps the text in the URL rather than
+ * printing it.
+ *
+ * The text on the screen is unchanged, so a row reads the same where the
+ * terminal knows the sequence and where it does not, and a pipe never sees it
+ * at all - the ink below is chosen once, from whether a terminal is watching.
+ */
+const opens = (text: string, url: string): string => `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`
+
 /** The screen written in colour. */
 export const coloured: Paint = {
   red: tint("31"),
@@ -40,7 +56,8 @@ export const coloured: Paint = {
   green: tint("32"),
   cyan: tint("36"),
   bold: tint("1"),
-  dim: tint("2")
+  dim: tint("2"),
+  link: opens
 }
 
 /** The ink for a screen that may or may not be watched. */

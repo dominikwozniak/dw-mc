@@ -4,6 +4,7 @@ import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { ConfigStore, write } from "#adapters/config.ts"
+import { coloured, Paint } from "#adapters/paint.ts"
 import { key, layerScripted, typed } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
@@ -189,6 +190,24 @@ describe("dw-mc with no arguments", () => {
           drawn
         })
       ),
+      recording(printed)
+    )
+  })
+
+  it.effect("leaves the link off its rows, which pay for every character they draw", () => {
+    const drawn: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* run()
+
+      const rows = frame(drawn)
+      assert.include(rows, "dominikwozniak/dw-mc#1", "the pull request is still how I know which row I am on")
+      assert.notInclude(rows, "https://github.com", "and the URL under it would cost the title the room it needs")
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1, title: "feat: a first one" }], keys: [], drawn })),
+      Effect.provideService(Paint, coloured),
       recording(printed)
     )
   })
