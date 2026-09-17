@@ -77,6 +77,7 @@ const view = (repo: string, pr: Fixture) => ({
   url: `https://github.com/${repo}/pull/${pr.number}`,
   isDraft: pr.isDraft ?? false,
   headRefOid: pr.headRefOid ?? "31268022360852f71815404b6bbdd6bd797cfb4c",
+  headRefName: `feat/${pr.number}-a-branch`,
   mergeable: pr.mergeable ?? "MERGEABLE",
   reviewDecision: pr.reviewDecision ?? "",
   // Every check of a PR reports at the same job, whose id is the PR's number,
@@ -251,11 +252,11 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs me",
-        "  dominikwozniak/dw-mc#2  feat: conflicted             merge conflict",
+        "  dominikwozniak/dw-mc#2 │ feat: conflicted            │ merge conflict",
         "",
         "Needs review run",
-        "  dominikwozniak/dw-mc#1  feat: ready to merge         no review run on this head",
-        "  dominikwozniak/dw-mc#3  feat: waiting on a reviewer  no review run on this head"
+        "  dominikwozniak/dw-mc#1 │ feat: ready to merge        │ no review run on this head",
+        "  dominikwozniak/dw-mc#3 │ feat: waiting on a reviewer │ no review run on this head"
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -282,7 +283,7 @@ describe("dw-mc status", () => {
       yield* run("status")
 
       assert.deepStrictEqual(
-        printed.filter((line) => line.startsWith("  ")).map((line) => line.split(/ {2,}/).at(-1)),
+        printed.filter((line) => line.startsWith("  ")).map((line) => line.split(" │ ").at(-1)),
         ["CI is red", "changes requested", "a comment I have not answered"]
       )
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
@@ -388,7 +389,7 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        "  dominikwozniak/dw-mc#7 (draft)  feat: not yet  no review run on this head"
+        "  dominikwozniak/dw-mc#7 (draft) │ feat: not yet │ no review run on this head"
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -408,7 +409,7 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        "  dominikwozniak/dw-mc#1  feat: fine  no review run on this head",
+        "  dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head",
         "",
         "Could not load",
         "  dominikwozniak/gone  gh search prs failed: could not resolve to a Repository"
@@ -431,7 +432,7 @@ describe("dw-mc status", () => {
       yield* registered("dominikwozniak/dw-mc")
       yield* run("status")
 
-      assert.include(printed, "  dominikwozniak/dw-mc#1  feat: fine  no review run on this head")
+      assert.include(printed, "  dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head")
       assert.include(printed, "  dominikwozniak/dw-mc#2  gh pr view failed: GraphQL: Something went wrong")
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -612,7 +613,7 @@ describe("a red CI, classified", () => {
 
   /** The reason column of every row, which is where a verdict shows up. */
   const reasons = (printed: ReadonlyArray<string>) =>
-    printed.filter((line) => line.startsWith("  ")).map((line) => line.split(/ {2,}/).at(-1))
+    printed.filter((line) => line.startsWith("  ")).map((line) => line.split(" │ ").at(-1))
 
   it.effect("keeps a PR out of Needs me when the same workflow is red on the default branch", () => {
     const printed: Array<string> = []
@@ -781,7 +782,7 @@ describe("a red CI, classified", () => {
         "gh api user",
         `gh pr view 1 --repo ${repo} --json commits`,
         `gh pr view 1 --repo ${repo} --json files`,
-        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup`,
+        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,mergeable,reviewDecision,statusCheckRollup`,
         `gh repo view ${repo} --json defaultBranchRef`,
         `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`,
         `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`
@@ -813,10 +814,10 @@ describe("the stamp in the table", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        `  ${repo}#2    feat: unreviewed  no review run on this head`,
+        `  ${repo}#2   │ feat: unreviewed │ no review run on this head`,
         "",
         "Ready",
-        `  ${repo}#1 ✓  feat: stamped     green, mergeable`
+        `  ${repo}#1 ✓ │ feat: stamped    │ green, mergeable`
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -831,7 +832,7 @@ describe("the stamp in the table", () => {
       yield* withdraw(repo, 1, head)
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1  feat: stamped  green, mergeable`])
+      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1 │ feat: stamped │ green, mergeable`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
@@ -844,7 +845,7 @@ describe("the stamp in the table", () => {
       yield* reviewed(repo, 1, head, [warning])
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Needs me", `  ${repo}#1  feat: one warning  1 blocking finding`])
+      assert.deepStrictEqual(printed, ["Needs me", `  ${repo}#1 │ feat: one warning │ 1 blocking finding`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
@@ -857,7 +858,7 @@ describe("the stamp in the table", () => {
       yield* reviewed(repo, 1, head, [warning])
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1 ✓  feat: one warning  green, mergeable`])
+      assert.deepStrictEqual(printed, ["Ready", `  ${repo}#1 ✓ │ feat: one warning │ green, mergeable`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })

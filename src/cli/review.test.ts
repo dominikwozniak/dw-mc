@@ -85,6 +85,8 @@ interface Turn {
 const machine = (options: {
   readonly spawned: Array<string>
   readonly drawn?: Array<string> | undefined
+  /** How wide the screen is. Zero is a pipe, where the run writes lines instead.  */
+  readonly columns?: number | undefined
   /** The first turn of a review run, which writes the report. */
   readonly runner?: Turn | undefined
   /** The second turn, which reports the findings. */
@@ -148,6 +150,7 @@ const machine = (options: {
         url: `https://github.com/${named}/pull/${number}`,
         isDraft: false,
         headRefOid: head,
+        headRefName: "feat/28-a-branch",
         mergeable: "MERGEABLE",
         reviewDecision: "APPROVED",
         statusCheckRollup: [{ name: "Check", status: "COMPLETED", conclusion: "SUCCESS" }]
@@ -172,7 +175,7 @@ const machine = (options: {
       Path.layer,
       Stdio.layerTest({}),
       spawner,
-      layerScripted([], options.drawn)
+      layerScripted([], options.drawn, options.columns)
     )
   )
 }
@@ -251,17 +254,42 @@ describe("dw-mc review", () => {
       assert.deepStrictEqual(printed, [
         `${repo}#28  ${title}`,
         `  head 284d599  builtin, effort low`,
-        "  · Bash",
-        "  · Agent",
         "",
         report,
         "",
         "2 findings, 1 blocking",
-        "  src/cli/review.ts:88  error  The run is never recorded.",
-        "  docs/v1-design.md:3   info   The build order is out of date.",
+        "  src/cli/review.ts:88 │ error │ The run is never recorded.",
+        "  docs/v1-design.md:3  │ info  │ The build order is out of date.",
         `Recorded against 284d599 in ${state}`
       ])
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
+  })
+
+  it.effect("says what the run is reaching for: on a screen in place, in a pipe a line at a time", () => {
+    const spawned: Array<string> = []
+    const drawn: Array<string> = []
+    const printed: Array<string> = []
+    const piped: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("review", "28")
+
+      assert.include(drawn.join("\n"), "reviewing · ")
+      assert.isFalse(printed.some((line) => line.includes("· Bash")))
+    }).pipe(
+      Effect.provide(machine({ spawned, drawn })),
+      recording(printed),
+      Effect.andThen(
+        Effect.gen(function* () {
+          yield* registered(repo)
+          yield* run("review", "28")
+
+          assert.include(piped, "  · Bash")
+          assert.include(piped, "  · Agent")
+        }).pipe(Effect.provide(machine({ spawned: [], columns: 0 })), recording(piped))
+      )
+    )
   })
 
   it.effect("runs both turns in the worktree and nowhere near my own checkout", () => {
@@ -273,7 +301,7 @@ describe("dw-mc review", () => {
       yield* Effect.ignore(run("review", "28"))
 
       assert.deepStrictEqual(spawned, [
-        `gh pr view 28 --repo ${repo} --json number,title,url,isDraft,headRefOid,mergeable,reviewDecision,statusCheckRollup`,
+        `gh pr view 28 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,mergeable,reviewDecision,statusCheckRollup`,
         `git -C ${clone} rev-parse --is-bare-repository`,
         `git -C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`,
         `git -C ${clone} rev-parse refs/dw-mc/pr/28`,

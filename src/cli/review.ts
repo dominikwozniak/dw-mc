@@ -6,11 +6,14 @@ import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
 import { announce } from "#adapters/notify.ts"
+import type { Doing } from "#adapters/progress.ts"
+import { spinning } from "#adapters/progress.ts"
 import { builtinFindings, builtinReview } from "#adapters/runner.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
 import { lines, summary } from "#cli/findings.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
+import { count } from "#cli/table.ts"
 import { jsonSchema, Reported } from "#domain/findings.ts"
 import type { Asked, Outcome } from "#domain/review.ts"
 import {
@@ -21,10 +24,17 @@ import {
   reportedBy,
   reportKey,
   ReviewRun,
+  short,
   runKey,
   runnerFor,
   skippedSince
 } from "#domain/review.ts"
+
+/** What the spinner says a run has got through, while it is still going. */
+const reviewing = (doing: Doing, since: string): string =>
+  ["reviewing", count(doing.tools, "tool"), doing.subagents === 0 ? null : count(doing.subagents, "subagent"), since]
+    .filter((part) => part !== null)
+    .join(" · ")
 
 const effortFlag = Flag.Literals("effort", ["low", "medium", "high"]).pipe(
   Flag.withDescription("How much this run spends, over what the repository configured"),
@@ -116,7 +126,7 @@ export const review = Command.make(
         : skippedSince(yield* askedOf(repo, number, view.headRefOid), settings.review.docs_only)
       if (since !== null) {
         yield* Console.log(
-          `  Only documentation changed since ${since.slice(0, 7)}, so this run is skipped. ` +
+          `  Only documentation changed since ${short(since)}, so this run is skipped. ` +
             `Pass --force to review it anyway.`
         )
         return
@@ -128,12 +138,10 @@ export const review = Command.make(
       yield* Effect.gen(function* () {
         const ran = yield* withWorktree(repo, number, (worktree) =>
           Effect.gen(function* () {
-            yield* Console.log(`  head ${worktree.head.slice(0, 7)}  ${runner}, effort ${spend}`)
-            const turn = yield* builtinReview({
-              directory: worktree.directory,
-              effort: spend,
-              onTool: (tool) => Console.log(`  · ${tool}`)
-            })
+            yield* Console.log(`  head ${short(worktree.head)}  ${runner}, effort ${spend}`)
+            const turn = yield* spinning(reviewing, (onTool) =>
+              builtinReview({ directory: worktree.directory, effort: spend, onTool })
+            )
             // Whatever the second turn comes to is a value and not a failure:
             // the prose is already worth keeping, and a turn that could not
             // report is recorded as the failure it is rather than lost with it.
@@ -179,7 +187,7 @@ export const review = Command.make(
             yield* Console.log(`  ${line}`)
           }
         }
-        yield* Console.log(`Recorded against ${run.head.slice(0, 7)} in ${yield* stateDirectory}`)
+        yield* Console.log(`Recorded against ${short(run.head)} in ${yield* stateDirectory}`)
 
         yield* unreported(outcome)
       }).pipe(

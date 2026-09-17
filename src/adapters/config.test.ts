@@ -228,6 +228,7 @@ describe("settingsFor", () => {
         path_instructions: [{ path: "src/**", instructions: "Read the seams first" }]
       },
       ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
+      fix: { commits: true },
       rebase: { enabled: true },
       stamp: { blocks_on: "info" }
     }
@@ -246,12 +247,14 @@ describe("merge", () => {
       base: "develop",
       review: { effort: "low", docs_only: ["**/*.md"] },
       ci: { ignore: ["advisory"] },
+      fix: { commits: false },
       rebase: { enabled: false },
       stamp: { blocks_on: "error" }
     }
     const delta: SettingsPatch = {
       review: { effort: "high" },
       ci: { flaky_patterns: ["ECONNRESET"] },
+      fix: { commits: true },
       rebase: { enabled: true },
       stamp: { blocks_on: "warning" }
     }
@@ -260,6 +263,7 @@ describe("merge", () => {
       base: "develop",
       review: { effort: "high", docs_only: ["**/*.md"] },
       ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
+      fix: { commits: true },
       rebase: { enabled: true },
       stamp: { blocks_on: "warning" }
     })

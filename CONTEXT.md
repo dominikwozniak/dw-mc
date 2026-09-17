@@ -76,5 +76,8 @@ When a review run is repeated on a pull request that has already had one: only w
 _Avoid_: cache, debounce
 
 **Fix session**:
-An interactive agent session mission control opens for me in a fresh worktree, carrying the findings I selected and my notes on them. It is never the review run that produced the findings; the re-review of its result is a new review run.
+An interactive agent session mission control opens for me in a fresh worktree, carrying the findings I selected and my notes on them. The worktree stands on a branch of the tool's own that tracks the pull request's, and it outlives the session, because what I commit in it is mine. It is never the review run that produced the findings; the re-review of its result is a new review run.
 _Avoid_: auto-fix, repair run
+
+**Note**:
+What I say about a finding when I pick it for a fix session. It is my word on the finding and outranks what the review run said about it.

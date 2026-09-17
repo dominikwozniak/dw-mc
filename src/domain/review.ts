@@ -45,6 +45,9 @@ export const ReviewRun = Schema.Struct({
 })
 export type ReviewRun = typeof ReviewRun.Type
 
+/** A head as it is read out loud: the seven characters git itself abbreviates to. */
+export const short = (head: string): string => head.slice(0, 7)
+
 /**
  * Where a run is kept: one key per head, so a run and the code it read cannot
  * drift apart, and a re-review of the same head replaces the run before it.

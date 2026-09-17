@@ -7,6 +7,7 @@ import { prKey, storeFor } from "#adapters/store.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError } from "#cli/sweep.ts"
 import { Facts } from "#domain/bucket.ts"
+import { short } from "#domain/review.ts"
 import { stampOf, withdraw } from "#domain/stamp.ts"
 
 const withdrawFlag = Flag.Boolean("withdraw").pipe(
@@ -60,7 +61,7 @@ export const stampCommand = Command.make(
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
 
       const facts = yield* sweptFacts(repo, number)
-      const where = `${repo}#${number}  ${facts.head.slice(0, 7)}`
+      const where = `${repo}#${number}  ${short(facts.head)}`
 
       if (byHand) {
         yield* withdraw(repo, number, facts.head)

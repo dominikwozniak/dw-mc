@@ -1,12 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, Path } from "effect"
 
-import { withWorktree } from "#adapters/git.ts"
+import { fixWorktree, withWorktree } from "#adapters/git.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const state = "/home/dw/.local/state/dw-mc"
 const clone = `${state}/repos/dominikwozniak/dw-mc.git`
 const worktree = `${state}/worktrees/dominikwozniak/dw-mc/28`
+const fix = `${state}/fixes/dominikwozniak/dw-mc/28`
 const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
 const fetched = `-C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`
 
@@ -23,6 +24,13 @@ const git = (options: {
   readonly cloned?: boolean | undefined
   /** The vector that refuses, and what `git` says on stderr instead. */
   readonly refuses?: { readonly argv: string; readonly detail: string } | undefined
+  /** The worktrees the clone already knows about. */
+  readonly worktrees?: ReadonlyArray<string> | undefined
+  /**
+   * How far the fix branch has gone past the head, where the clone has that
+   * branch at all. Left out, the branch is not there.
+   */
+  readonly ahead?: number | undefined
 }) =>
   layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -41,6 +49,18 @@ const git = (options: {
     }
     if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
       return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
+    }
+    if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/fix/28`) {
+      return options.ahead === undefined
+        ? Effect.succeed(fakeHandle({ exitCode: 1 }))
+        : Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
+    }
+    if (argv === `-C ${clone} rev-list --count refs/heads/dw-mc/fix/28 ^${head}`) {
+      return Effect.succeed(fakeHandle({ stdout: `${options.ahead ?? 0}\n` }))
+    }
+    if (argv === `-C ${clone} worktree list --porcelain`) {
+      const listed = (options.worktrees ?? []).map((directory) => `worktree ${directory}\nbare\n`)
+      return Effect.succeed(fakeHandle({ stdout: [`worktree ${clone}\nbare\n`, ...listed].join("\n") }))
     }
     return Effect.succeed(fakeHandle({}))
   })
@@ -132,5 +152,115 @@ describe("the tool's own clone and its throwaway worktree", () => {
       assert.include(error.message, "fetch")
       assert.isFalse(spawned.some((vector) => vector.includes("worktree add")))
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true, refuses }))))
+  })
+})
+
+describe("the worktree a fix session opens in", () => {
+  it.effect("cuts it on a branch of the tool's own that tracks the pull request's", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const cut = yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+
+      assert.deepStrictEqual(cut, { directory: fix, head })
+      assert.deepStrictEqual(spawned, [
+        `git -C ${clone} rev-parse --is-bare-repository`,
+        `git ${fetched}`,
+        `git -C ${clone} rev-parse refs/dw-mc/pr/28`,
+        `git -C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/fix/28`,
+        `git -C ${clone} worktree list --porcelain`,
+        `git -C ${clone} config extensions.worktreeConfig true`,
+        `git -C ${clone} config --worktree core.bare true`,
+        `git -C ${clone} config --unset core.bare`,
+        `git -C ${clone} worktree add -B dw-mc/fix/28 ${fix} ${head}`,
+        `git -C ${clone} config branch.dw-mc/fix/28.remote origin`,
+        `git -C ${clone} config branch.dw-mc/fix/28.merge refs/heads/feat/28-a-branch`,
+        `git -C ${fix} config --worktree push.default upstream`
+      ])
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("never stands on the pull request's own branch, which the next fetch would refuse", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+
+      // Verified by running it: `git` refuses to fetch into a branch a worktree
+      // has checked out, and this clone fetches every branch on every run.
+      const cut = spawned.find((vector) => vector.includes("worktree add"))
+      assert.include(cut, "-B dw-mc/fix/28")
+      assert.notInclude(cut, "feat/28-a-branch")
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("keeps how a push behaves to the fix worktree, out of the clone every run shares", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+
+      assert.include(spawned, `git -C ${fix} config --worktree push.default upstream`)
+      assert.isFalse(spawned.some((vector) => vector === `git -C ${clone} config push.default upstream`))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("cuts the previous session's worktree away first, where it is finished with", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch")
+
+      assert.include(spawned, `git -C ${clone} worktree remove ${fix}`)
+      assert.isFalse(spawned.some((vector) => vector.includes("worktree remove --force")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, worktrees: [fix] }))))
+  })
+
+  it.effect("stops rather than throwing away changes a previous session left uncommitted", () => {
+    const spawned: Array<string> = []
+    const refuses = {
+      argv: `-C ${clone} worktree remove ${fix}`,
+      detail: `fatal: '${fix}' contains modified or untracked files, use --force to delete it\n`
+    }
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch"))
+
+      assert.strictEqual(error._tag, "GitFailed")
+      assert.include(error.message, "contains modified or untracked files")
+      assert.isFalse(spawned.some((vector) => vector.includes("worktree add")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, worktrees: [fix], refuses }))))
+  })
+
+  it.effect("stops rather than resetting a branch over commits I have not pushed", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch"))
+
+      if (error._tag !== "WorktreeHeld") {
+        return assert.fail(`expected a WorktreeHeld, got ${error._tag}`)
+      }
+      assert.include(error.message, "2 commits")
+      assert.include(error.message, fix)
+      assert.isFalse(spawned.some((vector) => vector.includes("worktree remove")))
+      assert.isFalse(spawned.some((vector) => vector.includes("worktree add")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, worktrees: [fix], ahead: 2 }))))
+  })
+
+  it.effect("stops on those commits even where the worktree they were made in is gone", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      // The directory can be pruned or removed by hand; the branch that holds
+      // the commits stays, and `worktree add -B` would reset it to the head.
+      const error = yield* Effect.flip(fixWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch"))
+
+      if (error._tag !== "WorktreeHeld") {
+        return assert.fail(`expected a WorktreeHeld, got ${error._tag}`)
+      }
+      assert.include(error.message, "2 commits")
+      assert.isFalse(spawned.some((vector) => vector.includes("worktree add")))
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, worktrees: [], ahead: 2 }))))
   })
 })

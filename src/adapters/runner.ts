@@ -257,3 +257,42 @@ export const builtinFindings = Effect.fn("runner.builtinFindings")(
     orElse: () => failed(`the findings turn did not come back within ${Duration.format(patience.reporting)}`)
   })
 )
+
+/**
+ * An interactive `claude` in `directory`, opened on `prompt`, with my terminal
+ * handed straight to it.
+ *
+ * This is the one place a runner is not read: the three streams are inherited,
+ * so what is on the screen is the session itself and not a transcript of it,
+ * and what I type reaches it. The child is not detached for the same reason -
+ * a detached child sits outside the terminal's foreground process group, where
+ * neither my keystrokes nor Ctrl-C would reach it.
+ *
+ * There is no patience here either. A fix session lasts as long as I am in it,
+ * and a timeout would be the tool closing a session I was still working in.
+ *
+ * What comes back is the code the session ended on. A session I left with
+ * Ctrl-C ended badly for `claude` and not for me, so this reports it rather
+ * than failing on it; only a `claude` that would not start at all is a failure.
+ */
+export const fixSession = Effect.fn("runner.fixSession")(function* (options: {
+  readonly directory: string
+  readonly prompt: string
+}) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+
+  const handle = yield* Effect.mapError(
+    spawner.spawn(
+      ChildProcess.make("claude", [options.prompt], {
+        cwd: options.directory,
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+        detached: false
+      })
+    ),
+    (error) => failed(error.message)
+  )
+
+  return yield* Effect.mapError(handle.exitCode, (error) => failed(error.message))
+}, Effect.scoped)
