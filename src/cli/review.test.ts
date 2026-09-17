@@ -3,7 +3,7 @@ import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Option, P
 import { Command } from "effect/unstable/cli"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
+import { builtInLauncher, ConfigStore, write } from "#adapters/config.ts"
 import { layerScripted } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
@@ -13,6 +13,9 @@ import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, reportKey, ReviewRun, runKey } from "#domain/review.ts"
 
 const me = "dominikwozniak"
+/** The program a runner is spawned as, which the launcher names and the default spells `claude`. */
+const launching = builtInLauncher.command[0]
+
 const repo = "dominikwozniak/dw-mc"
 const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
 const before = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
@@ -112,7 +115,7 @@ const machine = (options: {
         })
       )
 
-    if (command.command === "claude") {
+    if (command.command === launching) {
       return command.args.includes("--resume")
         ? turn(options.findings, reported({ structured_output: structured }))
         : turn(options.runner, finished)

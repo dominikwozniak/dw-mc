@@ -3,7 +3,17 @@ import { ConfigProvider, Effect, Layer, Option, Path } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
 import type { ConfigFile, Settings, SettingsPatch } from "#adapters/config.ts"
-import { builtIn, configPath, ConfigStore, merge, read, settingsFor, write } from "#adapters/config.ts"
+import {
+  builtIn,
+  builtInLauncher,
+  configPath,
+  ConfigStore,
+  launcherOf,
+  merge,
+  read,
+  settingsFor,
+  write
+} from "#adapters/config.ts"
 
 const home = (record: Record<string, string | undefined> = { HOME: "/home/dw" }) =>
   Effect.provide(
@@ -160,6 +170,31 @@ describe("config file", () => {
     }).pipe(home())
   )
 
+  it.effect("carries a hand-written launcher through a rewrite, so init never drops it", () =>
+    Effect.gen(function* () {
+      const file: ConfigFile = {
+        launcher: { command: ["cswap", "run", "--"], fix_args: ["--enable-auto-mode"] },
+        repos: { "dominikwozniak/dw-mc": {} }
+      }
+
+      yield* write(file)
+
+      assert.deepStrictEqual(yield* read, Option.some(file))
+    }).pipe(home())
+  )
+
+  it.effect("rejects a launcher that names no program", () =>
+    Effect.gen(function* () {
+      yield* put("launcher:\n  command: []\n")
+
+      const error = yield* Effect.flip(read)
+
+      assert.strictEqual(error._tag, "ConfigMalformed")
+      assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
+      assert.include(error.message, "command")
+    }).pipe(home())
+  )
+
   it.effect("keeps the store to itself, so state and configuration never collide", () =>
     Effect.gen(function* () {
       yield* write({})
@@ -168,6 +203,26 @@ describe("config file", () => {
       assert.strictEqual(yield* state.get("config.yaml"), undefined)
     }).pipe(Effect.provide(KeyValueStore.layerMemory), home())
   )
+})
+
+describe("launcherOf", () => {
+  it("starts claude itself when the file says nothing", () => {
+    assert.deepStrictEqual(launcherOf({}), builtInLauncher)
+  })
+
+  it("starts what the file names, with the arguments it puts in front", () => {
+    assert.deepStrictEqual(launcherOf({ launcher: { command: ["cswap", "run", "--"] } }), {
+      command: ["cswap", "run", "--"],
+      fix_args: []
+    })
+  })
+
+  it("keeps the flags only a fix session gets", () => {
+    assert.deepStrictEqual(launcherOf({ launcher: { fix_args: ["--enable-auto-mode"] } }), {
+      command: ["claude"],
+      fix_args: ["--enable-auto-mode"]
+    })
+  })
 })
 
 describe("settingsFor", () => {

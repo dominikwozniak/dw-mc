@@ -2,7 +2,7 @@ import { Console, DateTime, Effect, Exit, Option, Result, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { ConfigFile, Runner } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
 import { announce } from "#adapters/notify.ts"
@@ -115,6 +115,7 @@ export const review = Command.make(
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
       const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
       const settings = settingsFor(file, repo)
+      const launcher = launcherOf(file)
       const runner = yield* runnerOf(settings.review.runners)
       const spend = Option.getOrElse(effort, () => settings.review.effort)
 
@@ -140,14 +141,14 @@ export const review = Command.make(
           Effect.gen(function* () {
             yield* Console.log(`  head ${short(worktree.head)}  ${runner}, effort ${spend}`)
             const turn = yield* spinning(reviewing, (onTool) =>
-              builtinReview({ directory: worktree.directory, effort: spend, onTool })
+              builtinReview({ launcher, directory: worktree.directory, effort: spend, onTool })
             )
             // Whatever the second turn comes to is a value and not a failure:
             // the prose is already worth keeping, and a turn that could not
             // report is recorded as the failure it is rather than lost with it.
             const reported = yield* Effect.result(
               Effect.flatMap(
-                builtinFindings({ directory: worktree.directory, sessionId: turn.sessionId, jsonSchema }),
+                builtinFindings({ launcher, directory: worktree.directory, sessionId: turn.sessionId, jsonSchema }),
                 (output) => Schema.decodeUnknownEffect(Reported)(output)
               )
             )

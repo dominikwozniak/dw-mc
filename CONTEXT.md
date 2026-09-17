@@ -59,6 +59,10 @@ _Avoid_: check, audit, scan
 A local agent CLI that a review run executes on. Claude Code is the primary runner; Codex is a supporting second opinion.
 _Avoid_: reviewer, provider, model
 
+**Launcher**:
+The program this machine starts a runner with, and the arguments it takes before mission control's own. Its default is `claude` itself; a machine that reaches Claude Code through another program - `cswap run --`, a multi-account manager - names that program here. It carries the fix session too, which is no review run.
+_Avoid_: wrapper, executable, shim
+
 **Finding**:
 One problem a review run reports, at a file and line, with a severity of error, warning or info. A finding at or above `stamp.blocks_on`, an error unless I configure otherwise, is a blocking finding: it withholds the stamp until the head changes.
 _Avoid_: issue, comment, violation
