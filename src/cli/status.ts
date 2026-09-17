@@ -1,6 +1,7 @@
 import { Console, Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
+import { Paint } from "#adapters/paint.ts"
 import { prKey } from "#adapters/store.ts"
 import { cells, heading, rule, titleWidth } from "#cli/row.ts"
 import { asUserError, printTroubles, sweep, userFacing } from "#cli/sweep.ts"
@@ -17,10 +18,12 @@ import { stampedAmong } from "#domain/stamp.ts"
  * apart: three columns of prose run into one another without a rule, and the
  * middle one is a commit subject that can end in anything.
  */
-const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>): ReadonlyArray<string> => {
+const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>, paint: Paint): ReadonlyArray<string> => {
   const rows = table(
     grouped.flatMap((it) =>
-      it.placed.map((placed) => cells(placed, stamped.has(prKey(placed.facts.repo, placed.facts.number)), titleWidth))
+      it.placed.map((placed) =>
+        cells(placed, stamped.has(prKey(placed.facts.repo, placed.facts.number)), titleWidth, paint, "marker")
+      )
     ),
     rule
   )
@@ -53,7 +56,7 @@ export const status = Command.make(
       if (grouped.length === 0) {
         yield* Console.log("No open pull requests.")
       }
-      for (const line of lines(grouped, yield* stampedAmong(report.facts))) {
+      for (const line of lines(grouped, yield* stampedAmong(report.facts), yield* Paint)) {
         yield* Console.log(line)
       }
       yield* printTroubles(report.troubles)

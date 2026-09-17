@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { ConfigStore } from "#adapters/config.ts"
+import * as Paint from "#adapters/paint.ts"
 import * as Store from "#adapters/store.ts"
 import { dwMc, version } from "#cli/cli.ts"
 import * as Header from "#cli/header.ts"
@@ -14,6 +15,8 @@ import * as Header from "#cli/header.ts"
 // dw-mc leaves the state and configuration directories behind it.
 dwMc.pipe(
   Command.run({ version }),
-  Effect.provide(Layer.provideMerge(Layer.mergeAll(ConfigStore.layer, Store.layer, Header.layer), NodeServices.layer)),
+  Effect.provide(
+    Layer.provideMerge(Layer.mergeAll(ConfigStore.layer, Store.layer, Header.layer, Paint.layer), NodeServices.layer)
+  ),
   NodeRuntime.runMain
 )
