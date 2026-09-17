@@ -51,3 +51,21 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - run: pnpm check
+
+      # The source passing says nothing about the package, so the gate installs what npm
+      # would serve and runs it. ADR 0008 lists what only this step can catch.
+      - name: Install the tarball and run it
+        run: |
+          set -euo pipefail
+          tarball="$(pnpm pack --pack-destination "$RUNNER_TEMP" | tail -1)"
+          declared="$(jq -r .version package.json)"
+          mkdir -p "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          pnpm init > /dev/null
+          pnpm add "$tarball"
+          printed="$(./node_modules/.bin/dw-mc --version | tail -1)"
+          echo "$printed"
+          case "$printed" in
+            *"$declared"*) ;;
+            *) echo "the installed CLI reports '$printed', and the package declares $declared" >&2; exit 1 ;;
+          esac
