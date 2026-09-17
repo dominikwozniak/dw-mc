@@ -1,13 +1,13 @@
 ---
 name: dw-mc
-description: Read mission control's state on my open pull requests from inside an agent session - which bucket a pull request sits in, what a review run found, whether it carries my stamp - and run the command that moves one forward. Use when I ask about my open PRs, a review run, its findings, my stamp, a rebase or a rebase conflict.
+description: Read mission control's state on my open pull requests from inside an agent session - which bucket a pull request sits in, what a review run found, whether it carries my stamp - and run the command that moves one forward. Use when I ask about my open PRs, a review run, its findings, my stamp, a rebase, a rebase conflict or a flaky CI.
 ---
 
 # dw-mc
 
 `dw-mc` is my local mission control: it keeps the state of my open pull requests on disk, reads GitHub through `gh`, and runs code reviews through local agent CLIs. This skill is a way into that state from a session I am already steering. It has no state of its own: every answer comes from running the CLI.
 
-Use mission control's words: tracked PR, bucket, stamp, review run, finding, fix session, conflict record, resolve session. They are defined in `CONTEXT.md`, two directories above this file, in the clone this skill is installed from.
+Use mission control's words: tracked PR, bucket, stamp, review run, finding, fix session, conflict record, resolve session, flaky failure, legitimate failure. They are defined in `CONTEXT.md`, two directories above this file, in the clone this skill is installed from.
 
 ## Reads
 
@@ -32,8 +32,11 @@ These change something, so run one only when I ask for it by name.
 | a review run against the current head       | `dw-mc review <pr>`           |
 | the stamp off, until the head changes       | `dw-mc stamp <pr> --withdraw` |
 | the branch rebased onto its base and pushed | `dw-mc rebase <pr>`           |
+| a flaky red CI run again, once              | `dw-mc rerun <pr>`            |
 
-`dw-mc review` runs a model and takes minutes. `dw-mc rebase` is the one command that writes to GitHub, and it writes one thing: a `--force-with-lease` push to a branch I author.
+`dw-mc review` runs a model and takes minutes.
+
+`dw-mc rebase` and `dw-mc rerun` are the only commands that write to GitHub (ADR 0002): a `--force-with-lease` push to a branch I author, and the failed jobs of a workflow run on a pull request I author. `dw-mc rerun` refuses a failure the classifier calls legitimate, and refuses a head it has already re-run, so running it on a red CI is never a way to hide one.
 
 ## Sessions
 
@@ -44,5 +47,5 @@ Run them with `--print` instead. That prints the prompt the session would have o
 ## What this skill never does
 
 - It never opens the picker. `dw-mc` with no arguments wants a keyboard and a screen.
-- It never writes to GitHub itself. No comment, review, label, approval or merge, on any pull request (ADR 0002). `dw-mc rebase` is the only push, and it is the CLI's, not yours.
+- It never writes to GitHub itself. No comment, review, label, approval or merge, on any pull request (ADR 0002). The push and the re-run are the CLI's, not yours.
 - It never retells findings from memory. Print them again rather than repeating what an earlier turn said they were.

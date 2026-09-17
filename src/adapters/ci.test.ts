@@ -1,7 +1,17 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
-import { defaultBranch, failedChecks, jobIdOf, jobLog, prFiles, rollupState, workflowFailsOn } from "#adapters/ci.ts"
+import {
+  defaultBranch,
+  failedChecks,
+  failedRuns,
+  reportedAt,
+  jobLog,
+  prFiles,
+  rerunFailed,
+  rollupState,
+  workflowFailsOn
+} from "#adapters/ci.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 /** A spawner that answers every program the same way, and records the argv. */
@@ -67,16 +77,23 @@ describe("what the classifier reads", () => {
     assert.deepStrictEqual(failedChecks(null, []), [])
   })
 
-  it("reads the job a check run reports at out of its URL", () => {
-    assert.strictEqual(
-      jobIdOf("https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203/job/104772538303"),
-      "104772538303"
+  it("reads the run and the job a check run reports at out of its URL", () => {
+    assert.deepStrictEqual(
+      reportedAt("https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203/job/104772538303"),
+      {
+        run: "35089608203",
+        job: "104772538303"
+      }
     )
   })
 
-  it("has no job for a commit status, which reports somewhere else", () => {
-    assert.strictEqual(jobIdOf("https://circleci.com/gh/dominikwozniak/dw-mc/1"), null)
-    assert.strictEqual(jobIdOf(undefined), null)
+  it("has neither for a commit status, which reports somewhere else", () => {
+    assert.strictEqual(reportedAt("https://circleci.com/gh/dominikwozniak/dw-mc/1"), null)
+    assert.strictEqual(reportedAt(undefined), null)
+  })
+
+  it("has neither for a workflow run that names no job", () => {
+    assert.strictEqual(reportedAt("https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203"), null)
   })
 
   it.effect("asks gh which branch a repository merges into", () => {
@@ -179,6 +196,60 @@ describe("what the classifier reads", () => {
 
       assert.strictEqual(log.length, 64 * 1024)
       assert.isTrue(log.endsWith("Error: expected 3 to be 4"))
+    }).pipe(Effect.provide(gh))
+  })
+})
+
+describe("re-running a flaky failure", () => {
+  it("reads the workflow run a check run belongs to out of its URL", () => {
+    assert.deepStrictEqual(
+      failedRuns(
+        [
+          {
+            name: "Quality gate",
+            conclusion: "FAILURE",
+            detailsUrl: "https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203/job/104772538303"
+          },
+          {
+            name: "Build",
+            conclusion: "FAILURE",
+            detailsUrl: "https://github.com/dominikwozniak/dw-mc/actions/runs/35089608203/job/104772538999"
+          }
+        ],
+        []
+      ),
+      // Two failing jobs of one run are one run to re-run, not two.
+      ["35089608203"]
+    )
+  })
+
+  it("has no workflow run for a commit status, which reports somewhere else", () => {
+    assert.deepStrictEqual(
+      failedRuns([{ context: "ci/circleci", state: "FAILURE", detailsUrl: "https://circleci.com/gh/dw/1" }], []),
+      []
+    )
+  })
+
+  it("leaves a check I have decided to live with out of what it re-runs", () => {
+    const entry = (name: string, run: string) => ({
+      name,
+      conclusion: "FAILURE",
+      detailsUrl: `https://github.com/dominikwozniak/dw-mc/actions/runs/${run}/job/1`
+    })
+
+    assert.deepStrictEqual(failedRuns([entry("Quality gate", "1"), entry("codecov", "2")], ["codecov"]), ["1"])
+  })
+
+  it.effect("asks gh to re-run only the failed jobs of a run", () => {
+    const spawned: Array<ReadonlyArray<string>> = []
+    const gh = answering(spawned, { stdout: "" })
+
+    return Effect.gen(function* () {
+      yield* rerunFailed("dominikwozniak/dw-mc", "35089608203")
+
+      assert.deepStrictEqual(spawned, [
+        ["gh", "run", "rerun", "35089608203", "--repo", "dominikwozniak/dw-mc", "--failed"]
+      ])
     }).pipe(Effect.provide(gh))
   })
 })

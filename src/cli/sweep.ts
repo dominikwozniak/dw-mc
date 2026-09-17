@@ -21,7 +21,7 @@ import { prKey, storeFor } from "#adapters/store.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
-import { classify, evidenceFor } from "#domain/flaky.ts"
+import { flakyReason } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
 import { conflictFor } from "#domain/rebase.ts"
@@ -104,12 +104,12 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
       ? null
       : quiet !== undefined
         ? quiet.ciFlaky
-        : yield* Effect.map(
-            evidenceFor(found.repo, found.number, view.statusCheckRollup, settings.ci.ignore),
-            (evidence) => {
-              const verdict = classify(evidence, settings.ci.flaky_patterns)
-              return verdict.classification === "flaky" ? verdict.reason : null
-            }
+        : yield* flakyReason(
+            found.repo,
+            found.number,
+            view.statusCheckRollup,
+            settings.ci.ignore,
+            settings.ci.flaky_patterns
           )
 
   const rebaseConflictAt = yield* Effect.map(conflictFor(found.repo, found.number), (it) => it?.head ?? null)

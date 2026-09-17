@@ -12,6 +12,7 @@ import type { Facts } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 import type { Offer, Standing } from "#domain/pick.ts"
 import { actionsFor, argvFor } from "#domain/pick.ts"
+import { rerunFor } from "#domain/rerun.ts"
 import { stampedAmong } from "#domain/stamp.ts"
 
 /** A title cut this short says nothing, so a row that tight overflows instead. */
@@ -109,12 +110,16 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
 
       const stamped = yield* stampedAmong(report.facts)
       const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const standings = group(report.facts).flatMap((grouped) =>
-        grouped.placed.map((placed): Standing => ({
-          placed,
-          stamped: stamped.has(prKey(placed.facts.repo, placed.facts.number)),
-          rebasing: settingsFor(file, placed.facts.repo).rebase.enabled
-        }))
+      const standings = yield* Effect.forEach(
+        group(report.facts).flatMap((grouped) => grouped.placed),
+        Effect.fnUntraced(function* (placed) {
+          return {
+            placed,
+            stamped: stamped.has(prKey(placed.facts.repo, placed.facts.number)),
+            rebasing: settingsFor(file, placed.facts.repo).rebase.enabled,
+            rerunAt: yield* rerunFor(placed.facts.repo, placed.facts.number)
+          }
+        })
       )
 
       yield* printTroubles(report.troubles)
