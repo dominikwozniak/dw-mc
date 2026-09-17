@@ -15,6 +15,8 @@ const machine = (options: {
   readonly home: string
   readonly spawned: Array<ChildProcess.StandardCommand>
   readonly keys?: ReadonlyArray<Terminal.UserInput> | undefined
+  /** Where a test is about the heartbeat, what it drew in place. */
+  readonly drawn?: Array<string> | undefined
 }) => {
   const spawner = layerFake((command) => {
     if (command._tag !== "StandardCommand") {
@@ -38,7 +40,7 @@ const machine = (options: {
       Path.layer,
       Stdio.layerTest({}),
       spawner,
-      layerScripted(options.keys ?? [])
+      layerScripted(options.keys ?? [], options.drawn)
     )
   )
 }
@@ -103,6 +105,29 @@ describe("dw-mc cleanup", () => {
       // What is left is the state directory itself and the record in it, with
       // none of the directories the clone and the worktree were spelled out in.
       assert.deepStrictEqual(yield* fs.readDirectory(at.state), ["prs%2Fdw%2Fone%2328"])
+    }).pipe(Effect.provide(Layer.mergeAll(NodeFileSystem.layer, Path.layer)))
+  })
+
+  it.effect("says it is measuring the disk before it says what it weighs", () => {
+    const spawned: Array<ChildProcess.StandardCommand> = []
+    const printed: Array<string> = []
+    const drawn: Array<string> = []
+
+    return Effect.gen(function* () {
+      const path = yield* Path.Path
+      const at = yield* laidOut()
+      yield* put(path.join(at.clone, "HEAD"), "ref: refs/heads/main\n")
+      yield* put(path.join(at.worktree, "README.md"), "cut for a review run\n")
+
+      yield* run("cleanup", "--yes").pipe(
+        Effect.provide(machine({ home: at.home, spawned, drawn })),
+        recording(printed)
+      )
+
+      assert.include(drawn.join("\n"), "measuring the state directory")
+      // The heartbeat is gone before the blocks it was waiting for.
+      assert.match(drawn.at(-1) ?? "", /^\r +\r$/)
+      assert.strictEqual(printed[0], "Takes back")
     }).pipe(Effect.provide(Layer.mergeAll(NodeFileSystem.layer, Path.layer)))
   })
 
