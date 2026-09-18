@@ -1,6 +1,6 @@
 {
   "name": "dw-mc",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Mission control for the pull requests you have open — a local CLI that buckets every PR by what it waits on and reviews them with your own agent CLIs.",
   "keywords": [
     "agent",
