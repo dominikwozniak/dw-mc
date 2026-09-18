@@ -1,14 +1,11 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Path, Stdio, Terminal } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Effect, FileSystem, Layer, Path, Terminal } from "effect"
 import type { ChildProcess } from "effect/unstable/process"
 
-import { ConfigStore } from "#adapters/config.ts"
-import { key, layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { key, recording } from "#adapters/picker.ts"
+import { layerStubbed, wrote } from "#adapters/spawner.ts"
+import { machineOf, run } from "#cli/cli.ts"
 
 /** Everything `dw-mc cleanup` runs on: a real state directory, and a `git` that only prunes. */
 const machine = (options: {
@@ -17,43 +14,14 @@ const machine = (options: {
   readonly keys?: ReadonlyArray<Terminal.UserInput> | undefined
   /** Where a test is about the heartbeat, what it drew in place. */
   readonly drawn?: Array<string> | undefined
-}) => {
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("cleanup.test: the fake was handed a piped command")
-    }
-    options.spawned.push(command)
-    return Effect.succeed(fakeHandle({}))
+}) =>
+  machineOf({
+    env: { HOME: options.home, XDG_STATE_HOME: options.home, XDG_CONFIG_HOME: options.home },
+    fileSystem: NodeFileSystem.layer,
+    keys: options.keys,
+    drawn: options.drawn,
+    spawner: layerStubbed({ onSpawn: (command) => options.spawned.push(command), stubs: [() => wrote("")] })
   })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(
-        ConfigProvider.fromEnvRecord({
-          HOME: options.home,
-          XDG_STATE_HOME: options.home,
-          XDG_CONFIG_HOME: options.home
-        })
-      ),
-      NodeFileSystem.layer,
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted(options.keys ?? [], options.drawn)
-    )
-  )
-}
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /** Writes one file, and every directory above it. */
 const put = Effect.fnUntraced(function* (file: string, contents: string) {

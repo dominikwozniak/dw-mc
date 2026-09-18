@@ -1,14 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Effect } from "effect"
 import type { ChildProcess } from "effect/unstable/process"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { builtInLauncher, ConfigStore, write } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { builtInLauncher, write } from "#adapters/config.ts"
+import { prViewOf } from "#adapters/gh.ts"
+import { recording } from "#adapters/picker.ts"
+import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import { recordConflict } from "#domain/rebase.ts"
 
 /** The program a session is spawned as, which the launcher names and the default spells `claude`. */
@@ -42,98 +41,65 @@ const machine = (options: {
   readonly open?: ReadonlyArray<{ number: number; headRefName: string; baseRefName: string }> | undefined
 }) => {
   const base = options.base ?? "main"
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("resolve.test: the fake was handed a piped command")
-    }
-    options.spawned.push(command)
-    const argv = command.args.join(" ")
-
-    if (command.command === launching) {
-      return Effect.succeed(fakeHandle({}))
-    }
-    if (command.command === "git") {
-      if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
-        return Effect.succeed(fakeHandle({ stdout: "true\n" }))
-      }
-      if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
-        return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
-      }
-      if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/rebase/28`) {
-        return Effect.succeed(fakeHandle({ exitCode: 1 }))
-      }
-      if (argv === `-C ${clone} worktree list --porcelain`) {
-        return Effect.succeed(fakeHandle({ stdout: `worktree ${clone}\nbare\n` }))
-      }
-      if (argv === `-C ${worktree} rebase refs/heads/${base}` && options.conflicts !== false) {
-        return Effect.succeed(fakeHandle({ exitCode: 1, stderr: "CONFLICT (content): Merge conflict in a.ts\n" }))
-      }
-      if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
-        const unmerged = options.conflicts === false ? [] : (options.unmerged ?? conflicting)
-        return Effect.succeed(fakeHandle({ stdout: unmerged.map((path) => `${path}\n`).join("") }))
-      }
-      return Effect.succeed(fakeHandle({}))
-    }
-    if (/^pr view 28 --repo \S+ --json \S+$/.test(argv)) {
-      return Effect.succeed(
-        fakeHandle({
-          stdout: JSON.stringify({
-            number: 28,
-            title: "feat: record what a rebase conflict hit",
-            url: `https://github.com/${repo}/pull/28`,
-            isDraft: false,
-            headRefOid: head,
-            headRefName: branch,
-            baseRefName: base,
-            author: { login: options.author ?? "dominikwozniak" },
-            isCrossRepository: options.fromFork ?? false,
-            mergeable: "CONFLICTING",
-            reviewDecision: "",
-            statusCheckRollup: []
-          })
-        })
-      )
-    }
-    if (argv === "api user") {
-      return Effect.succeed(fakeHandle({ stdout: JSON.stringify({ login: "dominikwozniak" }) }))
-    }
-    if (/^pr list --repo \S+ --state open/.test(argv)) {
-      return Effect.succeed(
-        fakeHandle({
-          stdout: JSON.stringify(options.open ?? [{ number: 28, headRefName: branch, baseRefName: base }])
-        })
-      )
-    }
-    return Effect.die(`resolve.test: nothing stubbed for '${command.command} ${argv}'`)
+  return machineOf({
+    spawner: layerStubbed({
+      onSpawn: (command) => options.spawned.push(command),
+      stubs: [
+        (command) => (command.command === launching ? wrote("") : undefined),
+        (command, argv) => {
+          if (command.command !== "git") {
+            return undefined
+          }
+          if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
+            return wrote("true\n")
+          }
+          if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
+            return wrote(`${head}\n`)
+          }
+          if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/rebase/28`) {
+            return refused("")
+          }
+          if (argv === `-C ${clone} worktree list --porcelain`) {
+            return wrote(`worktree ${clone}\nbare\n`)
+          }
+          if (argv === `-C ${worktree} rebase refs/heads/${base}` && options.conflicts !== false) {
+            return refused("CONFLICT (content): Merge conflict in a.ts\n")
+          }
+          if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
+            const unmerged = options.conflicts === false ? [] : (options.unmerged ?? conflicting)
+            return wrote(unmerged.map((path) => `${path}\n`).join(""))
+          }
+          return wrote("")
+        },
+        (_, argv) =>
+          /^pr view 28 --repo \S+ --json \S+$/.test(argv)
+            ? json(
+                prViewOf(repo, {
+                  number: 28,
+                  title: "feat: record what a rebase conflict hit",
+                  headRefOid: head,
+                  headRefName: branch,
+                  baseRefName: base,
+                  author: options.author,
+                  isCrossRepository: options.fromFork,
+                  mergeable: "CONFLICTING"
+                })
+              )
+            : undefined,
+        (_, argv) => (argv === "api user" ? json({ login: "dominikwozniak" }) : undefined),
+        (_, argv) =>
+          /^pr list --repo \S+ --state open/.test(argv)
+            ? json(options.open ?? [{ number: 28, headRefName: branch, baseRefName: base }])
+            : undefined
+      ]
+    })
   })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted([])
-    )
-  )
-}
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
 }
 
 const registered = write({ repos: { [repo]: {} } } satisfies ConfigFile)
 
 /** The conflict `dw-mc rebase` would have written down, at the head the pull request is at. */
 const conflicted = (at: string = head) => recordConflict(repo, 28, at, conflicting)
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /** The session that was opened, or nothing where none was. */
 const opened = (spawned: ReadonlyArray<ChildProcess.StandardCommand>) =>
@@ -143,8 +109,7 @@ const opened = (spawned: ReadonlyArray<ChildProcess.StandardCommand>) =>
 const carried = (prompt: string): { readonly paths: ReadonlyArray<string> } =>
   JSON.parse(prompt.slice(prompt.indexOf("{")))
 
-const vectorsOf = (spawned: ReadonlyArray<ChildProcess.StandardCommand>) =>
-  spawned.map((command) => `${command.command} ${command.args.join(" ")}`)
+const vectorsOf = (spawned: ReadonlyArray<ChildProcess.StandardCommand>) => spawned.map(vectorOf)
 
 describe("dw-mc resolve", () => {
   it.effect("cuts a worktree on dw-mc/rebase/28 that tracks the pull request's branch", () => {

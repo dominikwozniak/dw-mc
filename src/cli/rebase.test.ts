@@ -1,13 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Effect, Option } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { write } from "#adapters/config.ts"
+import { prViewOf } from "#adapters/gh.ts"
+import { recording } from "#adapters/picker.ts"
+import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import { Conflict, conflictFor } from "#domain/rebase.ts"
 
 const repo = "dominikwozniak/dw-mc"
@@ -47,96 +47,65 @@ const machine = (options: {
   readonly fromFork?: boolean | undefined
 }) => {
   const base = options.base ?? "main"
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("rebase.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    options.spawned.push(`${command.command} ${argv}`)
-
-    if (command.command === "git") {
-      if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
-        return Effect.succeed(fakeHandle({ stdout: "true\n" }))
-      }
-      if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
-        return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
-      }
-      if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/${base}`) {
-        return Effect.succeed(fakeHandle({ stdout: `${options.behind ?? 0}\n` }))
-      }
-      if (argv === `-C ${worktree} rebase refs/heads/${base}` && options.conflicts === true) {
-        return Effect.succeed(fakeHandle({ exitCode: 1, stderr: "CONFLICT (content): Merge conflict in a.ts\n" }))
-      }
-      if (argv === `-C ${worktree} rev-parse HEAD`) {
-        return Effect.succeed(fakeHandle({ stdout: `${rebased}\n` }))
-      }
-      if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
-        // A content conflict always leaves the file unmerged, which is what
-        // tells it from a replay that stopped for any other reason.
-        const unmerged = options.unmerged ?? (options.conflicts === true ? ["a.ts"] : [])
-        return Effect.succeed(fakeHandle({ stdout: unmerged.map((path) => `${path}\n`).join("") }))
-      }
-      return Effect.succeed(fakeHandle({}))
-    }
-    if (/^pr view 28 --repo \S+ --json \S+$/.test(argv)) {
-      return Effect.succeed(
-        fakeHandle({
-          stdout: JSON.stringify({
-            number: 28,
-            title: "feat: rebase one branch",
-            url: `https://github.com/${repo}/pull/28`,
-            isDraft: false,
-            headRefOid: head,
-            headRefName: branch,
-            baseRefName: base,
-            author: { login: options.author ?? "dominikwozniak" },
-            isCrossRepository: options.fromFork ?? false,
-            mergeable: "MERGEABLE",
-            reviewDecision: "",
-            statusCheckRollup: options.checks ?? []
-          })
-        })
-      )
-    }
-    if (argv === "api user") {
-      return Effect.succeed(fakeHandle({ stdout: JSON.stringify({ login: "dominikwozniak" }) }))
-    }
-    if (/^pr list --repo \S+ --state open/.test(argv)) {
-      return Effect.succeed(
-        fakeHandle({
-          stdout: JSON.stringify(options.open ?? [{ number: 28, headRefName: branch, baseRefName: base }])
-        })
-      )
-    }
-    return Effect.die(`rebase.test: nothing stubbed for '${command.command} ${argv}'`)
+  return machineOf({
+    spawner: layerStubbed({
+      onSpawn: (command) => options.spawned.push(vectorOf(command)),
+      stubs: [
+        (command, argv) => {
+          if (command.command !== "git") {
+            return undefined
+          }
+          if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
+            return wrote("true\n")
+          }
+          if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
+            return wrote(`${head}\n`)
+          }
+          if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/${base}`) {
+            return wrote(`${options.behind ?? 0}\n`)
+          }
+          if (argv === `-C ${worktree} rebase refs/heads/${base}` && options.conflicts === true) {
+            return refused("CONFLICT (content): Merge conflict in a.ts\n")
+          }
+          if (argv === `-C ${worktree} rev-parse HEAD`) {
+            return wrote(`${rebased}\n`)
+          }
+          if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
+            // A content conflict always leaves the file unmerged, which is what
+            // tells it from a replay that stopped for any other reason.
+            const unmerged = options.unmerged ?? (options.conflicts === true ? ["a.ts"] : [])
+            return wrote(unmerged.map((path) => `${path}\n`).join(""))
+          }
+          return wrote("")
+        },
+        (_, argv) =>
+          /^pr view 28 --repo \S+ --json \S+$/.test(argv)
+            ? json(
+                prViewOf(repo, {
+                  number: 28,
+                  title: "feat: rebase one branch",
+                  headRefOid: head,
+                  headRefName: branch,
+                  baseRefName: base,
+                  author: options.author,
+                  isCrossRepository: options.fromFork,
+                  statusCheckRollup: options.checks ?? []
+                })
+              )
+            : undefined,
+        (_, argv) => (argv === "api user" ? json({ login: "dominikwozniak" }) : undefined),
+        (_, argv) =>
+          /^pr list --repo \S+ --state open/.test(argv)
+            ? json(options.open ?? [{ number: 28, headRefName: branch, baseRefName: base }])
+            : undefined
+      ]
+    })
   })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted([])
-    )
-  )
-}
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
 }
 
 /** A repository that has turned rebase on, which is off until it does. */
 const enabled = write({ repos: { [repo]: { rebase: { enabled: true } } } } satisfies ConfigFile)
 const registered = write({ repos: { [repo]: {} } } satisfies ConfigFile)
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 const pushes = (spawned: ReadonlyArray<string>) => spawned.filter((vector) => vector.includes(" push "))
 

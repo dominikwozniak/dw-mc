@@ -1,14 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { DateTime, Effect } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
+import { write } from "#adapters/config.ts"
+import { recording } from "#adapters/picker.ts"
+import { layerStubbed } from "#adapters/spawner.ts"
 import { storeFor } from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
 
@@ -27,32 +25,12 @@ const found: Outcome = {
 
 /**
  * Everything the command needs and nothing it spawns: reading findings is a
- * read of this machine, so a `gh` it reached for would be a bug and dies here.
+ * read of this machine, so a `gh` it reached for has no stub and dies.
  */
-const machine = Layer.provideMerge(
-  Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-  Layer.mergeAll(
-    ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-    FileSystem.layerNoop({}),
-    Path.layer,
-    Stdio.layerTest({}),
-    layerFake((command) => Effect.die(`findings.test: nothing is spawned, and ${command._tag} was`)),
-    layerScripted([])
-  )
-)
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
+const nothingSpawned = machineOf({ spawner: layerStubbed({ stubs: [] }) })
 
 const registered = (...repos: ReadonlyArray<string>) =>
   write({ repos: Object.fromEntries(repos.map((name) => [name, {}])) } satisfies ConfigFile)
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /** The review run `dw-mc review` would have left behind. */
 const ran = (outcome: Outcome) =>
@@ -87,7 +65,7 @@ describe("dw-mc findings", () => {
           `{"file":"src/cli/review.ts","line":88,"summary":"The run is never recorded.","severity":"error"},` +
           `{"file":"docs/v1-design.md","line":3,"summary":"The build order is out of date.","severity":"info"}]}`
       ])
-    }).pipe(Effect.provide(machine), recording(printed))
+    }).pipe(Effect.provide(nothingSpawned), recording(printed))
   })
 
   it.effect("reads them out as a table when nothing is piping them anywhere", () => {
@@ -104,7 +82,7 @@ describe("dw-mc findings", () => {
         "  src/cli/review.ts:88 │ error │ The run is never recorded.",
         "  docs/v1-design.md:3  │ info  │ The build order is out of date."
       ])
-    }).pipe(Effect.provide(machine), recording(printed))
+    }).pipe(Effect.provide(nothingSpawned), recording(printed))
   })
 
   it.effect("says a clean run is clean", () => {
@@ -117,7 +95,7 @@ describe("dw-mc findings", () => {
       yield* run("findings", "28")
 
       assert.deepStrictEqual(printed, [`${repo}#28  284d599  clean, nothing to fix`])
-    }).pipe(Effect.provide(machine), recording(printed))
+    }).pipe(Effect.provide(nothingSpawned), recording(printed))
   })
 
   it.effect("says what to run when the pull request has had no review run", () => {
@@ -132,7 +110,7 @@ describe("dw-mc findings", () => {
       assert.include(error.message, "No review run")
       assert.include(error.message, "dw-mc review 28")
       assert.deepStrictEqual(printed, [])
-    }).pipe(Effect.provide(machine), recording(printed))
+    }).pipe(Effect.provide(nothingSpawned), recording(printed))
   })
 
   it.effect("prints nothing for a run that could not report, rather than a clean verdict", () => {
@@ -148,7 +126,7 @@ describe("dw-mc findings", () => {
       assert.include(error.message, "no structured output")
       assert.include(error.message, "--force")
       assert.deepStrictEqual(printed, [])
-    }).pipe(Effect.provide(machine), recording(printed))
+    }).pipe(Effect.provide(nothingSpawned), recording(printed))
   })
 
   it.effect("asks which repository when a number alone cannot say", () => {
@@ -161,6 +139,6 @@ describe("dw-mc findings", () => {
 
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "2 repositories are registered")
-    }).pipe(Effect.provide(machine), recording(printed))
+    }).pipe(Effect.provide(nothingSpawned), recording(printed))
   })
 })

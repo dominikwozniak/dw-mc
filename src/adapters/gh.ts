@@ -202,7 +202,11 @@ const PrView = Schema.fromJsonString(
 )
 export type PrView = typeof PrView.Type
 
-const viewFields =
+/**
+ * The fields one `gh pr view` asks for, named so a test can spell the vector it
+ * expects without copying the list and watching it drift.
+ */
+export const viewFields: string =
   "number,title,url,isDraft,headRefOid,headRefName,baseRefName,author,isCrossRepository,mergeable," +
   "reviewDecision,statusCheckRollup"
 
@@ -442,4 +446,49 @@ export const mergePr = Effect.fnUntraced(function* (repo: string, number: number
       CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: "pr merge", detail: error.stderr }))
     })
   )
+})
+
+/**
+ * As much of one pull request as a test cares to say, which is less than `gh`
+ * answers about it.
+ *
+ * Every field it leaves out gets the answer a pull request nothing is wrong
+ * with would give, so a test names only what its own question turns on.
+ */
+export interface PrFixture {
+  readonly number: number
+  readonly title?: string | undefined
+  readonly isDraft?: boolean | undefined
+  readonly headRefOid?: string | undefined
+  readonly headRefName?: string | undefined
+  readonly baseRefName?: string | undefined
+  readonly author?: string | undefined
+  readonly isCrossRepository?: boolean | undefined
+  readonly mergeable?: string | undefined
+  readonly reviewDecision?: string | undefined
+  readonly statusCheckRollup?: ReadonlyArray<Record<string, unknown>> | null | undefined
+}
+
+/**
+ * What `gh pr view --json <viewFields>` answers with about `pr`, for a fake
+ * `gh`.
+ *
+ * It is written here rather than in each test because it is the shape `PrView`
+ * parses: a field added to the read has one fixture to grow, and a test that
+ * spelled its own would go on passing against a pull request `gh` no longer
+ * describes that way.
+ */
+export const prViewOf = (repo: string, pr: PrFixture): Record<string, unknown> => ({
+  number: pr.number,
+  title: pr.title ?? "feat: a pull request",
+  url: `https://github.com/${repo}/pull/${pr.number}`,
+  isDraft: pr.isDraft ?? false,
+  headRefOid: pr.headRefOid ?? "31268022360852f71815404b6bbdd6bd797cfb4c",
+  headRefName: pr.headRefName ?? `feat/${pr.number}-a-branch`,
+  baseRefName: pr.baseRefName ?? "main",
+  author: { login: pr.author ?? "dominikwozniak" },
+  isCrossRepository: pr.isCrossRepository ?? false,
+  mergeable: pr.mergeable ?? "MERGEABLE",
+  reviewDecision: pr.reviewDecision ?? "",
+  statusCheckRollup: pr.statusCheckRollup ?? []
 })

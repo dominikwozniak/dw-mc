@@ -1,15 +1,14 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Path, Stdio, Terminal } from "effect"
-import { Command } from "effect/unstable/cli"
+import { DateTime, Effect, Terminal } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
+import { write } from "#adapters/config.ts"
+import { prViewOf } from "#adapters/gh.ts"
 import { coloured, Paint } from "#adapters/paint.ts"
-import { key, layerScripted, typed } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
+import { key, recording, typed } from "#adapters/picker.ts"
+import { json, layerStubbed, refused, vectorOf } from "#adapters/spawner.ts"
 import { storeFor } from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import { picker } from "#cli/pick.ts"
 import type { Finding } from "#domain/findings.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
@@ -27,70 +26,56 @@ interface Fixture {
   readonly reviewDecision?: string
 }
 
-const view = (pr: Fixture) => ({
-  number: pr.number,
-  title: pr.title ?? "feat: a pull request",
-  url: `https://github.com/${repo}/pull/${pr.number}`,
-  isDraft: false,
-  headRefOid: head,
-  headRefName: `feat/${pr.number}-a-branch`,
-  baseRefName: "main",
-  author: { login: me },
-  isCrossRepository: false,
-  mergeable: pr.mergeable ?? "MERGEABLE",
-  reviewDecision: pr.reviewDecision ?? "",
-  statusCheckRollup: [
-    {
-      __typename: "CheckRun",
-      name: "Check",
-      status: "COMPLETED",
-      conclusion: "SUCCESS",
-      workflowName: "Quality gate",
-      detailsUrl: `https://github.com/${repo}/actions/runs/1/job/${pr.number}`
-    }
-  ]
-})
+const view = (pr: Fixture) =>
+  prViewOf(repo, {
+    number: pr.number,
+    title: pr.title,
+    headRefOid: head,
+    mergeable: pr.mergeable,
+    reviewDecision: pr.reviewDecision,
+    statusCheckRollup: [
+      {
+        __typename: "CheckRun",
+        name: "Check",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        workflowName: "Quality gate",
+        detailsUrl: `https://github.com/${repo}/actions/runs/1/job/${pr.number}`
+      }
+    ]
+  })
 
 /** A `gh` that answers the reads a sweep makes, and dies on anything else. */
 const github = (prs: ReadonlyArray<Fixture>, spawned: Array<string>) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("pick.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    spawned.push(`${command.command} ${argv}`)
-    const json = (value: unknown) => Effect.succeed(fakeHandle({ stdout: JSON.stringify(value) }))
-
-    if (argv === "api user") {
-      return json({ login: me })
-    }
-    if (argv.startsWith("search prs ")) {
-      return json(prs.map((pr) => ({ number: pr.number, repository: { nameWithOwner: repo } })))
-    }
-    if (argv.startsWith("repo view ")) {
-      return json({ defaultBranchRef: { name: "main" } })
-    }
-
-    const detail = /^pr view (\d+) --repo \S+ --json (\S+)$/.exec(argv)
-    if (detail !== null) {
-      const [, number = "", fields = ""] = detail
-      const pr = prs.find((each) => each.number === Number(number))
-      if (pr === undefined) {
-        return Effect.succeed(fakeHandle({ exitCode: 1, stderr: `no pull request ${repo}#${number}` }))
-      }
-      if (fields === "commits") {
-        return json({ commits: [] })
-      }
-      if (fields === "files") {
-        return json({ files: [] })
-      }
-      return json(view(pr))
-    }
-    if (/^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)/.test(argv)) {
-      return json([])
-    }
-
-    return Effect.die(`pick.test: nothing stubbed for '${command.command} ${argv}'`)
+  layerStubbed({
+    onSpawn: (command) => spawned.push(vectorOf(command)),
+    stubs: [
+      (_, argv) => (argv === "api user" ? json({ login: me }) : undefined),
+      (_, argv) =>
+        argv.startsWith("search prs ")
+          ? json(prs.map((pr) => ({ number: pr.number, repository: { nameWithOwner: repo } })))
+          : undefined,
+      (_, argv) => (argv.startsWith("repo view ") ? json({ defaultBranchRef: { name: "main" } }) : undefined),
+      (_, argv) => {
+        const detail = /^pr view (\d+) --repo \S+ --json (\S+)$/.exec(argv)
+        if (detail === null) {
+          return undefined
+        }
+        const [, number = "", fields = ""] = detail
+        const pr = prs.find((each) => each.number === Number(number))
+        if (pr === undefined) {
+          return refused(`no pull request ${repo}#${number}`)
+        }
+        if (fields === "commits") {
+          return json({ commits: [] })
+        }
+        if (fields === "files") {
+          return json({ files: [] })
+        }
+        return json(view(pr))
+      },
+      (_, argv) => (/^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)/.test(argv) ? json([]) : undefined)
+    ]
   })
 
 /** Everything the picker runs on: a fake `gh`, an in-memory config and state, and a scripted keyboard. */
@@ -101,26 +86,12 @@ const machine = (options: {
   readonly drawn?: Array<string> | undefined
   readonly columns?: number | undefined
 }) =>
-  Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      github(options.prs, options.spawned ?? []),
-      layerScripted(options.keys, options.drawn, options.columns)
-    )
-  )
-
-/** Collects what the picker and the command it dispatched printed. */
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
+  machineOf({
+    keys: options.keys,
+    drawn: options.drawn,
+    columns: options.columns,
+    spawner: github(options.prs, options.spawned ?? [])
   })
-  return Effect.provideService(Console.Console, console_)
-}
 
 const registered = (settings: ConfigFile["repos"] = { [repo]: {} }) => write({ repos: settings } satisfies ConfigFile)
 
@@ -141,8 +112,6 @@ const reviewed = (number: number, findings: ReadonlyArray<Finding> = []) =>
     })
     yield* latest.set(latestKey(repo, number), { head })
   })
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /**
  * What the picker dispatched when I took the offer `at` places down the list,

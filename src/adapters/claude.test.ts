@@ -6,7 +6,7 @@ import type { ChildProcess } from "effect/unstable/process"
 import { commandReview, findingsTurn, promptReview, reviewTurns, steeredSession } from "#adapters/claude.ts"
 import type { Launcher } from "#adapters/config.ts"
 import { builtInLauncher } from "#adapters/config.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { fakeHandle, layerFake, layerStubbed, wrote } from "#adapters/spawner.ts"
 
 const launcher = builtInLauncher
 const session = "befb6186-5471-4b26-b680-e8ca49df25ac"
@@ -51,14 +51,12 @@ const claude = (options: {
   readonly stderr?: string | undefined
   readonly exitCode?: number | undefined
 }) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("runner.test: the fake was handed a piped command")
-    }
-    options.spawned.push(command)
-    return Effect.succeed(
-      fakeHandle({ stdout: options.stdout ?? "", stderr: options.stderr, exitCode: options.exitCode })
-    )
+  layerStubbed({
+    onSpawn: (command) => options.spawned.push(command),
+    stubs: [
+      () =>
+        Effect.succeed(fakeHandle({ stdout: options.stdout ?? "", stderr: options.stderr, exitCode: options.exitCode }))
+    ]
   })
 
 const nothing = () => Effect.void
@@ -468,23 +466,19 @@ describe("one review run, in whichever shape it was configured in", () => {
 
   /** A `claude` that answers the review turn and the findings turn differently. */
   const turns = (spawned: Array<ChildProcess.StandardCommand>, reporting?: Record<string, unknown>) =>
-    layerFake((command) => {
-      if (command._tag !== "StandardCommand") {
-        return Effect.die("runner.test: the fake was handed a piped command")
-      }
-      spawned.push(command)
-      const resuming = command.args.includes("--resume")
-      const answer = JSON.stringify({ ...success, session_id: session, structured_output: found, ...reporting })
-      return Effect.succeed(
-        fakeHandle({
-          stdout: resuming
-            ? answer
-            : [
-                JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: report }] } }),
-                JSON.stringify({ ...success, structured_output: found })
-              ].join("\n")
-        })
-      )
+    layerStubbed({
+      onSpawn: (command) => spawned.push(command),
+      stubs: [
+        (command) =>
+          wrote(
+            command.args.includes("--resume")
+              ? JSON.stringify({ ...success, session_id: session, structured_output: found, ...reporting })
+              : [
+                  JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: report }] } }),
+                  JSON.stringify({ ...success, structured_output: found })
+                ].join("\n")
+          )
+      ]
     })
 
   const running = (turn: Parameters<typeof reviewTurns>[0]["turn"]) =>
@@ -595,16 +589,19 @@ describe("steeredSession", () => {
       assert.include(error.message, "no claude on this machine")
     }).pipe(
       Effect.provide(
-        layerFake(() =>
-          Effect.fail(
-            PlatformError.systemError({
-              _tag: "NotFound",
-              module: "ChildProcess",
-              method: "spawn",
-              description: "no claude on this machine"
-            })
-          )
-        )
+        layerStubbed({
+          stubs: [
+            () =>
+              Effect.fail(
+                PlatformError.systemError({
+                  _tag: "NotFound",
+                  module: "ChildProcess",
+                  method: "spawn",
+                  description: "no claude on this machine"
+                })
+              )
+          ]
+        })
       )
     )
   )

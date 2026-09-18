@@ -1,14 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { DateTime, Effect } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
+import { write } from "#adapters/config.ts"
+import { recording } from "#adapters/picker.ts"
+import { json, layerStubbed, vectorOf } from "#adapters/spawner.ts"
 import { prKey, storeFor } from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
 
@@ -73,46 +71,18 @@ const conversation = {
 }
 
 /** Every program the command spawns, from fixtures, and a death for anything else. */
-const machine = (options: { readonly spawned: Array<string>; readonly pullRequest?: unknown }) => {
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("comments.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    options.spawned.push(`${command.command} ${argv}`)
-
-    if (argv.startsWith("api graphql")) {
-      return Effect.succeed(
-        fakeHandle({
-          stdout: JSON.stringify({
-            data: { repository: { pullRequest: options.pullRequest ?? conversation } }
-          })
-        })
-      )
-    }
-    return Effect.die(`comments.test: nothing stubbed for '${command.command} ${argv}'`)
+const machine = (options: { readonly spawned: Array<string>; readonly pullRequest?: unknown }) =>
+  machineOf({
+    spawner: layerStubbed({
+      onSpawn: (command) => options.spawned.push(vectorOf(command)),
+      stubs: [
+        (_, argv) =>
+          argv.startsWith("api graphql")
+            ? json({ data: { repository: { pullRequest: options.pullRequest ?? conversation } } })
+            : undefined
+      ]
+    })
   })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted([])
-    )
-  )
-}
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
 
 const registered = write({ repos: { [repo]: {} } } satisfies ConfigFile)
 
@@ -141,8 +111,6 @@ const swept = (over: Partial<Facts>) =>
     })
   })
 
-const dwmc = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
-
 describe("dw-mc comments", () => {
   it.effect("prints what was said after my last activity, and writes nothing", () => {
     const spawned: Array<string> = []
@@ -152,7 +120,7 @@ describe("dw-mc comments", () => {
       yield* registered
       yield* swept({ myLastCommitAt: at("2026-09-17T14:30:00Z") })
 
-      yield* dwmc("comments", "28")
+      yield* run("comments", "28")
 
       const said = printed.join("\n")
       assert.include(said, "bob")
@@ -175,7 +143,7 @@ describe("dw-mc comments", () => {
       yield* registered
       yield* swept({})
 
-      yield* dwmc("comments", "28")
+      yield* run("comments", "28")
 
       const said = printed.join("\n")
       assert.notInclude(said, "Settled already.")
@@ -191,7 +159,7 @@ describe("dw-mc comments", () => {
       yield* registered
       yield* swept({ myLastCommitAt: at("2026-09-17T16:00:00Z") })
 
-      yield* dwmc("comments", "28", "--all")
+      yield* run("comments", "28", "--all")
 
       const said = printed.join("\n")
       assert.include(said, "The cutoff belongs in the domain.")
@@ -210,7 +178,7 @@ describe("dw-mc comments", () => {
       yield* registered
       yield* swept({})
 
-      yield* dwmc("comments", "28")
+      yield* run("comments", "28")
 
       const said = printed.join("\n")
       const rule = said.indexOf("bots")
@@ -247,7 +215,7 @@ describe("dw-mc comments", () => {
       yield* registered
       yield* swept({ newestHumanCommentAt: at("2026-09-17T15:05:00Z") })
 
-      yield* dwmc("comments", "28")
+      yield* run("comments", "28")
 
       const said = printed.join("\n")
       assert.include(said, "Needs me")
@@ -263,7 +231,7 @@ describe("dw-mc comments", () => {
     return Effect.gen(function* () {
       yield* registered
 
-      const error = yield* Effect.flip(dwmc("comments", "28"))
+      const error = yield* Effect.flip(run("comments", "28"))
 
       assert.include(String(error.cause), "dw-mc sweep")
       assert.deepStrictEqual(spawned, [])

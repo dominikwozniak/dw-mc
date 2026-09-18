@@ -1,18 +1,13 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
-import type { Config, Layer } from "effect"
-import { ConfigProvider, Console, Effect, FileSystem, Option, Path, PlatformError, Stdio } from "effect"
-import * as Layer_ from "effect/Layer"
-import { Command } from "effect/unstable/cli"
-import type { KeyValueStore } from "effect/unstable/persistence"
-import type { ChildProcessSpawner } from "effect/unstable/process"
+import { Effect, FileSystem, Layer, Option, Path, PlatformError } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { ConfigStore, read, settingsFor, write } from "#adapters/config.ts"
-import { key, layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { recording } from "#adapters/picker.ts"
+import { layerStubbed, refused, wrote } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 
 /** What the real `gh` says, captured from `gh` itself. */
 const said = {
@@ -24,84 +19,39 @@ const said = {
 
 /** A `gh` that answers `auth status` and `repo view` from those fixtures. */
 const gh = (options: { readonly auth?: string | undefined; readonly repo?: string | undefined }) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("init.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    if (argv === "auth status") {
-      return Effect.succeed(
-        options.auth === undefined
-          ? fakeHandle({ exitCode: 1, stderr: said.loggedOut })
-          : fakeHandle({ stdout: options.auth })
-      )
-    }
-    if (argv === "repo view --json nameWithOwner") {
-      return Effect.succeed(
-        options.repo === undefined
-          ? fakeHandle({ exitCode: 1, stderr: said.noRepo })
-          : fakeHandle({ stdout: options.repo })
-      )
-    }
-    return Effect.die(`init.test: nothing stubbed for '${command.command} ${argv}'`)
+  layerStubbed({
+    stubs: [
+      (_, argv) =>
+        argv === "auth status"
+          ? options.auth === undefined
+            ? refused(said.loggedOut)
+            : wrote(options.auth)
+          : undefined,
+      (_, argv) =>
+        argv === "repo view --json nameWithOwner"
+          ? options.repo === undefined
+            ? refused(said.noRepo)
+            : wrote(options.repo)
+          : undefined
+    ]
   })
 
-const ghMissing = layerFake(() =>
-  Effect.fail(
-    PlatformError.systemError({
-      _tag: "NotFound",
-      module: "ChildProcess",
-      method: "spawn",
-      description: "spawn gh ENOENT"
-    })
-  )
-)
+/** A machine with no `gh` on it at all, which is not the same as one that refuses. */
+const ghMissing = layerStubbed({
+  stubs: [
+    () =>
+      Effect.fail(
+        PlatformError.systemError({
+          _tag: "NotFound",
+          module: "ChildProcess",
+          method: "spawn",
+          description: "spawn gh ENOENT"
+        })
+      )
+  ]
+})
 
-type StateLayer = Layer.Layer<
-  KeyValueStore.KeyValueStore,
-  Config.ConfigError | PlatformError.PlatformError,
-  FileSystem.FileSystem | Path.Path
->
-
-/**
- * Everything `dw-mc init` runs on, and nothing else: one fake spawn for `gh`,
- * a terminal that answers with `keys`, an in-memory configuration file and an
- * in-memory state directory.
- */
-const machine = (options: {
-  readonly spawner: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>
-  readonly keys?: ReadonlyArray<ReturnType<typeof key>> | undefined
-  readonly env?: Record<string, string | undefined> | undefined
-  readonly fileSystem?: Layer.Layer<FileSystem.FileSystem> | undefined
-  readonly state?: StateLayer | undefined
-}) =>
-  Layer_.provideMerge(
-    Layer_.mergeAll(ConfigStore.layerTest, options.state ?? Store.layerTest),
-    Layer_.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord(options.env ?? { HOME: "/home/dw" })),
-      options.fileSystem ?? FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      options.spawner,
-      layerScripted(options.keys ?? [])
-    )
-  )
-
-/**
- * Collects what the command printed, so a test can read the table it wrote.
- *
- * `Console` is a `Context.Reference` Effect means to be overridden this way, so
- * this is not a fourth test double beside the three seams.
- */
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
-
-const init = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(["init", ...argv])
+const init = (...argv: ReadonlyArray<string>) => run("init", ...argv)
 
 describe("dw-mc init", () => {
   it.effect("sets the machine up, registers the repository and says what it did", () => {
@@ -133,7 +83,7 @@ describe("dw-mc init", () => {
         },
         repos: { "dominikwozniak/dw-mc": {} }
       })
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
   })
 
   it.effect("writes the defaults out as YAML I can read and edit", () =>
@@ -166,7 +116,7 @@ describe("dw-mc init", () => {
           "repos:\n" +
           "  dominikwozniak/dw-mc: {}\n"
       )
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
   it.effect("stops with somewhere to get gh when gh is not installed", () =>
@@ -176,7 +126,7 @@ describe("dw-mc init", () => {
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "https://cli.github.com")
       assert.deepStrictEqual(yield* read, Option.none())
-    }).pipe(Effect.provide(machine({ spawner: ghMissing })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: ghMissing })), recording([]))
   )
 
   it.effect("stops with what to run when gh is logged out", () =>
@@ -186,7 +136,7 @@ describe("dw-mc init", () => {
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "gh auth login")
       assert.deepStrictEqual(yield* read, Option.none())
-    }).pipe(Effect.provide(machine({ spawner: gh({ repo: said.repo }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ repo: said.repo }) })), recording([]))
   )
 
   it.effect("stops on a configuration file that is there and is wrong", () =>
@@ -199,7 +149,7 @@ describe("dw-mc init", () => {
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
       assert.include(error.message, "commnad")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
   it.effect("sets the machine up outside a repository and registers nothing", () => {
@@ -210,7 +160,7 @@ describe("dw-mc init", () => {
 
       assert.strictEqual(printed[3], "repository  none here - run dw-mc init inside a repository to register it")
       assert.isUndefined(Option.getOrThrow(yield* read).repos)
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }) })), recording(printed))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn }) })), recording(printed))
   })
 
   it.effect("leaves the state directory behind on the first run", () => {
@@ -223,7 +173,7 @@ describe("dw-mc init", () => {
 
       yield* init().pipe(
         Effect.provide(
-          machine({
+          machineOf({
             spawner: gh({ auth: said.loggedIn, repo: said.repo }),
             env: { HOME: "/home/dw", XDG_STATE_HOME: xdg },
             fileSystem: NodeFileSystem.layer,
@@ -235,7 +185,7 @@ describe("dw-mc init", () => {
 
       assert.isTrue(yield* fs.exists(path.join(xdg, "dw-mc")))
       assert.strictEqual(printed[2], `state       ${path.join(xdg, "dw-mc")}`)
-    }).pipe(Effect.provide(Layer_.mergeAll(NodeFileSystem.layer, Path.layer)))
+    }).pipe(Effect.provide(Layer.mergeAll(NodeFileSystem.layer, Path.layer)))
   })
 })
 
@@ -267,7 +217,7 @@ describe("dw-mc init, run again", () => {
       assert.deepStrictEqual(settings.ci.ignore, ["advisory"])
       assert.deepStrictEqual(file.defaults, registered.defaults)
       assert.strictEqual(printed[3], "repository  dominikwozniak/dw-mc (already registered)")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording(printed))
   })
 
   it.effect("leaves the file alone when nothing was decided differently", () =>
@@ -280,7 +230,7 @@ describe("dw-mc init, run again", () => {
       yield* init()
 
       assert.strictEqual(yield* config.store.get("config.yaml"), byHand)
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
   it.effect("rewrites the file when a flag decides something differently", () =>
@@ -292,7 +242,7 @@ describe("dw-mc init, run again", () => {
       yield* init("--effort", "high")
 
       assert.notInclude(yield* config.store.get("config.yaml") ?? "", "my own note")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
   it.effect("leaves a defaults block that only set some of them exactly as it is", () =>
@@ -306,7 +256,7 @@ describe("dw-mc init, run again", () => {
       // What the file leaves out is inherited rather than reset, so a block I
       // wrote by hand is not filled in behind me.
       assert.strictEqual(settingsFor({ defaults }, "dominikwozniak/dw-mc").review.command, "/code-review")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
   it.effect("sends the base branch to the repository it was run in", () =>
@@ -318,7 +268,7 @@ describe("dw-mc init, run again", () => {
       const file = Option.getOrThrow(yield* read)
       assert.strictEqual(file.repos?.["dominikwozniak/dw-mc"]?.base, "main")
       assert.isUndefined(file.defaults?.base)
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn, repo: said.repo }) })), recording([]))
   )
 
   it.effect("sends the base branch to the defaults when there is no repository here", () =>
@@ -329,6 +279,6 @@ describe("dw-mc init, run again", () => {
 
       const file = Option.getOrThrow(yield* read)
       assert.strictEqual(file.defaults?.base, "main")
-    }).pipe(Effect.provide(machine({ spawner: gh({ auth: said.loggedIn }) })), recording([]))
+    }).pipe(Effect.provide(machineOf({ spawner: gh({ auth: said.loggedIn }) })), recording([]))
   )
 })

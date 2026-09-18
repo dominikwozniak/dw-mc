@@ -3,7 +3,7 @@ import { ConfigProvider, Effect, Layer, Path } from "effect"
 
 import { rebaseInPlace, rebaseOnto, standingWorktree, withWorktree } from "#adapters/git.ts"
 import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 
 const state = "/home/dw/.local/state/dw-mc"
 const clone = `${state}/repos/dominikwozniak/dw-mc.git`
@@ -44,55 +44,50 @@ const git = (options: {
   /** Whether the worktree has something staged, as `rerere` leaves it. */
   readonly staged?: boolean | undefined
 }) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("git.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    options.spawned.push(`${command.command} ${argv}`)
-
-    if (options.refuses?.argv === argv) {
-      return Effect.succeed(fakeHandle({ exitCode: 128, stderr: options.refuses.detail }))
-    }
-    if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
-      return options.cloned === true
-        ? Effect.succeed(fakeHandle({ stdout: "true\n" }))
-        : Effect.succeed(fakeHandle({ exitCode: 128, stderr: said.noRepository }))
-    }
-    if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
-      return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
-    }
-    if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/rebase/28`) {
-      return Effect.succeed(fakeHandle({ exitCode: 1 }))
-    }
-    if (argv.endsWith("diff --cached --quiet")) {
-      return options.staged === true ? Effect.succeed(fakeHandle({ exitCode: 1 })) : Effect.succeed(fakeHandle({}))
-    }
-    if (argv === `-C ${standing} diff --name-only --diff-filter=U`) {
-      return Effect.succeed(fakeHandle({ stdout: (options.unmerged ?? []).map((path) => `${path}\n`).join("") }))
-    }
-    if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/fix/28`) {
-      return options.ahead === undefined
-        ? Effect.succeed(fakeHandle({ exitCode: 1 }))
-        : Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
-    }
-    if (argv === `-C ${clone} rev-list --count refs/heads/dw-mc/fix/28 ^${head}`) {
-      return Effect.succeed(fakeHandle({ stdout: `${options.ahead ?? 0}\n` }))
-    }
-    if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/main`) {
-      return Effect.succeed(fakeHandle({ stdout: `${options.behind ?? 0}\n` }))
-    }
-    if (argv === `-C ${worktree} rev-parse HEAD`) {
-      return Effect.succeed(fakeHandle({ stdout: `${rebased}\n` }))
-    }
-    if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
-      return Effect.succeed(fakeHandle({ stdout: (options.unmerged ?? []).map((path) => `${path}\n`).join("") }))
-    }
-    if (argv === `-C ${clone} worktree list --porcelain`) {
-      const listed = (options.worktrees ?? []).map((directory) => `worktree ${directory}\nbare\n`)
-      return Effect.succeed(fakeHandle({ stdout: [`worktree ${clone}\nbare\n`, ...listed].join("\n") }))
-    }
-    return Effect.succeed(fakeHandle({}))
+  layerStubbed({
+    onSpawn: (command) => options.spawned.push(vectorOf(command)),
+    stubs: [
+      (_, argv) => {
+        if (options.refuses?.argv === argv) {
+          return refused(options.refuses.detail, 128)
+        }
+        if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
+          return options.cloned === true ? wrote("true\n") : refused(said.noRepository, 128)
+        }
+        if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
+          return wrote(`${head}\n`)
+        }
+        if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/rebase/28`) {
+          return refused("")
+        }
+        if (argv.endsWith("diff --cached --quiet")) {
+          return options.staged === true ? refused("") : wrote("")
+        }
+        if (argv === `-C ${standing} diff --name-only --diff-filter=U`) {
+          return wrote((options.unmerged ?? []).map((path) => `${path}\n`).join(""))
+        }
+        if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/fix/28`) {
+          return options.ahead === undefined ? refused("") : wrote(`${head}\n`)
+        }
+        if (argv === `-C ${clone} rev-list --count refs/heads/dw-mc/fix/28 ^${head}`) {
+          return wrote(`${options.ahead ?? 0}\n`)
+        }
+        if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/main`) {
+          return wrote(`${options.behind ?? 0}\n`)
+        }
+        if (argv === `-C ${worktree} rev-parse HEAD`) {
+          return wrote(`${rebased}\n`)
+        }
+        if (argv === `-C ${worktree} diff --name-only --diff-filter=U`) {
+          return wrote((options.unmerged ?? []).map((path) => `${path}\n`).join(""))
+        }
+        if (argv === `-C ${clone} worktree list --porcelain`) {
+          const listed = (options.worktrees ?? []).map((directory) => `worktree ${directory}\nbare\n`)
+          return wrote([`worktree ${clone}\nbare\n`, ...listed].join("\n"))
+        }
+        return wrote("")
+      }
+    ]
   })
 
 const machine = (spawner: Layer.Layer<never> | ReturnType<typeof git>, drawn?: Array<string>) =>
@@ -409,28 +404,28 @@ describe("rebasing a branch onto its base", () => {
     }).pipe(
       Effect.provide(
         machine(
-          layerFake((command) => {
-            if (command._tag !== "StandardCommand") {
-              return Effect.die("git.test: the fake was handed a piped command")
-            }
-            const argv = command.args.join(" ")
-            spawned.push(`${command.command} ${argv}`)
-            if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
-              return Effect.succeed(fakeHandle({ stdout: "true\n" }))
-            }
-            if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
-              return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
-            }
-            if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/main`) {
-              return Effect.succeed(fakeHandle({ stdout: "3\n" }))
-            }
-            if (argv === `-C ${worktree} rebase refs/heads/main`) {
-              return Effect.succeed(fakeHandle({ exitCode: 128, stderr: said.noIdentity }))
-            }
-            if (argv === `-C ${worktree} rebase --abort`) {
-              return Effect.succeed(fakeHandle({ exitCode: 128, stderr: said.noRebase }))
-            }
-            return Effect.succeed(fakeHandle({}))
+          layerStubbed({
+            onSpawn: (command) => spawned.push(vectorOf(command)),
+            stubs: [
+              (_, argv) => {
+                if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
+                  return wrote("true\n")
+                }
+                if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
+                  return wrote(`${head}\n`)
+                }
+                if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/main`) {
+                  return wrote("3\n")
+                }
+                if (argv === `-C ${worktree} rebase refs/heads/main`) {
+                  return refused(said.noIdentity, 128)
+                }
+                if (argv === `-C ${worktree} rebase --abort`) {
+                  return refused(said.noRebase, 128)
+                }
+                return wrote("")
+              }
+            ]
           })
         )
       )

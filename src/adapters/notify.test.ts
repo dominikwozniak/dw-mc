@@ -3,15 +3,12 @@ import { Effect, Layer, PlatformError } from "effect"
 
 import { announce } from "#adapters/notify.ts"
 import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { layerFake, layerStubbed, wrote } from "#adapters/spawner.ts"
 
 const desktop = (spawned: Array<ReadonlyArray<string>>) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("notify.test: the fake was handed a piped command")
-    }
-    spawned.push([command.command, ...command.args])
-    return Effect.succeed(fakeHandle({}))
+  layerStubbed({
+    onSpawn: (command) => spawned.push([command.command, ...command.args]),
+    stubs: [() => wrote("")]
   })
 
 const noDesktop = layerFake(() =>

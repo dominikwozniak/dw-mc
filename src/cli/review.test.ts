@@ -1,14 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, Layer, Option, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { DateTime, Effect, Option } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { builtInLauncher, ConfigStore, write } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
+import { builtInLauncher, write } from "#adapters/config.ts"
+import { prViewOf, viewFields } from "#adapters/gh.ts"
+import { recording } from "#adapters/picker.ts"
+import { fakeHandle, json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 import { storeFor, textStoreFor } from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import type { Finding } from "#domain/findings.ts"
 import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, reportKey, ReviewRun, runKey } from "#domain/review.ts"
@@ -122,111 +121,86 @@ const machine = (options: {
   /** What GitHub says changed since the head a previous run was recorded against. */
   readonly changed?: ReadonlyArray<string> | undefined
 }) => {
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("review.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    options.spawned.push(`${command.command} ${argv}`)
-    const json = (value: unknown) => Effect.succeed(fakeHandle({ stdout: JSON.stringify(value) }))
-    const turn = (fixture: Turn | undefined, stdout: string) =>
-      Effect.succeed(
-        fakeHandle({
-          stdout: fixture?.stdout ?? stdout,
-          stderr: fixture?.stderr,
-          exitCode: fixture?.exitCode
-        })
-      )
-
-    if (command.command === launching) {
-      if (command.args.includes("--resume")) {
-        return turn(options.findings, reported({ structured_output: structured }))
-      }
-      // A turn held to a schema is the whole review; a turn without one opens on
-      // a slash command, and its findings come on the turn that resumes it. That
-      // is the constraint itself, rather than which command the prompt names.
-      return command.args.includes("--json-schema")
-        ? turn(options.prompt, answered({}))
-        : turn(options.review, finished)
-    }
-    if (command.command === "osascript") {
-      return Effect.succeed(fakeHandle({}))
-    }
-    if (command.command === "git") {
-      if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
-        return Effect.succeed(fakeHandle({ stdout: "true\n" }))
-      }
-      if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
-        return Effect.succeed(fakeHandle({ stdout: `${head}\n` }))
-      }
-      return Effect.succeed(fakeHandle({}))
-    }
-
-    if (argv === "api user") {
-      return json({ login: me })
-    }
-    const search = /^search prs --author=@me --state=open --repo (\S+) --limit 100 --json number,repository$/.exec(argv)
-    if (search !== null) {
-      const found = options.repos?.[search[1] ?? ""] ?? []
-      return json(found.map((number) => ({ number, repository: { nameWithOwner: search[1] } })))
-    }
-    const detail = /^pr view (\d+) --repo (\S+) --json (\S+)$/.exec(argv)
-    if (detail !== null) {
-      const [, number = "", named = "", fields = ""] = detail
-      if (fields === "commits") {
-        return json({ commits: [] })
-      }
-      return json({
-        number: Number(number),
-        title,
-        url: `https://github.com/${named}/pull/${number}`,
-        isDraft: false,
-        headRefOid: head,
-        headRefName: "feat/28-a-branch",
-        baseRefName: "main",
-        author: { login: "dominikwozniak" },
-        isCrossRepository: false,
-        mergeable: "MERGEABLE",
-        reviewDecision: "APPROVED",
-        statusCheckRollup: [{ name: "Check", status: "COMPLETED", conclusion: "SUCCESS" }]
-      })
-    }
-    if (/^api repos\/\S+\/compare\/\S+$/.test(argv)) {
-      return options.changed === undefined
-        ? Effect.succeed(fakeHandle({ exitCode: 1, stderr: "gh: No commit found for SHA\n" }))
-        : json({ files: options.changed.map((filename) => ({ filename })) })
-    }
-    if (/^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)\?per_page=100$/.test(argv)) {
-      return json([])
-    }
-    return Effect.die(`review.test: nothing stubbed for '${command.command} ${argv}'`)
-  })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted([], options.drawn, options.columns)
+  const turn = (fixture: Turn | undefined, stdout: string) =>
+    Effect.succeed(
+      fakeHandle({ stdout: fixture?.stdout ?? stdout, stderr: fixture?.stderr, exitCode: fixture?.exitCode })
     )
-  )
-}
 
-/** Collects what the command printed, so a test can read what it said. */
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
+  return machineOf({
+    drawn: options.drawn,
+    columns: options.columns,
+    spawner: layerStubbed({
+      onSpawn: (command) => options.spawned.push(vectorOf(command)),
+      stubs: [
+        (command) => {
+          if (command.command !== launching) {
+            return undefined
+          }
+          if (command.args.includes("--resume")) {
+            return turn(options.findings, reported({ structured_output: structured }))
+          }
+          // A turn held to a schema is the whole review; a turn without one opens on
+          // a slash command, and its findings come on the turn that resumes it. That
+          // is the constraint itself, rather than which command the prompt names.
+          return command.args.includes("--json-schema")
+            ? turn(options.prompt, answered({}))
+            : turn(options.review, finished)
+        },
+        (command) => (command.command === "osascript" ? wrote("") : undefined),
+        (command, argv) => {
+          if (command.command !== "git") {
+            return undefined
+          }
+          if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
+            return wrote("true\n")
+          }
+          if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
+            return wrote(`${head}\n`)
+          }
+          return wrote("")
+        },
+        (_, argv) => (argv === "api user" ? json({ login: me }) : undefined),
+        (_, argv) => {
+          const search = /^search prs .* --repo (\S+) /.exec(argv)
+          const named = search?.[1] ?? ""
+          return search === null
+            ? undefined
+            : json((options.repos?.[named] ?? []).map((number) => ({ number, repository: { nameWithOwner: named } })))
+        },
+        (_, argv) => {
+          const detail = /^pr view (\d+) --repo (\S+) --json (\S+)$/.exec(argv)
+          if (detail === null) {
+            return undefined
+          }
+          const [, number = "", named = "", fields = ""] = detail
+          return fields === "commits"
+            ? json({ commits: [] })
+            : json(
+                prViewOf(named, {
+                  number: Number(number),
+                  title,
+                  headRefOid: head,
+                  headRefName: "feat/28-a-branch",
+                  reviewDecision: "APPROVED",
+                  statusCheckRollup: [{ name: "Check", status: "COMPLETED", conclusion: "SUCCESS" }]
+                })
+              )
+        },
+        (_, argv) =>
+          /^api repos\/\S+\/compare\/\S+$/.test(argv)
+            ? options.changed === undefined
+              ? refused("gh: No commit found for SHA\n")
+              : json({ files: options.changed.map((filename) => ({ filename })) })
+            : undefined,
+        (_, argv) =>
+          /^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)\?per_page=100$/.test(argv) ? json([]) : undefined
+      ]
+    })
   })
-  return Effect.provideService(Console.Console, console_)
 }
 
 const registered = (...repos: ReadonlyArray<string>) =>
   write({ repos: Object.fromEntries(repos.map((name) => [name, {}])) } satisfies ConfigFile)
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 const runOf = (head_: string) =>
   Effect.flatMap(storeFor("runs", ReviewRun), (runs) => runs.get(runKey(repo, 28, head_)))
@@ -335,7 +309,7 @@ describe("dw-mc review", () => {
       yield* Effect.ignore(run("review", "28"))
 
       assert.deepStrictEqual(spawned, [
-        `gh pr view 28 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,baseRefName,author,isCrossRepository,mergeable,reviewDecision,statusCheckRollup`,
+        `gh pr view 28 --repo ${repo} --json ${viewFields}`,
         `git -C ${clone} rev-parse --is-bare-repository`,
         `git -C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`,
         `git -C ${clone} rev-parse refs/dw-mc/pr/28`,
