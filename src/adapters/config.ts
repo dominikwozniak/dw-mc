@@ -1,5 +1,5 @@
 import type { Config, Types } from "effect"
-import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Predicate, Schema } from "effect"
 import { Yaml } from "effect/unstable/encoding"
 import { KeyValueStore } from "effect/unstable/persistence"
 
@@ -269,7 +269,7 @@ export class ConfigMalformed extends Schema.TaggedError<ConfigMalformed>()("Conf
   }
 }
 
-const reasonOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause))
+const reasonOf = (cause: unknown): string => (Predicate.isError(cause) ? cause.message : String(cause))
 
 /** The keys an earlier version had, read off a file loosely enough to find them. */
 const LegacySection = Schema.Struct({
