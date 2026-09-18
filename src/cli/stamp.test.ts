@@ -47,6 +47,7 @@ const swept = (over: Partial<Facts> = {}) =>
       newestHumanCommentAt: null,
       myLastCommentAt: null,
       myLastCommitAt: DateTime.makeUnsafe("2026-09-16T10:05:57Z"),
+      acknowledgedAt: null,
       reviewRunHead: head,
       blockingFindings: 0,
       ...over

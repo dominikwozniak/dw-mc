@@ -23,6 +23,7 @@ import { beating } from "#adapters/heartbeat.ts"
 import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { count } from "#cli/table.ts"
+import { acknowledgedAt } from "#domain/acknowledgement.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
 import type { Asked } from "#domain/coverage.ts"
@@ -136,6 +137,9 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
     newestHumanCommentAt,
     myLastCommentAt: newest(writtenBy(comments, me)),
     myLastCommitAt,
+    // Read every time, like the conflict record: it is mine and written between
+    // sweeps, so a quiet PR's previous facts know nothing of it.
+    acknowledgedAt: yield* acknowledgedAt(found.repo, found.number),
     ...reviewed
   }
 

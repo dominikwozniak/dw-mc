@@ -9,6 +9,7 @@ import { recording } from "#adapters/picker.ts"
 import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 import { storeFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
+import { acknowledge } from "#domain/acknowledgement.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Finding } from "#domain/findings.ts"
 import { ReviewRun, runKey } from "#domain/review.ts"
@@ -1075,6 +1076,55 @@ describe("the stamp in the table", () => {
       yield* run("status")
 
       assert.deepStrictEqual(printed, ["Ready", `  ◆ ${repo}#1 ✓ │ feat: one warning │ green, mergeable`])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+})
+
+describe("an acknowledgement in the table", () => {
+  const repo = "dominikwozniak/dw-mc"
+  const said = "2026-09-15T09:00:00Z"
+
+  it.effect("keeps a comment I acknowledged out of Needs me, across a push and a head change", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [
+      {
+        number: 1,
+        headRefOid: "aaaa",
+        comments: [comment("someone", said)],
+        commits: [commit(me, "2026-09-15T08:00:00Z")]
+      }
+    ]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("sweep")
+      yield* acknowledge(repo, 1, DateTime.makeUnsafe(said))
+
+      prs[0] = { ...prs[0], number: 1, headRefOid: "bbbb" }
+      printed.length = 0
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs review run")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("puts the PR back in Needs me when somebody says something after it", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, comments: [comment("someone", said)] }]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* acknowledge(repo, 1, DateTime.makeUnsafe(said))
+      yield* run("status")
+      assert.strictEqual(printed[0], "Needs review run")
+
+      prs[0] = { number: 1, comments: [comment("someone", said), comment("someone", "2026-09-15T10:00:00Z")] }
+      printed.length = 0
+      yield* run("status")
+
+      assert.strictEqual(printed[0], "Needs me")
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })
