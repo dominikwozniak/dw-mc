@@ -1,10 +1,10 @@
-import { Effect, Path, Result, Schema } from "effect"
+import { Effect, Result, Schema } from "effect"
 
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { capture } from "#adapters/spawner.ts"
 import type { Cut, Session } from "#adapters/store.ts"
-import { clonesIn, stateDirectory, under } from "#adapters/store.ts"
+import { cloneAt, cutAt, pullRef, sessionBranch, under } from "#adapters/store.ts"
 
 /** A `git` command that ran and refused, or would not run at all. */
 export class GitFailed extends Schema.TaggedError<GitFailed>()("GitFailed", {
@@ -73,12 +73,10 @@ const cutting =
     `${what} ${repo} · ${since}`
 
 const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: number, cut: Cut) {
-  const path = yield* Path.Path
-  const state = yield* stateDirectory
-  const clone = path.join(state, clonesIn, `${repo}.git`)
+  const clone = yield* cloneAt(repo)
 
   const bare = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", "--is-bare-repository"]), () => "")
-  const pullRef = `refs/dw-mc/pr/${number}`
+  const ref = pullRef(number)
 
   const head = yield* beating(cutting(bare === "true" ? "fetching" : "cloning", repo), (says) =>
     Effect.gen(function* () {
@@ -93,13 +91,13 @@ const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: 
         "--no-tags",
         "--force",
         "origin",
-        `+refs/pull/${number}/head:${pullRef}`,
+        `+refs/pull/${number}/head:${ref}`,
         "+refs/heads/*:refs/heads/*"
       ])
-      return yield* git(["-C", clone, "rev-parse", pullRef])
+      return yield* git(["-C", clone, "rev-parse", ref])
     })
   )
-  return { clone, head, directory: path.join(state, cut, repo, String(number)) }
+  return { clone, head, directory: yield* cutAt(cut, repo, number) }
 })
 
 /**
@@ -219,7 +217,7 @@ export const standingWorktree = Effect.fn("git.standingWorktree")(function* (
   session: Session
 ) {
   const { clone, directory, head } = yield* whereToCut(repo, number, under[session])
-  const branch = `dw-mc/${session}/${number}`
+  const branch = sessionBranch(session, number)
 
   const ahead = yield* aheadOf(clone, branch, head)
   if (ahead > 0) {
@@ -440,11 +438,9 @@ const clear: Holding = { _tag: "clear" }
  * pruned or moved by hand still leaves the branch holding the commits.
  */
 export const holding = Effect.fn("git.holding")(function* (repo: string, number: number, session: Session) {
-  const path = yield* Path.Path
-  const state = yield* stateDirectory
-  const clone = path.join(state, clonesIn, `${repo}.git`)
-  const directory = path.join(state, under[session], repo, String(number))
-  const branch = `dw-mc/${session}/${number}`
+  const clone = yield* cloneAt(repo)
+  const directory = yield* cutAt(under[session], repo, number)
+  const branch = sessionBranch(session, number)
 
   const changes = yield* Effect.orElseSucceed(git(["-C", directory, "status", "--porcelain"]), () => "")
   if (changes.trim() !== "") {
@@ -457,7 +453,7 @@ export const holding = Effect.fn("git.holding")(function* (repo: string, number:
     return clear
   }
 
-  const head = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", `refs/dw-mc/pr/${number}`]), () => "")
+  const head = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", pullRef(number)]), () => "")
   if (head.trim() === "") {
     return {
       _tag: "held",

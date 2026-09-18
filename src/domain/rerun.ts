@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect"
 
-import { prKey, storeFor } from "#adapters/store.ts"
+import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import { short } from "#domain/review.ts"
 import type { ChecksState } from "#terms/pr.ts"
 
@@ -99,13 +99,11 @@ export type Rerun = typeof Rerun.Type
  * The head a re-run was last asked for at on this pull request, or null where
  * none has been.
  *
- * A record this version cannot read is one another version of it wrote. Reading
- * it again as nothing costs a flaky pull request one extra re-run, where failing
- * here would cost the command outright.
+ * Forgetting one costs a flaky pull request one extra re-run.
  */
 export const rerunFor = Effect.fn("rerun.rerunFor")(function* (repo: string, number: number) {
   const store = yield* storeFor("reruns", Rerun)
-  const rerun = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Rerun>())
+  const rerun = yield* remembered(store.get(prKey(repo, number)))
   return Option.getOrNull(rerun)?.head ?? null
 })
 
