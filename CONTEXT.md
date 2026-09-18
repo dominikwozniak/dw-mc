@@ -22,7 +22,7 @@ One strand of a conversation: a review thread on a line of the diff, or the pull
 _Avoid_: discussion, note
 
 **Sweep**:
-One pass over every tracked PR that refreshes what mission control knows about it. A sweep only reads.
+One pass over the tracked PRs of the repositories it covers that refreshes what mission control knows about them. It covers the registered repository I stand in, the one `--repo` names, or every registered one: with `--all`, from the picker, or from anywhere else. A sweep only reads.
 _Avoid_: poll, refresh, sync
 
 **Picker**:

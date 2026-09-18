@@ -5,7 +5,7 @@ import { Paint } from "#adapters/paint.ts"
 import { prKey } from "#adapters/store.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { cells, heading, rule, titleWidth } from "#cli/row.ts"
-import { printTroubles, sweeping } from "#cli/sweep.ts"
+import { allFlag, askedOf, printLeftOut, printTroubles, repoFlag, sweeping } from "#cli/sweep.ts"
 import { table } from "#cli/table.ts"
 import type { Grouped } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
@@ -43,10 +43,10 @@ const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>, pa
  */
 export const status = Command.make(
   "status",
-  {},
+  { repo: repoFlag, all: allFlag },
   Effect.fn("status")(
-    function* () {
-      const report = yield* sweeping
+    function* (flags) {
+      const report = yield* sweeping(askedOf(flags))
 
       if (report.repos.length === 0) {
         yield* Console.log("No repositories registered. Run dw-mc init inside a repository to register it.")
@@ -60,8 +60,13 @@ export const status = Command.make(
       for (const line of lines(grouped, yield* stampedAmong(report.facts), yield* Paint)) {
         yield* Console.log(line)
       }
+      yield* printLeftOut(report)
       yield* printTroubles(report.troubles)
     },
     Effect.catchTag(userFacing, asUserError)
   )
-).pipe(Command.withDescription("Show which bucket every tracked pull request sits in, and which ones I have stamped"))
+).pipe(
+  Command.withDescription(
+    "Show which bucket every tracked pull request of the repository I stand in, or of every one, sits in, and which ones I have stamped"
+  )
+)

@@ -96,6 +96,8 @@ const github = (options: {
   readonly spawned?: Array<string> | undefined
   /** The workflows that are failing on the default branch as well. */
   readonly redOnDefaultBranch?: ReadonlyArray<string> | undefined
+  /** The repository the working directory is in; outside any, where it says nothing. */
+  readonly here?: string | undefined
 }) => {
   const found = (repo: string, number: string): Fixture | undefined => {
     const prs = options.repos[repo]
@@ -106,6 +108,12 @@ const github = (options: {
     onSpawn: (command) => options.spawned?.push(vectorOf(command)),
     stubs: [
       (_, argv) => (argv === "api user" ? json({ login: me }) : undefined),
+      (_, argv) =>
+        argv === "repo view --json nameWithOwner"
+          ? options.here === undefined
+            ? refused("failed to run git: fatal: not a git repository (or any of the parent directories): .git")
+            : json({ nameWithOwner: options.here })
+          : undefined,
       (_, argv) => {
         const search = /^search prs .* --repo (\S+) /.exec(argv)
         if (search === null) {
@@ -564,7 +572,7 @@ describe("dw-mc sweep", () => {
       for (const argv of spawned) {
         // `gh api` defaults to GET, `gh pr view` and `gh search` cannot write,
         // and a write would need one of the flags or verbs named here.
-        assert.match(argv, /^gh (api|search prs|pr view) /)
+        assert.match(argv, /^gh (api|search prs|pr view|repo view) /)
         assert.notMatch(argv, /(--method|-X|--field|-f |--input)/)
       }
     }).pipe(Effect.provide(machine(spawner)), recording([]))
@@ -671,6 +679,146 @@ describe("dw-mc sweep", () => {
         "  dominikwozniak/gone  gh search prs failed: could not resolve to a Repository"
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+})
+
+describe("a sweep narrowed to one repository", () => {
+  const two = {
+    "dominikwozniak/dw-mc": [{ number: 1, title: "feat: here", mergeable: "CONFLICTING" }],
+    "byarcadia-app/grateful-me-app-v2": [{ number: 105, title: "feat: elsewhere", mergeable: "CONFLICTING" }]
+  }
+  const searched = (spawned: ReadonlyArray<string>) =>
+    spawned.filter((argv) => argv.startsWith("gh search")).map((argv) => /--repo (\S+)/.exec(argv)?.[1] ?? "")
+
+  it.effect("shows only the registered repository I stand in, and says --all shows the rest", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, here: "dominikwozniak/dw-mc", repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, [
+        "Needs me",
+        "  ● dominikwozniak/dw-mc#1 │ feat: here │ merge conflict",
+        "",
+        "Only dominikwozniak/dw-mc. --all covers all 2 registered repositories."
+      ])
+      // The repository it leaves out is never asked about at all.
+      assert.deepStrictEqual(searched(spawned), ["dominikwozniak/dw-mc"])
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
+  })
+
+  it.effect("shows every registered repository with --all, wherever I stand", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, here: "dominikwozniak/dw-mc", repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      yield* run("status", "--all")
+
+      assert.strictEqual(printed.length, 3)
+      assert.deepStrictEqual(searched(spawned).toSorted(), ["byarcadia-app/grateful-me-app-v2", "dominikwozniak/dw-mc"])
+      // Asking for all of them leaves nothing for the working directory to decide.
+      assert.isFalse(spawned.includes("gh repo view --json nameWithOwner"))
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
+  })
+
+  it.effect("shows every registered repository where I stand in none of them", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, here: "someone/else", repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      yield* run("status")
+
+      assert.strictEqual(printed.length, 3)
+      assert.strictEqual(searched(spawned).length, 2)
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
+  })
+
+  it.effect("shows the repository --repo names, from outside any repository", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      yield* run("status", "--repo", "byarcadia-app/grateful-me-app-v2")
+
+      assert.include(printed[1] ?? "", "byarcadia-app/grateful-me-app-v2#105")
+      assert.deepStrictEqual(searched(spawned), ["byarcadia-app/grateful-me-app-v2"])
+      assert.isFalse(spawned.includes("gh repo view --json nameWithOwner"))
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
+  })
+
+  it.effect("refuses a repository --repo names that is not registered, before it reads anything", () => {
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      const error = yield* Effect.flip(run("status", "--repo", "someone/else"))
+
+      assert.include(String(error.cause), "someone/else is not registered")
+      assert.include(String(error.cause), "dominikwozniak/dw-mc")
+      assert.deepStrictEqual(searched(spawned), [])
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording([]))
+  })
+
+  it.effect("refuses --repo and --all together", () => {
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      const error = yield* Effect.flip(run("status", "--repo", "dominikwozniak/dw-mc", "--all"))
+
+      assert.include(String(error.cause), "--all")
+    }).pipe(Effect.provide(machine(github({ repos: two }), undefined, 0)), recording([]))
+  })
+
+  it.effect("says nothing of the rest where only one repository is registered", () => {
+    const printed: Array<string> = []
+    const spawner = github({ here: "dominikwozniak/dw-mc", repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, ["Needs me", "  ● dominikwozniak/dw-mc#1 │ feat: here │ merge conflict"])
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
+  })
+
+  it.effect("sweeps only the registered repository I stand in, and counts only what it covered", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, here: "dominikwozniak/dw-mc", repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      yield* run("sweep")
+
+      assert.deepStrictEqual(printed, [
+        "Swept 1 pull request across 1 repository",
+        "",
+        "Only dominikwozniak/dw-mc. --all covers all 2 registered repositories."
+      ])
+      assert.deepStrictEqual(searched(spawned), ["dominikwozniak/dw-mc"])
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
+  })
+
+  it.effect("sweeps the repository --repo names", () => {
+    const printed: Array<string> = []
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, here: "dominikwozniak/dw-mc", repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      yield* run("sweep", "--repo", "byarcadia-app/grateful-me-app-v2")
+
+      assert.deepStrictEqual(searched(spawned), ["byarcadia-app/grateful-me-app-v2"])
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
   })
 })
 
@@ -850,6 +998,7 @@ describe("a red CI, classified", () => {
         `gh pr view 1 --repo ${repo} --json commits`,
         `gh pr view 1 --repo ${repo} --json files`,
         `gh pr view 1 --repo ${repo} --json ${viewFields}`,
+        "gh repo view --json nameWithOwner",
         `gh repo view ${repo} --json defaultBranchRef`,
         `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`,
         `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`

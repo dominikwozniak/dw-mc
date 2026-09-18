@@ -1,6 +1,6 @@
 import type { DateTime } from "effect"
 import { Console, Effect, Option } from "effect"
-import { Command } from "effect/unstable/cli"
+import { CliError, Command, Flag } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 
 import { rollupState } from "#adapters/ci.ts"
@@ -14,6 +14,7 @@ import {
   prReviews,
   prView,
   reviewDecisionOf,
+  currentRepo,
   searchPrs,
   viewer
 } from "#adapters/gh.ts"
@@ -24,6 +25,8 @@ import { asUserError, userFacing } from "#cli/exit.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
+import type { Asked } from "#domain/coverage.ts"
+import { asksWhereIAm, covered } from "#domain/coverage.ts"
 import { flakyReason } from "#domain/flaky.ts"
 import { newest } from "#domain/moment.ts"
 import { isQuiet, pulseOf } from "#domain/quiet.ts"
@@ -36,12 +39,24 @@ export interface Trouble {
   readonly detail: string
 }
 
-/** What one pass over every tracked PR came back with. */
+/** What one pass over the tracked PRs of the repositories it covered came back with. */
 export interface Report {
   readonly repos: ReadonlyArray<string>
+  /** How many registered repositories the pass left out, which a narrowed table owes me a word about. */
+  readonly leftOut: number
   readonly facts: ReadonlyArray<Facts>
   readonly troubles: ReadonlyArray<Trouble>
 }
+
+/** What the picker asks a sweep for: every registered repository, wherever I stand. */
+export const everything: Asked = { repo: undefined, all: true }
+
+/** The repository I stand in, or none where the working directory is not one. */
+const whereIAm = currentRepo.pipe(
+  Effect.asSome,
+  Effect.catchTag("NoRepository", () => Effect.succeedNone),
+  Effect.map(Option.getOrUndefined)
+)
 
 type Store = KeyValueStore.SchemaStore<typeof FactsSchema>
 
@@ -176,7 +191,8 @@ const saying =
     ].join(" · ")
 
 /**
- * One pass over every tracked PR, and nothing else: a sweep only ever reads.
+ * One pass over the tracked PRs of the repositories `asked` covers, and nothing
+ * else: a sweep only ever reads.
  *
  * Every repository and every pull request is read on its own, so one of them
  * failing costs me its rows and leaves the rest of the table standing. What
@@ -186,11 +202,16 @@ const saying =
  * that is worth saying is the caller's, which is why it is handed a count and
  * not a sentence.
  */
-export const sweep = Effect.fn("sweep")(function* (report: (swept: Swept) => Effect.Effect<void>) {
+export const sweep = Effect.fn("sweep")(function* (asked: Asked, report: (swept: Swept) => Effect.Effect<void>) {
   const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-  const repos = Object.keys(file.repos ?? {}).toSorted()
+  const registered = Object.keys(file.repos ?? {}).toSorted()
+  const coverage = covered(asked, asksWhereIAm(asked, registered) ? yield* whereIAm : undefined, registered)
+  if (coverage._tag === "refused") {
+    return yield* new CliError.UserError({ cause: coverage.why })
+  }
+  const { repos, leftOut } = coverage
   if (repos.length === 0) {
-    return { repos, facts: [], troubles: [] } satisfies Report
+    return { repos, leftOut, facts: [], troubles: [] } satisfies Report
   }
 
   const store = yield* storeFor("prs", FactsSchema)
@@ -232,6 +253,7 @@ export const sweep = Effect.fn("sweep")(function* (report: (swept: Swept) => Eff
 
   return {
     repos,
+    leftOut,
     facts: swept.got,
     troubles: [...found.troubles, ...swept.troubles]
   } satisfies Report
@@ -244,12 +266,45 @@ export const sweep = Effect.fn("sweep")(function* (report: (swept: Swept) => Eff
  * three times over. It gives the heartbeat no aside, so a piped `dw-mc status`
  * prints exactly what it printed before there was a heartbeat at all.
  */
-export const sweeping = beating(
-  // Before the config is read there is no total to count towards, and a zero
-  // there would be a number the sweep has not earned yet.
-  (since) => `sweeping · ${since}`,
-  (says) => sweep((swept) => says(saying(swept)))
+export const sweeping = (asked: Asked) =>
+  beating(
+    // Before the config is read there is no total to count towards, and a zero
+    // there would be a number the sweep has not earned yet.
+    (since) => `sweeping · ${since}`,
+    (says) => sweep(asked, (swept) => says(saying(swept)))
+  )
+
+/** `--repo`, for a command that sweeps: the one registered repository to cover. */
+export const repoFlag = Flag.String("repo").pipe(
+  Flag.withDescription("Cover this registered repository only, as owner/name, wherever I stand"),
+  Flag.optional
 )
+
+/** `--all`, for a command that sweeps: every registered repository, even from inside one. */
+export const allFlag = Flag.Boolean("all").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Cover every registered repository, and not only the one I stand in")
+)
+
+/** What the two flags ask a sweep to cover. */
+export const askedOf = (flags: { readonly repo: Option.Option<string>; readonly all: boolean }): Asked => ({
+  repo: Option.getOrUndefined(flags.repo),
+  all: flags.all
+})
+
+/**
+ * The word a narrowed report owes me about what it left out, so a table of one
+ * repository is not read as the whole picture.
+ */
+export const printLeftOut = Effect.fn("sweep.printLeftOut")(function* (report: Report) {
+  if (report.leftOut === 0) {
+    return
+  }
+  yield* Console.log("")
+  yield* Console.log(
+    `Only ${report.repos.join(", ")}. --all covers all ${report.repos.length + report.leftOut} registered repositories.`
+  )
+})
 
 /** What a sweep could not read, under a heading, so the table above it stands alone. */
 export const printTroubles = Effect.fn("sweep.printTroubles")(function* (troubles: ReadonlyArray<Trouble>) {
@@ -264,24 +319,29 @@ export const printTroubles = Effect.fn("sweep.printTroubles")(function* (trouble
 })
 
 /**
- * Refreshes what mission control knows about every tracked PR.
+ * Refreshes what mission control knows about the tracked PRs it covers.
  *
  * `dw-mc status` does this too, so this command is for the pass on its own:
  * warming the state directory, or seeing what GitHub would not answer.
  */
 export const sweepCommand = Command.make(
   "sweep",
-  {},
+  { repo: repoFlag, all: allFlag },
   Effect.fn("sweep.command")(
-    function* () {
-      const report = yield* sweeping
+    function* (flags) {
+      const report = yield* sweeping(askedOf(flags))
       yield* Console.log(
         report.repos.length === 0
           ? "No repositories registered. Run dw-mc init inside a repository to register it."
           : `Swept ${count(report.facts.length, "pull request")} across ${repositories(report.repos.length)}`
       )
+      yield* printLeftOut(report)
       yield* printTroubles(report.troubles)
     },
     Effect.catchTag(userFacing, asUserError)
   )
-).pipe(Command.withDescription("Refresh what mission control knows about every tracked pull request"))
+).pipe(
+  Command.withDescription(
+    "Refresh what mission control knows about the tracked pull requests of the repository I stand in, or of every one"
+  )
+)
