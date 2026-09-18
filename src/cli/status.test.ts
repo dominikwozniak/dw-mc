@@ -253,7 +253,7 @@ describe("dw-mc status", () => {
 
       // A pipe reads what it read before there was a heartbeat at all.
       assert.deepStrictEqual(drawn, [])
-      assert.deepStrictEqual(printed, ["Needs me", "  ● dominikwozniak/dw-mc#1 │ feat: conflicted │ merge conflict"])
+      assert.deepStrictEqual(printed, ["Needs me", "+ ● dominikwozniak/dw-mc#1 │ feat: conflicted │ merge conflict"])
     }).pipe(Effect.provide(machine(spawner, drawn, 0)), recording(printed))
   })
 
@@ -275,11 +275,11 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs me",
-        "  ● dominikwozniak/dw-mc#2 │ feat: conflicted            │ merge conflict",
+        "+ ● dominikwozniak/dw-mc#2 │ feat: conflicted            │ merge conflict",
         "",
         "Needs review run",
-        "  ◐ dominikwozniak/dw-mc#1 │ feat: ready to merge        │ no review run on this head",
-        "  ◐ dominikwozniak/dw-mc#3 │ feat: waiting on a reviewer │ no review run on this head"
+        "+ ◐ dominikwozniak/dw-mc#1 │ feat: ready to merge        │ no review run on this head",
+        "+ ◐ dominikwozniak/dw-mc#3 │ feat: waiting on a reviewer │ no review run on this head"
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -359,7 +359,7 @@ describe("dw-mc status", () => {
       yield* run("status")
 
       assert.deepStrictEqual(
-        printed.filter((line) => line.startsWith("  ")).map((line) => line.split(" │ ").at(-1)),
+        printed.filter((line) => line.includes(" │ ")).map((line) => line.split(" │ ").at(-1)),
         ["CI is red", "changes requested", "a comment I have not answered"]
       )
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
@@ -465,7 +465,7 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        "  ◐ dominikwozniak/dw-mc#7 (draft) │ feat: not yet │ no review run on this head"
+        "+ ◐ dominikwozniak/dw-mc#7 (draft) │ feat: not yet │ no review run on this head"
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -485,7 +485,7 @@ describe("dw-mc status", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        "  ◐ dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head",
+        "+ ◐ dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head",
         "",
         "Could not load",
         "  dominikwozniak/gone  gh search prs failed: could not resolve to a Repository"
@@ -508,7 +508,7 @@ describe("dw-mc status", () => {
       yield* registered("dominikwozniak/dw-mc")
       yield* run("status")
 
-      assert.include(printed, "  ◐ dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head")
+      assert.include(printed, "+ ◐ dominikwozniak/dw-mc#1 │ feat: fine │ no review run on this head")
       assert.include(printed, "  dominikwozniak/dw-mc#2  gh pr view failed: GraphQL: Something went wrong")
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -702,7 +702,7 @@ describe("a sweep narrowed to one repository", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs me",
-        "  ● dominikwozniak/dw-mc#1 │ feat: here │ merge conflict",
+        "+ ● dominikwozniak/dw-mc#1 │ feat: here │ merge conflict",
         "",
         "Only dominikwozniak/dw-mc. --all covers all 2 registered repositories."
       ])
@@ -787,7 +787,7 @@ describe("a sweep narrowed to one repository", () => {
       yield* registered("dominikwozniak/dw-mc")
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Needs me", "  ● dominikwozniak/dw-mc#1 │ feat: here │ merge conflict"])
+      assert.deepStrictEqual(printed, ["Needs me", "+ ● dominikwozniak/dw-mc#1 │ feat: here │ merge conflict"])
     }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
   })
 
@@ -829,7 +829,7 @@ describe("a red CI, classified", () => {
 
   /** The reason column of every row, which is where a verdict shows up. */
   const reasons = (printed: ReadonlyArray<string>) =>
-    printed.filter((line) => line.startsWith("  ")).map((line) => line.split(" │ ").at(-1))
+    printed.filter((line) => line.includes(" │ ")).map((line) => line.split(" │ ").at(-1))
 
   it.effect("keeps a PR out of Needs me when the same workflow is red on the default branch", () => {
     const printed: Array<string> = []
@@ -1031,10 +1031,10 @@ describe("the stamp in the table", () => {
 
       assert.deepStrictEqual(printed, [
         "Needs review run",
-        `  ◐ ${repo}#2   │ feat: unreviewed │ no review run on this head`,
+        `+ ◐ ${repo}#2   │ feat: unreviewed │ no review run on this head`,
         "",
         "Ready",
-        `  ◆ ${repo}#1 ✓ │ feat: stamped    │ green, mergeable`
+        `+ ◆ ${repo}#1 ✓ │ feat: stamped    │ green, mergeable`
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
@@ -1049,7 +1049,7 @@ describe("the stamp in the table", () => {
       yield* withdraw(repo, 1, head)
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Ready", `  ◆ ${repo}#1 │ feat: stamped │ green, mergeable`])
+      assert.deepStrictEqual(printed, ["Ready", `+ ◆ ${repo}#1 │ feat: stamped │ green, mergeable`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
@@ -1062,7 +1062,7 @@ describe("the stamp in the table", () => {
       yield* reviewed(repo, 1, head, [warning])
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Needs me", `  ● ${repo}#1 │ feat: one warning │ 1 blocking finding`])
+      assert.deepStrictEqual(printed, ["Needs me", `+ ● ${repo}#1 │ feat: one warning │ 1 blocking finding`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
@@ -1075,7 +1075,7 @@ describe("the stamp in the table", () => {
       yield* reviewed(repo, 1, head, [warning])
       yield* run("status")
 
-      assert.deepStrictEqual(printed, ["Ready", `  ◆ ${repo}#1 ✓ │ feat: one warning │ green, mergeable`])
+      assert.deepStrictEqual(printed, ["Ready", `+ ◆ ${repo}#1 ✓ │ feat: one warning │ green, mergeable`])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })
@@ -1125,6 +1125,128 @@ describe("an acknowledgement in the table", () => {
       yield* run("status")
 
       assert.strictEqual(printed[0], "Needs me")
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+})
+
+describe("what moved since I last looked", () => {
+  const repo = "dominikwozniak/dw-mc"
+
+  it.effect("marks nothing the second time, where nothing happened in between", () => {
+    const printed: Array<string> = []
+    const spawner = github({ repos: { [repo]: [{ number: 1, title: "feat: still" }] } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+      assert.deepStrictEqual(printed, ["Needs review run", `+ ◐ ${repo}#1 │ feat: still │ no review run on this head`])
+
+      printed.length = 0
+      yield* run("status")
+      assert.deepStrictEqual(printed, ["Needs review run", `  ◐ ${repo}#1 │ feat: still │ no review run on this head`])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("says where a row came from above the group, and marks the row", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [
+      { number: 1, title: "feat: went red" },
+      { number: 2, title: "feat: sat still", mergeable: "CONFLICTING" }
+    ]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      prs[0] = { number: 1, title: "feat: went red", rollup: [check("Check", "FAILURE")], log: "expected 3 to be 4" }
+      printed.length = 0
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, [
+        "Needs me",
+        `  ↳ ${repo}#1 from Needs review run: CI green → red`,
+        `* ● ${repo}#1 │ feat: went red  │ CI is red`,
+        `  ● ${repo}#2 │ feat: sat still │ merge conflict`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("says what moved a row that stayed in its bucket", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, title: "feat: two things", mergeable: "CONFLICTING" }]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      prs[0] = { ...prs[0], number: 1, reviewDecision: "CHANGES_REQUESTED" }
+      printed.length = 0
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, [
+        "Needs me",
+        `  ↳ ${repo}#1: no review decision → changes requested`,
+        `* ● ${repo}#1 │ feat: two things │ merge conflict`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("marks a pull request it has never shown apart from one that moved", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, title: "feat: known" }]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      prs.push({ number: 2, title: "feat: opened since" })
+      printed.length = 0
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, [
+        "Needs review run",
+        `  ◐ ${repo}#1 │ feat: known        │ no review run on this head`,
+        `+ ◐ ${repo}#2 │ feat: opened since │ no review run on this head`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("keeps what moved marked across a sweep, which shows me nothing", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, title: "feat: conflicted later" }]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      prs[0] = { number: 1, title: "feat: conflicted later", mergeable: "CONFLICTING" }
+      yield* run("sweep")
+      printed.length = 0
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, [
+        "Needs me",
+        `  ↳ ${repo}#1 from Needs review run: mergeable → conflicting`,
+        `* ● ${repo}#1 │ feat: conflicted later │ merge conflict`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("leaves a pull request never shown unseen after a sweep", () => {
+    const printed: Array<string> = []
+    const spawner = github({ repos: { [repo]: [{ number: 1, title: "feat: swept" }] } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("sweep")
+      printed.length = 0
+      yield* run("status")
+
+      assert.strictEqual(printed[1], `+ ◐ ${repo}#1 │ feat: swept │ no review run on this head`)
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })

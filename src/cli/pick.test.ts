@@ -471,3 +471,35 @@ describe("the picker's stamp", () => {
     )
   })
 })
+
+describe("what moved since I last looked, in the picker", () => {
+  it.effect("marks a pull request it has never shown", () => {
+    const drawn: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* run()
+
+      assert.include(frame(drawn), "+ ◐ Needs review run │ dominikwozniak/dw-mc#1")
+    }).pipe(Effect.provide(machine({ prs: [{ number: 1 }], keys: [], drawn })), recording([]))
+  })
+
+  it.effect("counts as having shown me the rows, even where I pick none of them", () => {
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+      yield* run()
+      // --all, because the picker covers every registered repository wherever I stand.
+      yield* run("status", "--all")
+
+      assert.deepStrictEqual(printed, [
+        "Needs review run",
+        `  ◐ ${repo}#1 │ feat: seen in the picker │ no review run on this head`
+      ])
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1, title: "feat: seen in the picker" }], keys: [] })),
+      recording(printed)
+    )
+  })
+})

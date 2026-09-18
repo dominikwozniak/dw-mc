@@ -25,6 +25,10 @@ _Avoid_: discussion, note
 My local mark that I have read a tracked PR's conversation as far as its newest comment, and that nothing in it is mine to answer. It counts beside my last comment and my last commit as my answer to a comment, and a newer comment takes it back. It is about the conversation rather than the code, so a head change leaves it standing, and it never lifts changes requested. It lives only on this machine.
 _Avoid_: read receipt, dismissal, mute
 
+**Watermark**:
+The moment a tracked PR's row was last shown to me, and what the row said then. `dw-mc status` and the picker move it and a sweep does not, because a sweep shows me nothing. A row whose bucket or whose facts moved since is marked, and a PR never shown is marked apart, as new. It is kept apart from the facts and from the acknowledgement: printing a row is not reading its conversation.
+_Avoid_: last seen, unread, diff
+
 **Sweep**:
 One pass over the tracked PRs of the repositories it covers that refreshes what mission control knows about them. It covers the registered repository I stand in, the one `--repo` names, or every registered one: with `--all`, from the picker, or from anywhere else. A sweep only reads.
 _Avoid_: poll, refresh, sync

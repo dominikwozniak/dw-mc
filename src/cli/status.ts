@@ -4,12 +4,26 @@ import { Command } from "effect/unstable/cli"
 import { Paint } from "#adapters/paint.ts"
 import { prKey } from "#adapters/store.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
-import { cells, heading, rule, titleWidth } from "#cli/row.ts"
+import { cells, gutter, heading, rule, titleWidth } from "#cli/row.ts"
 import { allFlag, askedOf, printLeftOut, printTroubles, repoFlag, sweeping } from "#cli/sweep.ts"
 import { table } from "#cli/table.ts"
-import type { Grouped } from "#domain/bucket.ts"
+import type { Grouped, Placed } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 import { stampedAmong } from "#domain/stamp.ts"
+import type { Since } from "#domain/watermark.ts"
+import { sinceAmong, watermark } from "#domain/watermark.ts"
+
+const keyOf = (placed: Placed): string => prKey(placed.facts.repo, placed.facts.number)
+
+/** What moved a row, said on its own line above the group it now sits in. */
+const movement = (placed: Placed, since: Since): ReadonlyArray<string> => {
+  if (since._tag !== "moved") {
+    return []
+  }
+  const from = since.from === undefined ? "" : ` from ${heading[since.from]}`
+  const what = since.what.length === 0 ? "" : `: ${since.what.join(", ")}`
+  return [`  ↳ ${placed.facts.repo}#${placed.facts.number}${from}${what}`]
+}
 
 /**
  * Every tracked PR under the bucket it sits in, in the order I act on them.
@@ -18,13 +32,23 @@ import { stampedAmong } from "#domain/stamp.ts"
  * the whole table rather than restarting under each heading, and they are ruled
  * apart: three columns of prose run into one another without a rule, and the
  * middle one is a commit subject that can end in anything.
+ *
+ * What moved since I last looked is marked in the gutter the rows are indented
+ * by, so a mark costs no column and a row with none reads as it always did.
  */
-const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>, paint: Paint): ReadonlyArray<string> => {
+const lines = (
+  grouped: ReadonlyArray<Grouped>,
+  stamped: ReadonlySet<string>,
+  seen: ReadonlyMap<string, Since>,
+  paint: Paint
+): ReadonlyArray<string> => {
+  const sinceOf = (placed: Placed): Since => seen.get(keyOf(placed)) ?? { _tag: "unseen" }
   const rows = table(
     grouped.flatMap((it) =>
-      it.placed.map((placed) =>
-        cells(placed, stamped.has(prKey(placed.facts.repo, placed.facts.number)), titleWidth, paint, "marker")
-      )
+      it.placed.map((placed) => {
+        const [lead = "", ...rest] = cells(placed, stamped.has(keyOf(placed)), titleWidth, paint, "marker")
+        return [`${gutter[sinceOf(placed)._tag]} ${lead}`, ...rest]
+      })
     ),
     rule
   )
@@ -32,7 +56,12 @@ const lines = (grouped: ReadonlyArray<Grouped>, stamped: ReadonlySet<string>, pa
   return grouped.flatMap((it, index) => {
     const mine = rows.slice(taken, taken + it.placed.length)
     taken += it.placed.length
-    return [...(index === 0 ? [] : [""]), heading[it.bucket], ...mine.map((row) => `  ${row}`)]
+    return [
+      ...(index === 0 ? [] : [""]),
+      heading[it.bucket],
+      ...it.placed.flatMap((placed) => movement(placed, sinceOf(placed))),
+      ...mine
+    ]
   })
 }
 
@@ -57,9 +86,12 @@ export const status = Command.make(
       if (grouped.length === 0) {
         yield* Console.log("No open pull requests.")
       }
-      for (const line of lines(grouped, yield* stampedAmong(report.facts), yield* Paint)) {
+      const shown = grouped.flatMap((it) => it.placed)
+      const seen = yield* sinceAmong(shown)
+      for (const line of lines(grouped, yield* stampedAmong(report.facts), seen, yield* Paint)) {
         yield* Console.log(line)
       }
+      yield* watermark(shown)
       yield* printLeftOut(report)
       yield* printTroubles(report.troubles)
     },
@@ -67,6 +99,6 @@ export const status = Command.make(
   )
 ).pipe(
   Command.withDescription(
-    "Show which bucket every tracked pull request of the repository I stand in, or of every one, sits in, and which ones I have stamped"
+    "Show which bucket every tracked pull request of the repository I stand in, or of every one, sits in, which ones I have stamped, and what moved since I last looked"
   )
 )

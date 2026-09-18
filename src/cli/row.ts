@@ -1,6 +1,7 @@
 import type { Paint } from "#adapters/paint.ts"
 import { truncate } from "#cli/table.ts"
 import type { Bucket, Placed } from "#domain/bucket.ts"
+import type { Since } from "#domain/watermark.ts"
 
 /**
  * How one tracked PR is written down, wherever it is written down.
@@ -43,6 +44,15 @@ export const marker: Record<Bucket, string> = {
   "waiting-on-others": "○",
   ready: "◆"
 }
+
+/**
+ * What sits in front of a row: `+` for a pull request never shown, `*` for one
+ * that moved since it was last shown, and a blank for one that did neither.
+ *
+ * It is one character from the part of Unicode every font has, for the reason
+ * the marker is, and it is not coloured: the bucket is what the colour says.
+ */
+export const gutter: Record<Since["_tag"], string> = { unseen: "+", moved: "*", still: " " }
 
 /** The colour a bucket is said in: red is mine, yellow is next, green is done, dim is not my turn. */
 export const tint = (paint: Paint, bucket: Bucket): ((text: string) => string) =>
