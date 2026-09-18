@@ -10,12 +10,14 @@ import { asUserError, userFacing } from "#cli/exit.ts"
 import { cells, rule } from "#cli/row.ts"
 import { everything, printTroubles, sweeping } from "#cli/sweep.ts"
 import { table, truncate, visible } from "#cli/table.ts"
-import type { Facts } from "#domain/bucket.ts"
+import type { Facts, Placed } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 import type { Offer, Standing } from "#domain/pick.ts"
 import { actionsFor, argvFor } from "#domain/pick.ts"
 import { rerunFor } from "#domain/rerun.ts"
 import { stampedAmong } from "#domain/stamp.ts"
+import type { Since } from "#domain/watermark.ts"
+import { markShown, sinceShown } from "#domain/watermark.ts"
 
 /** A title cut this short says nothing, so a row that tight loses the column instead. */
 const shortest = 12
@@ -45,10 +47,11 @@ const screenRoom = (screen: number, paint: Paint): number =>
  * The cells come from there rather than being built again here, so the list I
  * pick from and the table I read are the same rows with the bucket moved onto
  * each of them. A prompt has no headings to group under, so the bucket is named
- * on every row; the rows are still in the order the buckets are acted on.
+ * on every row; the rows are still in the order the buckets are acted on. The
+ * gutter in front says what moved since I last looked, as it does in the table.
  */
-const cellsOf = ({ placed, stamped }: Standing, room: number, paint: Paint): ReadonlyArray<string> =>
-  cells(placed, stamped, room, paint, "named")
+const cellsOf = ({ placed, stamped }: Standing, since: Since, room: number, paint: Paint): ReadonlyArray<string> =>
+  cells(placed, stamped, since, room, paint, "named")
 
 /**
  * Every tracked PR as something to pick, aligned down the whole list.
@@ -62,17 +65,18 @@ const cellsOf = ({ placed, stamped }: Standing, room: number, paint: Paint): Rea
  */
 const choicesOf = (
   standings: ReadonlyArray<Standing>,
+  sinceOf: (placed: Placed) => Since,
   screen: number,
   paint: Paint
 ): ReadonlyArray<Prompt.SelectChoice<Standing>> => {
-  const measured = standings.map((it) => cellsOf(it, Number.POSITIVE_INFINITY, paint))
+  const measured = standings.map((it) => cellsOf(it, sinceOf(it.placed), Number.POSITIVE_INFINITY, paint))
   const widest = (index: number) => Math.max(...measured.map((row) => visible(row[index] ?? "")))
   const room = screenRoom(screen, paint) - (widest(0) + widest(1) + widest(3)) - rule.length * 3
   const told = room >= shortest
 
   const rows = table(
     standings.map((it) => {
-      const row = cellsOf(it, told ? room : 0, paint)
+      const row = cellsOf(it, sinceOf(it.placed), told ? room : 0, paint)
       return told ? row : [row[0] ?? "", row[1] ?? "", row[3] ?? ""]
     }),
     rule
@@ -137,7 +141,11 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
         return
       }
 
-      const chosen = yield* pick("Which pull request?", choicesOf(standings, yield* width, yield* Paint))
+      const shown = standings.map((it) => it.placed)
+      const choices = choicesOf(standings, yield* sinceShown(shown), yield* width, yield* Paint)
+      // The list is on the screen from here, whatever I answer it with.
+      yield* markShown(shown)
+      const chosen = yield* pick("Which pull request?", choices)
       if (Option.isNone(chosen)) {
         return
       }

@@ -19,14 +19,15 @@
 $ dw-mc status
 
 Needs me
-  ● dominikwozniak/dw-mc#71   │ feat(sweep): notice a head that moved under a run   │ 2 blocking findings
+  ↳ dominikwozniak/dw-mc#71 from Needs review run: 0 → 2 blocking findings
+* ● dominikwozniak/dw-mc#71   │ feat(sweep): notice a head that moved under a run   │ 2 blocking findings
 
 Needs review run
   ◐ dominikwozniak/dw-mc#65   │ docs(agents): how a change becomes a release        │ no review run on this head
   ◐ dominikwozniak/dw-mc#66   │ docs(skill): the CLI surface the skill actually has │ no review run on this head
 
 Waiting on others
-  ○ dominikwozniak/dw-mc#68   │ fix(rebase): keep the lease on a head that moved    │ CI is still running
++ ○ dominikwozniak/dw-mc#68   │ fix(rebase): keep the lease on a head that moved    │ CI is still running
 
 Ready
   ◆ dominikwozniak/dw-mc#62 ✓ │ feat(comments): read a pull request's threads       │ approved, green, mergeable
@@ -66,7 +67,7 @@ Every command that takes a pull request takes it as `62` inside the repository, 
 | `dw-mc`               | —                                                                                            | Opens the picker: every tracked pull request under its bucket, and what moves the one you choose.          |
 | `dw-mc init`          | `--effort`, `--base`                                                                         | Sets this machine up and registers the repository you are in.                                              |
 | `dw-mc sweep`         | —                                                                                            | Refreshes what mission control knows about every tracked pull request. It only reads.                      |
-| `dw-mc status`        | —                                                                                            | Shows which bucket every tracked pull request sits in, and which ones you have stamped.                    |
+| `dw-mc status`        | —                                                                                            | Shows which bucket every tracked pull request sits in, which ones you have stamped, and what moved.        |
 | `dw-mc comments <pr>` | `--all`, `--ack`                                                                             | Prints the conversation on a pull request, and with `--ack` records that nothing in it is yours to answer. |
 | `dw-mc review <pr>`   | `--command`, `--prompt`, `--effort`, `--model`, `--prompt-only`, `--command-only`, `--force` | Reviews one pull request on Claude Code, in a throwaway worktree.                                          |
 | `dw-mc findings <pr>` | `--json`                                                                                     | Prints what the current review run found.                                                                  |
