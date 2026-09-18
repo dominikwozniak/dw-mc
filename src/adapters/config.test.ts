@@ -1,11 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Effect, Layer, Option, Path } from "effect"
+import { ConfigProvider, Effect, Layer, Option, Path, Predicate } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
-import type { ConfigFile, Settings, SettingsPatch } from "#adapters/config.ts"
+import type { Settings, SettingsPatch } from "#adapters/config.ts"
 import {
   builtIn,
   builtInLauncher,
+  ConfigFile,
   configPath,
   ConfigStore,
   launcherOf,
@@ -22,6 +23,33 @@ const home = (record: Record<string, string | undefined> = { HOME: "/home/dw" })
       Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnvRecord(record)), Path.layer)
     )
   )
+
+/**
+ * A schema as this file has to read it: a struct keeps its `fields`, and
+ * `optionalKey` keeps the field it wrapped as `schema`. Those two shapes are the
+ * whole of the configuration, so walking them names every key it has.
+ */
+interface Declaring {
+  readonly fields?: { readonly [key: string]: Declaring }
+  readonly schema?: Declaring
+}
+
+/**
+ * Every key path a schema declares, `section.key` deep.
+ *
+ * A record is one key and not a shape: what a repository holds is the same
+ * `SettingsPatch` as `defaults`, so walking into it would name every key twice.
+ */
+const declaredBy = (schema: Declaring, at: ReadonlyArray<string> = []): ReadonlyArray<string> => {
+  const fields = (schema.schema ?? schema).fields
+  return fields === undefined
+    ? [at.join(".")]
+    : Object.entries(fields).flatMap(([key, field]) => declaredBy(field, [...at, key]))
+}
+
+/** What a value holds at one of those paths, or nothing where it holds nothing. */
+const held = (value: unknown, path: ReadonlyArray<string>): unknown =>
+  path.length === 0 ? value : Predicate.isReadonlyObject(value) ? held(value[path[0]], path.slice(1)) : undefined
 
 const put = (yaml: string) =>
   Effect.gen(function* () {
@@ -73,10 +101,24 @@ describe("config file", () => {
           docs_only: ["**/*.md"]
         },
         ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
+        fix: { commits: true },
         rebase: { enabled: true },
         stamp: { blocks_on: "warning" }
       }
-      const file: ConfigFile = { defaults: everything, repos: { "dominikwozniak/dw-mc": everything } }
+      const file: ConfigFile = {
+        launcher: { command: ["claude"], fix_args: ["--permission-mode", "acceptEdits"] },
+        defaults: everything,
+        repos: { "dominikwozniak/dw-mc": everything }
+      }
+
+      // The fixture is checked against the schema rather than trusted. Written
+      // out by hand it had been missing `fix` since `fix` arrived, and a fixture
+      // missing a key asserts nothing about that key: it would round-trip a file
+      // the writer had quietly dropped it from.
+      assert.deepStrictEqual(
+        declaredBy(ConfigFile).filter((key) => held(file, key.split(".")) === undefined),
+        []
+      )
 
       yield* write(file)
 
