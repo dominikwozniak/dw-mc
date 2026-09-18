@@ -7,7 +7,7 @@ import type { Thread } from "#adapters/conversation.ts"
 import { prConversation } from "#adapters/conversation.ts"
 import type { Paint } from "#adapters/paint.ts"
 import { Paint as PaintService } from "#adapters/paint.ts"
-import { named, prArgument, swept } from "#cli/pr.ts"
+import { named, prArgument, reading, swept } from "#cli/pr.ts"
 import { heading } from "#cli/row.ts"
 import { asUserError, userFacing } from "#cli/sweep.ts"
 import type { Facts } from "#domain/bucket.ts"
@@ -116,7 +116,7 @@ export const comments = Command.make(
 
       const facts = yield* swept(repo, number)
       const paint = yield* PaintService
-      const view = shown(yield* prConversation(repo, number), {
+      const view = shown(yield* reading(`${repo}#${number}`, prConversation(repo, number)), {
         since: later(facts.myLastCommentAt, facts.myLastCommitAt),
         all
       })

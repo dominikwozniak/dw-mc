@@ -17,6 +17,8 @@ import {
   searchPrs,
   viewer
 } from "#adapters/gh.ts"
+import type { Reads } from "#adapters/heartbeat.ts"
+import { beating } from "#adapters/heartbeat.ts"
 import { prKey, storeFor } from "#adapters/store.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
@@ -147,13 +149,44 @@ const gather = <A>(attempts: ReadonlyArray<Attempt<A>>): Attempt<A> => ({
 const concurrency = 4
 
 /**
+ * How far a sweep has got, which is what the heartbeat of a sweep counts.
+ *
+ * The two stages are told apart because the second has a total the first cannot
+ * know: how many pull requests there are to read is what the searches answer,
+ * so counting towards it before they come back would count towards a number
+ * made up.
+ */
+export type Swept =
+  | { readonly _tag: "searching"; readonly done: number; readonly of: number }
+  | { readonly _tag: "reading"; readonly done: number; readonly of: number }
+
+/** `n` repositories, which `count` cannot say: the plural is not the noun plus s. */
+const repositories = (n: number): string => (n === 1 ? "1 repository" : `${n} repositories`)
+
+/** How the heartbeat of a sweep reads, wherever a command turns one. */
+const saying =
+  (swept: Swept): Reads =>
+  (since) =>
+    [
+      "sweeping",
+      swept._tag === "searching"
+        ? `${swept.done} of ${repositories(swept.of)}`
+        : `${swept.done} of ${count(swept.of, "pull request")}`,
+      since
+    ].join(" · ")
+
+/**
  * One pass over every tracked PR, and nothing else: a sweep only ever reads.
  *
  * Every repository and every pull request is read on its own, so one of them
  * failing costs me its rows and leaves the rest of the table standing. What
  * failed comes back beside the facts rather than instead of them.
+ *
+ * `report` is told how far the pass has got, every time it gets further. What
+ * that is worth saying is the caller's, which is why it is handed a count and
+ * not a sentence.
  */
-export const sweep = Effect.gen(function* () {
+export const sweep = Effect.fn("sweep")(function* (report: (swept: Swept) => Effect.Effect<void>) {
   const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
   const repos = Object.keys(file.repos ?? {}).toSorted()
   if (repos.length === 0) {
@@ -163,15 +196,35 @@ export const sweep = Effect.gen(function* () {
   const store = yield* storeFor("prs", FactsSchema)
   const me = yield* viewer
 
-  const found = gather(yield* Effect.forEach(repos, (repo) => attempt(repo, searchPrs(repo)), { concurrency }))
+  let searched = 0
+  yield* report({ _tag: "searching", done: 0, of: repos.length })
+  const found = gather(
+    yield* Effect.forEach(
+      repos,
+      (repo) =>
+        Effect.tap(attempt(repo, searchPrs(repo)), () => {
+          searched = searched + 1
+          return report({ _tag: "searching", done: searched, of: repos.length })
+        }),
+      { concurrency }
+    )
+  )
 
+  let read = 0
+  yield* report({ _tag: "reading", done: 0, of: found.got.length })
   const swept = gather(
     yield* Effect.forEach(
       found.got,
       (pr: Found) =>
-        attempt(
-          `${pr.repo}#${pr.number}`,
-          Effect.map(sweepPr(store, me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
+        Effect.tap(
+          attempt(
+            `${pr.repo}#${pr.number}`,
+            Effect.map(sweepPr(store, me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
+          ),
+          () => {
+            read = read + 1
+            return report({ _tag: "reading", done: read, of: found.got.length })
+          }
         ),
       { concurrency }
     )
@@ -182,7 +235,21 @@ export const sweep = Effect.gen(function* () {
     facts: swept.got,
     troubles: [...found.troubles, ...swept.troubles]
   } satisfies Report
-}).pipe(Effect.withSpan("sweep"))
+})
+
+/**
+ * A sweep under its heartbeat, which is how every command that sweeps runs one.
+ *
+ * The three of them want the same line, so they say it once here rather than
+ * three times over. It gives the heartbeat no aside, so a piped `dw-mc status`
+ * prints exactly what it printed before there was a heartbeat at all.
+ */
+export const sweeping = beating(
+  // Before the config is read there is no total to count towards, and a zero
+  // there would be a number the sweep has not earned yet.
+  (since) => `sweeping · ${since}`,
+  (says) => sweep((swept) => says(saying(swept)))
+)
 
 /**
  * The failures a sweep can hit before it has a single row, which are the ones
@@ -218,7 +285,7 @@ export const sweepCommand = Command.make(
   {},
   Effect.fn("sweep.command")(
     function* () {
-      const report = yield* sweep
+      const report = yield* sweeping
       yield* Console.log(
         report.repos.length === 0
           ? "No repositories registered. Run dw-mc init inside a repository to register it."

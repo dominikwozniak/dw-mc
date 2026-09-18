@@ -134,6 +134,10 @@ _Avoid_: icon, badge, glyph
 How a command that reports rather than tabulates writes: a heading, an indented body, and a blank line before the next one. What each command says is its own; the shape is not.
 _Avoid_: section, panel, group
 
+**Heartbeat**:
+The one line a command rewrites while it works: a spinner, how far it has got, how long it has taken. Gone the moment the work is, so what stays on the screen is the report. What it counts is the command's; the clock and the line are not.
+_Avoid_: spinner, loader, progress bar
+
 ### Housekeeping
 
 **Clone**:

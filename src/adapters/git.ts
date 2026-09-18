@@ -1,5 +1,7 @@
 import { Effect, Path, Result, Schema } from "effect"
 
+import type { Reads } from "#adapters/heartbeat.ts"
+import { beating } from "#adapters/heartbeat.ts"
 import { capture } from "#adapters/spawner.ts"
 import type { Cut, Session } from "#adapters/store.ts"
 import { clonesIn, stateDirectory, under } from "#adapters/store.ts"
@@ -57,28 +59,46 @@ export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHe
  * The head comes from the pull request's ref rather than from what a sweep last
  * saw, so what is cut is the commit the run really reads.
  */
+/**
+ * How the heartbeat of a cut reads.
+ *
+ * The stages are named apart because a first clone and a hundredth fetch take
+ * wildly different times, and the line is what explains the difference: a
+ * `cloning` that sits there for two minutes is a large repository arriving
+ * once, not a tool that has hung.
+ */
+const cutting =
+  (what: string, repo: string): Reads =>
+  (since) =>
+    `${what} ${repo} · ${since}`
+
 const whereToCut = Effect.fn("git.whereToCut")(function* (repo: string, number: number, cut: Cut) {
   const path = yield* Path.Path
   const state = yield* stateDirectory
   const clone = path.join(state, clonesIn, `${repo}.git`)
 
   const bare = yield* Effect.orElseSucceed(git(["-C", clone, "rev-parse", "--is-bare-repository"]), () => "")
-  if (bare !== "true") {
-    yield* git(["clone", "--bare", "--filter=blob:none", `https://github.com/${repo}.git`, clone])
-  }
-
   const pullRef = `refs/dw-mc/pr/${number}`
-  yield* git([
-    "-C",
-    clone,
-    "fetch",
-    "--no-tags",
-    "--force",
-    "origin",
-    `+refs/pull/${number}/head:${pullRef}`,
-    "+refs/heads/*:refs/heads/*"
-  ])
-  const head = yield* git(["-C", clone, "rev-parse", pullRef])
+
+  const head = yield* beating(cutting(bare === "true" ? "fetching" : "cloning", repo), (says) =>
+    Effect.gen(function* () {
+      if (bare !== "true") {
+        yield* git(["clone", "--bare", "--filter=blob:none", `https://github.com/${repo}.git`, clone])
+        yield* says(cutting("fetching", repo))
+      }
+      yield* git([
+        "-C",
+        clone,
+        "fetch",
+        "--no-tags",
+        "--force",
+        "origin",
+        `+refs/pull/${number}/head:${pullRef}`,
+        "+refs/heads/*:refs/heads/*"
+      ])
+      return yield* git(["-C", clone, "rev-parse", pullRef])
+    })
+  )
   return { clone, head, directory: path.join(state, cut, repo, String(number)) }
 })
 
@@ -105,7 +125,9 @@ export const withWorktree = Effect.fn("git.withWorktree")(function* <A, E, R>(
   const remove = Effect.ignore(git(["-C", clone, "worktree", "remove", "--force", directory]))
 
   return yield* Effect.acquireUseRelease(
-    Effect.flatMap(remove, () => git(["-C", clone, "worktree", "add", "--detach", directory, head])),
+    beating(cutting("cutting a worktree of", repo), () =>
+      Effect.flatMap(remove, () => git(["-C", clone, "worktree", "add", "--detach", directory, head]))
+    ),
     () => use({ directory, head }),
     () => remove
   )
@@ -215,7 +237,9 @@ export const standingWorktree = Effect.fn("git.standingWorktree")(function* (
   if (session === "rebase") {
     yield* reuseResolutions(clone)
   }
-  yield* git(["-C", clone, "worktree", "add", "-B", branch, directory, head])
+  yield* beating(cutting("cutting a worktree of", repo), () =>
+    git(["-C", clone, "worktree", "add", "-B", branch, directory, head])
+  )
 
   // What makes `git push` inside the session land on the pull request: the
   // branch tracks the pull request's, and a push follows the upstream's name

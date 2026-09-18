@@ -2,6 +2,7 @@ import { Console, Effect, Path } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 
 import { prune } from "#adapters/git.ts"
+import { beating } from "#adapters/heartbeat.ts"
 import type { Paint } from "#adapters/paint.ts"
 import { Paint as PaintService } from "#adapters/paint.ts"
 import { confirm } from "#adapters/picker.ts"
@@ -75,7 +76,13 @@ export const cleanup = Command.make(
   Effect.fn("cleanup")(function* ({ yes }) {
     const path = yield* Path.Path
     const paint = yield* PaintService
-    const found = yield* inventory
+    // The whole reason to run this is that the clones have grown large, and the
+    // larger they are the longer the walk that weighs them. A blank screen that
+    // gets blanker the more there is to take back is exactly backwards.
+    const found = yield* beating(
+      (since) => `measuring the state directory · ${since}`,
+      () => inventory
+    )
     const it = plan(found)
 
     if (empty(it)) {

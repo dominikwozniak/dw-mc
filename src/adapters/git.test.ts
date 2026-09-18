@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, Layer, Path } from "effect"
 
 import { rebaseInPlace, rebaseOnto, standingWorktree, withWorktree } from "#adapters/git.ts"
+import { layerScripted } from "#adapters/picker.ts"
 import { fakeHandle, layerFake } from "#adapters/spawner.ts"
 
 const state = "/home/dw/.local/state/dw-mc"
@@ -94,8 +95,14 @@ const git = (options: {
     return Effect.succeed(fakeHandle({}))
   })
 
-const machine = (spawner: Layer.Layer<never> | ReturnType<typeof git>) =>
-  Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })), Path.layer, spawner)
+const machine = (spawner: Layer.Layer<never> | ReturnType<typeof git>, drawn?: Array<string>) =>
+  Layer.mergeAll(
+    ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
+    Path.layer,
+    // Cutting a worktree says so on the screen, so there is a screen to say it on.
+    layerScripted([], drawn),
+    spawner
+  )
 
 describe("the tool's own clone and its throwaway worktree", () => {
   it.effect("cuts the worktree at the pull request's head and takes it down after", () => {
@@ -115,6 +122,35 @@ describe("the tool's own clone and its throwaway worktree", () => {
         `git -C ${clone} worktree remove --force ${worktree}`
       ])
     }).pipe(Effect.provide(machine(git({ spawned }))))
+  })
+
+  it.effect("says a first clone apart from every fetch after it", () => {
+    const spawned: Array<string> = []
+    const fresh: Array<string> = []
+    const warm: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* Effect.provide(
+        withWorktree("dominikwozniak/dw-mc", 28, () => Effect.void),
+        machine(git({ spawned }), fresh)
+      )
+      yield* Effect.provide(
+        withWorktree("dominikwozniak/dw-mc", 28, () => Effect.void),
+        machine(git({ spawned: [], cloned: true }), warm)
+      )
+
+      // A first clone of a large repository is minutes, and the line is what
+      // explains why: a `cloning` that sits there has not hung.
+      assert.include(fresh.join("\n"), "cloning dominikwozniak/dw-mc")
+      assert.include(fresh.join("\n"), "fetching dominikwozniak/dw-mc")
+      assert.notInclude(warm.join("\n"), "cloning")
+      assert.include(warm.join("\n"), "fetching dominikwozniak/dw-mc")
+
+      // Cutting the checkout is its own wait, and its own words.
+      assert.include(warm.join("\n"), "cutting a worktree of dominikwozniak/dw-mc")
+      // Neither leaves anything on the screen behind it.
+      assert.match(warm.at(-1) ?? "", /^\r +\r$/)
+    })
   })
 
   it.effect("brings the base branch up to date with the pull request's head", () => {

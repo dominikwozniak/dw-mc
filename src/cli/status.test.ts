@@ -195,7 +195,7 @@ const github = (options: {
 
 /** Everything the two commands run on, and nothing else: one fake `gh`, an
  * in-memory configuration file and an in-memory state directory. */
-const machine = (spawner: ReturnType<typeof github>) =>
+const machine = (spawner: ReturnType<typeof github>, drawn?: Array<string>, columns?: number) =>
   Layer.provideMerge(
     Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
     Layer.mergeAll(
@@ -204,7 +204,7 @@ const machine = (spawner: ReturnType<typeof github>) =>
       Path.layer,
       Stdio.layerTest({}),
       spawner,
-      layerScripted([])
+      layerScripted([], drawn, columns)
     )
   )
 
@@ -238,6 +238,51 @@ const reviewed = (repo: string, number: number, head: string, findings: Readonly
   )
 
 describe("dw-mc status", () => {
+  it.effect("says how far the sweep has got while it runs, and leaves the table behind", () => {
+    const printed: Array<string> = []
+    const drawn: Array<string> = []
+    const spawner = github({
+      repos: {
+        "dominikwozniak/dw-mc": [
+          { number: 1, title: "feat: one" },
+          { number: 2, title: "feat: two" }
+        ],
+        "byarcadia-app/grateful-me-app-v2": [{ number: 105, title: "feat: three" }]
+      }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc", "byarcadia-app/grateful-me-app-v2")
+      yield* run("status")
+
+      const screen = drawn.join("\n")
+      // Both stages count, and the second counts towards a total only the
+      // searches could have answered.
+      assert.include(screen, "sweeping · 2 of 2 repositories")
+      assert.include(screen, "sweeping · 3 of 3 pull requests")
+      // What is left on the screen is the table, and the heartbeat is wiped.
+      assert.match(drawn.at(-1) ?? "", /^\r +\r$/)
+      assert.strictEqual(printed.length, 4)
+    }).pipe(Effect.provide(machine(spawner, drawn)), recording(printed))
+  })
+
+  it.effect("says nothing of the sweep where there is no screen to draw on", () => {
+    const printed: Array<string> = []
+    const drawn: Array<string> = []
+    const spawner = github({
+      repos: { "dominikwozniak/dw-mc": [{ number: 1, title: "feat: conflicted", mergeable: "CONFLICTING" }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered("dominikwozniak/dw-mc")
+      yield* run("status")
+
+      // A pipe reads what it read before there was a heartbeat at all.
+      assert.deepStrictEqual(drawn, [])
+      assert.deepStrictEqual(printed, ["Needs me", "  ● dominikwozniak/dw-mc#1 │ feat: conflicted │ merge conflict"])
+    }).pipe(Effect.provide(machine(spawner, drawn, 0)), recording(printed))
+  })
+
   it.effect("prints every tracked PR under its bucket, hardest first", () => {
     const printed: Array<string> = []
     const spawner = github({
