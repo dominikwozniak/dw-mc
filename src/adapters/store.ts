@@ -1,5 +1,5 @@
 import type { Config } from "effect"
-import { ByteSize, Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { ByteSize, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
 import { xdgDirectory } from "#adapters/xdg.ts"
@@ -50,6 +50,21 @@ export const textStoreFor = Effect.fn("store.textStoreFor")(function* (namespace
   return KeyValueStore.prefix(store, `${namespace}/`)
 })
 
+/**
+ * What a store holds under a key, and nothing where it holds nothing this
+ * version can read.
+ *
+ * A record this version cannot read is one another version of it wrote, and the
+ * state directory is a cache of work that can be done again ([ADR
+ * 0010](../../docs/adr/0010-configuration-that-cannot-be-read.md)): forgetting a
+ * record costs that work once, where failing here would cost the command I
+ * asked for. Every read of the tool's own records goes through this, so the
+ * bargain is struck once rather than at each of them.
+ */
+export const remembered = <A, E, R>(
+  read: Effect.Effect<Option.Option<A>, E, R>
+): Effect.Effect<Option.Option<A>, never, R> => Effect.orElseSucceed(read, () => Option.none<A>())
+
 /** The state directory on disk. */
 export const layer = Layer.unwrap(Effect.map(stateDirectory, (directory) => KeyValueStore.layerFileSystem(directory)))
 
@@ -80,6 +95,49 @@ export const sessionOf = (cut: Cut): Session | undefined =>
 
 /** Where the bare clones sit, under the state directory. */
 export const clonesIn = "repos"
+
+// The four names below are the map of the state directory, and the walks
+// further down read that same map back off the disk. A command that cuts a
+// worktree and a command that takes one away have to arrive at the same path to
+// the byte, and a name spelled on both sides of that is two names that drift.
+//
+// None of them reaches the network, which is the whole point of them being
+// names and not reads: `git.holding` asks where a session sits before it
+// removes anything, and a machine that is offline has to be told what it holds
+// rather than be made to clone to find out.
+
+/** What a bare clone's directory is called, and what tells one from anything beside it. */
+const bare = ".git"
+
+/** Where the tool keeps one repository's bare clone. */
+export const cloneAt = Effect.fn("store.cloneAt")(function* (repo: string) {
+  const path = yield* Path.Path
+  return path.join(yield* stateDirectory, clonesIn, `${repo}${bare}`)
+})
+
+/** Where one pull request's checkout goes, under the cut it was made for. */
+export const cutAt = Effect.fn("store.cutAt")(function* (cut: Cut, repo: string, number: number) {
+  const path = yield* Path.Path
+  return path.join(yield* stateDirectory, cut, repo, String(number))
+})
+
+/**
+ * What the branch a standing session works on is called, inside that clone.
+ *
+ * It carries the session's name because a fix session and a session on a
+ * conflict stand at the same time on the same pull request, and one branch
+ * between them would be one holding the other's commits.
+ */
+export const sessionBranch = (session: Session, number: number): string => `dw-mc/${session}/${number}`
+
+/**
+ * What the ref a clone keeps one pull request's head under is called.
+ *
+ * A cut fetches it and a removal reads it back without fetching, so the two
+ * have to spell it the same or a session would be asked about a ref nothing
+ * ever wrote.
+ */
+export const pullRef = (number: number): string => `refs/dw-mc/pr/${number}`
 
 /** A directory under the state directory, and what everything below it weighs. */
 export interface Weighed {
@@ -124,19 +182,15 @@ const entriesOf = Effect.fnUntraced(function* (directory: string) {
 })
 
 /**
- * What `directory` and everything below it weighs.
+ * What the entries named under `directory` weigh together.
  *
  * A file that is gone by the time it is asked about weighs nothing rather than
  * failing the walk: the directory is being read while the tool may be writing
  * to it, and a size on a screen is worth less than the listing it sits in.
  */
-export const weigh = Effect.fn("store.weigh")(function* (directory: string) {
+const weightOf = Effect.fnUntraced(function* (directory: string, entries: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const entries = yield* Effect.orElseSucceed(
-    fs.readDirectory(directory, { recursive: true }),
-    (): ReadonlyArray<string> => []
-  )
   const sizes = yield* Effect.forEach(
     entries,
     (entry) =>
@@ -149,6 +203,16 @@ export const weigh = Effect.fn("store.weigh")(function* (directory: string) {
   return ByteSize.bytes(sizes.reduce((total, size) => total + size, BigInt(0)))
 })
 
+/** What `directory` and everything below it weighs. */
+export const weigh = Effect.fn("store.weigh")(function* (directory: string) {
+  const fs = yield* FileSystem.FileSystem
+  const entries = yield* Effect.orElseSucceed(
+    fs.readDirectory(directory, { recursive: true }),
+    (): ReadonlyArray<string> => []
+  )
+  return yield* weightOf(directory, entries)
+})
+
 /** The bare clones, named by the `owner/repo` the two directory levels spell. */
 const clonesOf = Effect.fnUntraced(function* (state: string) {
   const path = yield* Path.Path
@@ -157,11 +221,11 @@ const clonesOf = Effect.fnUntraced(function* (state: string) {
 
   for (const owner of yield* entriesOf(root)) {
     for (const name of yield* entriesOf(path.join(root, owner))) {
-      if (!name.endsWith(".git")) {
+      if (!name.endsWith(bare)) {
         continue
       }
       const directory = path.join(root, owner, name)
-      clones.push({ repo: `${owner}/${name.slice(0, -".git".length)}`, directory, size: yield* weigh(directory) })
+      clones.push({ repo: `${owner}/${name.slice(0, -bare.length)}`, directory, size: yield* weigh(directory) })
     }
   }
   return clones
@@ -197,28 +261,17 @@ const cuttingsOf = Effect.fnUntraced(function* (state: string) {
 /** Everything the state directory holds, in one pass over the disk. */
 export const inventory: Effect.Effect<Inventory, Config.ConfigError, FileSystem.FileSystem | Path.Path> = Effect.gen(
   function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
     const directory = yield* stateDirectory
 
     const directories = new Set<string>([clonesIn, ...cuts])
     const top = yield* entriesOf(directory)
     const keys = top.filter((entry) => !directories.has(entry))
-    const sizes = yield* Effect.forEach(
-      keys,
-      (entry) =>
-        Effect.orElseSucceed(
-          Effect.map(fs.stat(path.join(directory, entry)), (info) => ByteSize.toBigInt(info.size)),
-          () => BigInt(0)
-        ),
-      { concurrency: 16 }
-    )
 
     return {
       directory,
       clones: yield* clonesOf(directory),
       cuttings: yield* cuttingsOf(directory),
-      records: { keys: keys.length, size: ByteSize.bytes(sizes.reduce((a, b) => a + b, BigInt(0))) }
+      records: { keys: keys.length, size: yield* weightOf(directory, keys) }
     }
   }
 ).pipe(Effect.withSpan("store.inventory"))

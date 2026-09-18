@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect"
 
-import { prKey, storeFor } from "#adapters/store.ts"
+import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import type { ChecksState } from "#terms/pr.ts"
 
 /** One open pull request as a stack is read from: the branch it stands on and the one it merges into. */
@@ -192,14 +192,12 @@ export type Conflict = typeof Conflict.Type
  * The conflict a rebase last left on this pull request, or null where it left
  * none.
  *
- * A record this version cannot read is one another version of it wrote, and a
- * conflict is worth a bucket rather than a failed sweep: forgetting it costs
- * the pull request one reason to be in Needs me, where failing here would cost
- * me the whole table.
+ * Forgetting one costs the pull request one reason to be in Needs me, where
+ * failing here would cost me the whole table.
  */
 export const conflictFor = Effect.fn("rebase.conflictFor")(function* (repo: string, number: number) {
   const store = yield* storeFor("rebases", Conflict)
-  const conflict = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Conflict>())
+  const conflict = yield* remembered(store.get(prKey(repo, number)))
   return Option.getOrNull(conflict)
 })
 

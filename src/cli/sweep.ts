@@ -19,7 +19,7 @@ import {
 } from "#adapters/gh.ts"
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
-import { prKey, storeFor } from "#adapters/store.ts"
+import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
@@ -70,10 +70,9 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
   const newestHumanCommentAt = newest(byHumansOtherThan(comments, me))
 
   const key = prKey(found.repo, found.number)
-  // State this version cannot read is state from another version of these
-  // facts, and these facts are a cache of GitHub: reading them again costs a
-  // sweep some calls, where failing here would cost the PR its row for good.
-  const previous = Option.getOrUndefined(yield* Effect.orElseSucceed(store.get(key), () => Option.none<Facts>()))
+  // Forgetting these costs a sweep the calls to read them again, where failing
+  // here would cost the PR its row for good.
+  const previous = Option.getOrUndefined(yield* remembered(store.get(key)))
   const reviewed = yield* reviewedAt(found.repo, found.number, view.headRefOid, settings.stamp.blocks_on)
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })

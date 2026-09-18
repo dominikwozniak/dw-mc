@@ -2,7 +2,7 @@ import { Effect, Option } from "effect"
 import { Argument, CliError } from "effect/unstable/cli"
 
 import { beating } from "#adapters/heartbeat.ts"
-import { prKey, storeFor } from "#adapters/store.ts"
+import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Reference } from "#domain/reference.ts"
 import { resolve } from "#domain/reference.ts"
@@ -52,12 +52,12 @@ export const refuse = (why: string | null): Effect.Effect<void, CliError.UserErr
  * from the facts a sweep wrote down, and asking GitHub again would make them a
  * different answer from the one `dw-mc status` printed.
  *
- * Facts this version cannot read are facts another version of them wrote, and a
- * sweep can write them again, so both cases say the same thing.
+ * Facts that are missing and facts this version cannot read come to the same
+ * sentence, because a sweep can write them again either way.
  */
 export const swept = Effect.fn("pr.swept")(function* (repo: string, number: number) {
   const store = yield* storeFor("prs", Facts)
-  const facts = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Facts>())
+  const facts = yield* remembered(store.get(prKey(repo, number)))
   if (Option.isNone(facts)) {
     return yield* new CliError.UserError({
       cause: `Nothing is known about ${repo}#${number} yet. Run dw-mc sweep first.`

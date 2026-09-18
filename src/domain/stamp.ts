@@ -1,6 +1,6 @@
 import { Effect, Option, Schema } from "effect"
 
-import { prKey, storeFor } from "#adapters/store.ts"
+import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import type { Facts } from "#domain/bucket.ts"
 
 /** My local mark that a tracked PR has passed my bar, and what it rests on. */
@@ -88,14 +88,12 @@ export const stampFor = (facts: Stampable, withdrawnAt: string | null): Stamp =>
 /**
  * The head a stamp was withdrawn at, or null where none was.
  *
- * A withdrawal this version cannot read is one another version of this record
- * wrote, and a stamp is computed from everything else: forgetting it hands the
- * pull request back to the computation, where failing here would cost me the
- * command I asked for.
+ * Forgetting a withdrawal hands the pull request back to the computation, which
+ * is what every other input to a stamp already is.
  */
 export const withdrawnAt = Effect.fn("stamp.withdrawnAt")(function* (repo: string, number: number) {
   const store = yield* storeFor("stamps", Withdrawal)
-  const withdrawal = yield* Effect.orElseSucceed(store.get(prKey(repo, number)), () => Option.none<Withdrawal>())
+  const withdrawal = yield* remembered(store.get(prKey(repo, number)))
   return Option.match(withdrawal, { onNone: () => null, onSome: (it) => it.head })
 })
 

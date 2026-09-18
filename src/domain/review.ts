@@ -6,7 +6,7 @@ import { matchesGlob } from "node:path"
 
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import { prKey, storeFor } from "#adapters/store.ts"
+import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Finding, Verdict } from "#domain/findings.ts"
 import type { Severity } from "#terms/review.ts"
@@ -90,19 +90,17 @@ export const latestKey = (repo: string, number: number): string => `${prKey(repo
  * findings` all ask about one commit - and one read off the disk answers it
  * without an index to keep in step.
  *
- * A run this version cannot read is a run another version of this record wrote,
- * and the state directory is a cache of work that can be done again: forgetting
- * it costs one review, where failing here would cost me the command I asked for.
+ * Forgetting a run costs one review.
  */
 export const runAt = Effect.fn("review.runAt")(function* (repo: string, number: number, head: string) {
   const runs = yield* storeFor("runs", ReviewRun)
-  return yield* Effect.orElseSucceed(runs.get(runKey(repo, number, head)), () => Option.none<ReviewRun>())
+  return yield* remembered(runs.get(runKey(repo, number, head)))
 })
 
 /** The last review run on a pull request, or none where it has had none. */
 export const lastRun = Effect.fn("review.lastRun")(function* (repo: string, number: number) {
   const heads = yield* storeFor("runs", LastReviewed)
-  const at = yield* Effect.orElseSucceed(heads.get(latestKey(repo, number)), () => Option.none<LastReviewed>())
+  const at = yield* remembered(heads.get(latestKey(repo, number)))
   return Option.isNone(at) ? Option.none<ReviewRun>() : yield* runAt(repo, number, at.value.head)
 })
 
