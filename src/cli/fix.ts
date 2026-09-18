@@ -1,15 +1,13 @@
 import { Console, Effect, Option } from "effect"
-import { CliError, Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/unstable/cli"
 
 import { steeredSession } from "#adapters/claude.ts"
-import type { ConfigFile } from "#adapters/config.ts"
-import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { prView } from "#adapters/gh.ts"
 import { standingWorktree } from "#adapters/git.ts"
 import { choose, note, width } from "#adapters/picker.ts"
-import { currentRun, header, lines, whatItFound } from "#cli/findings.ts"
-import { named, prArgument, reading } from "#cli/pr.ts"
-import { asUserError, userFacing } from "#cli/sweep.ts"
+import { asUserError, userFacingAndSession } from "#cli/exit.ts"
+import { header, lines, whatItFound } from "#cli/findings.ts"
+import { currentRun, forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { truncate } from "#cli/table.ts"
 import type { Finding, Findings } from "#domain/findings.ts"
 import type { Chosen } from "#domain/fix.ts"
@@ -58,12 +56,6 @@ const noted = Effect.fn("fix.noted")(function* (picked: ReadonlyArray<Finding>) 
   return chosen
 })
 
-/** The domain's word on a head that has moved, as the command's own failure. */
-const fixable = (number: number, run: string, now: string) => {
-  const stale = staleAt(number, run, now)
-  return stale === null ? Effect.void : Effect.fail(new CliError.UserError({ cause: stale }))
-}
-
 /**
  * A fix session: the findings I picked, in an agent session I steer.
  *
@@ -84,9 +76,7 @@ export const fix = Command.make(
   { pr: prArgument, commit: commitFlag, print: printFlag },
   Effect.fn("fix")(
     function* ({ commit, pr, print }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
-      const settings = settingsFor(file, repo)
+      const { number, repo, settings, launcher } = yield* forPr(pr)
 
       const run = yield* currentRun(repo, number)
       const found = yield* whatItFound(run)
@@ -96,7 +86,7 @@ export const fix = Command.make(
       }
 
       const view = yield* reading(`${repo}#${number}`, prView(repo, number))
-      yield* fixable(number, run.head, view.headRefOid)
+      yield* refuse(staleAt(number, run.head, view.headRefOid))
 
       const picked = yield* choose("Which findings does the session carry?", choicesOf(found, yield* width))
       const chosen = yield* Effect.catchTag(noted(Option.getOrElse(picked, () => [])), "QuitError", () =>
@@ -123,7 +113,7 @@ export const fix = Command.make(
       yield* Console.log(`  ${worktree.directory}, pushing to ${view.headRefName}`)
 
       const ended = yield* steeredSession({
-        launcher: launcherOf(file),
+        launcher,
         directory: worktree.directory,
         prompt: yield* promptFor({ repo, number, head: worktree.head, findings: chosen }, commits)
       })
@@ -135,6 +125,6 @@ export const fix = Command.make(
       )
       yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
     },
-    Effect.catchTag([...userFacing, "GitFailed", "WorktreeHeld", "AgentFailed"], asUserError)
+    Effect.catchTag(userFacingAndSession, asUserError)
   )
 ).pipe(Command.withDescription("Pick findings from the current review run and open a fix session on them"))

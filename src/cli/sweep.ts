@@ -1,6 +1,6 @@
 import type { DateTime } from "effect"
 import { Console, Effect, Option } from "effect"
-import { CliError, Command } from "effect/unstable/cli"
+import { Command } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 
 import { rollupState } from "#adapters/ci.ts"
@@ -20,6 +20,7 @@ import {
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { prKey, remembered, storeFor } from "#adapters/store.ts"
+import { asUserError, userFacing } from "#cli/exit.ts"
 import { count } from "#cli/table.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { Facts as FactsSchema } from "#domain/bucket.ts"
@@ -249,17 +250,6 @@ export const sweeping = beating(
   (since) => `sweeping · ${since}`,
   (says) => sweep((swept) => says(saying(swept)))
 )
-
-/**
- * The failures a sweep can hit before it has a single row, which are the ones
- * worth a sentence: a machine or a file that needs fixing says what to fix
- * instead of printing a stack.
- */
-export const userFacing = ["ConfigMalformed", "GhUnavailable", "GhReadFailed", "GhUnreadable"] as const
-
-/** Turns one of those into the sentence the CLI prints. */
-export const asUserError = (cause: unknown): Effect.Effect<never, CliError.UserError> =>
-  Effect.fail(new CliError.UserError({ cause }))
 
 /** What a sweep could not read, under a heading, so the table above it stands alone. */
 export const printTroubles = Effect.fn("sweep.printTroubles")(function* (troubles: ReadonlyArray<Trouble>) {

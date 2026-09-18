@@ -1,13 +1,11 @@
-import { Console, Effect, Option } from "effect"
+import { Console, Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { rollupState } from "#adapters/ci.ts"
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseOnto } from "#adapters/git.ts"
-import { named, prArgument, reading, refuse } from "#cli/pr.ts"
-import { asUserError, userFacing } from "#cli/sweep.ts"
+import { asUserError, userFacingAndGit } from "#cli/exit.ts"
+import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
 import { decide, recordConflict, stackOf } from "#domain/rebase.ts"
 import { short } from "#domain/review.ts"
@@ -45,9 +43,7 @@ export const rebase = Command.make(
   { pr: prArgument },
   Effect.fn("rebase")(
     function* ({ pr }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
-      const settings = settingsFor(file, repo)
+      const { number, repo, settings } = yield* forPr(pr)
 
       const [view, open, me] = yield* reading(
         `${repo}#${number}`,
@@ -102,6 +98,6 @@ export const rebase = Command.make(
           `rebased ${count(done.behind, "commit")} of ${view.baseRefName} and pushed with a lease`
       )
     },
-    Effect.catchTag([...userFacing, "GitFailed"], asUserError)
+    Effect.catchTag(userFacingAndGit, asUserError)
   )
 ).pipe(Command.withDescription("Rebase one branch onto its base and push it with a lease"))

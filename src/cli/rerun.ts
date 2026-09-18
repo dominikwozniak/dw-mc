@@ -1,12 +1,10 @@
-import { Console, Effect, Option } from "effect"
+import { Console, Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { failedRuns, rerunFailed, rollupState } from "#adapters/ci.ts"
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { prView, viewer } from "#adapters/gh.ts"
-import { named, prArgument, reading, refuse } from "#cli/pr.ts"
-import { asUserError, userFacing } from "#cli/sweep.ts"
+import { asUserError, userFacing } from "#cli/exit.ts"
+import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
 import { flakyReason } from "#domain/flaky.ts"
 import { decide, recordRerun, refusedUnclassified, rerunFor } from "#domain/rerun.ts"
@@ -35,9 +33,7 @@ export const rerun = Command.make(
   { pr: prArgument },
   Effect.fn("rerun")(
     function* ({ pr }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
-      const settings = settingsFor(file, repo)
+      const { number, repo, settings } = yield* forPr(pr)
 
       const [view, me] = yield* reading(`${repo}#${number}`, Effect.all([prView(repo, number), viewer]))
 

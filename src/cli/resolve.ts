@@ -1,16 +1,13 @@
-import { Console, Effect, Option } from "effect"
-import { CliError, Command, Flag } from "effect/unstable/cli"
+import { Console, Effect } from "effect"
+import { Command, Flag } from "effect/unstable/cli"
 
 import { steeredSession } from "#adapters/claude.ts"
-import type { ConfigFile } from "#adapters/config.ts"
-import { launcherOf, read as readConfig } from "#adapters/config.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseInPlace, standingWorktree } from "#adapters/git.ts"
-import { named, prArgument, reading } from "#cli/pr.ts"
-import { asUserError, userFacing } from "#cli/sweep.ts"
+import { asUserError, userFacingAndSession } from "#cli/exit.ts"
+import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
 import { conflictFor, stackOf } from "#domain/rebase.ts"
-import type { Situation } from "#domain/resolve.ts"
 import { decide, promptFor } from "#domain/resolve.ts"
 import { short } from "#domain/review.ts"
 
@@ -18,12 +15,6 @@ const printFlag = Flag.Boolean("print").pipe(
   Flag.withDefault(false),
   Flag.withDescription("Print the prompt a session would open on, and open none")
 )
-
-/** The domain's word on a conflict that is not one to open, as the command's own failure. */
-const allowed = (situation: Situation) => {
-  const refused = decide(situation)
-  return refused === null ? Effect.void : Effect.fail(new CliError.UserError({ cause: refused }))
-}
 
 /**
  * A session on the conflict that stopped a rebase, in a worktree that is mine.
@@ -50,8 +41,7 @@ export const resolve = Command.make(
   { pr: prArgument, print: printFlag },
   Effect.fn("resolve")(
     function* ({ pr, print }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
+      const { number, repo, launcher } = yield* forPr(pr)
 
       const [view, open, me] = yield* reading(
         `${repo}#${number}`,
@@ -59,16 +49,18 @@ export const resolve = Command.make(
       )
       const conflict = yield* conflictFor(repo, number)
 
-      yield* allowed({
-        repo,
-        number,
-        mine: view.author?.login === me,
-        fromFork: view.isCrossRepository,
-        listed: open.some((it) => it.number === number),
-        stack: stackOf(number, open),
-        head: view.headRefOid,
-        conflictAt: conflict === null ? null : conflict.head
-      })
+      yield* refuse(
+        decide({
+          repo,
+          number,
+          mine: view.author?.login === me,
+          fromFork: view.isCrossRepository,
+          listed: open.some((it) => it.number === number),
+          stack: stackOf(number, open),
+          head: view.headRefOid,
+          conflictAt: conflict === null ? null : conflict.head
+        })
+      )
 
       /** The conflict as the prompt takes it, around whichever paths are known by then. */
       const conflicted = (paths: ReadonlyArray<string>) => ({
@@ -110,7 +102,7 @@ export const resolve = Command.make(
       yield* Effect.forEach(stopped.paths, (path) => Console.log(`  ${path}`))
 
       const ended = yield* steeredSession({
-        launcher: launcherOf(file),
+        launcher,
         directory: worktree.directory,
         prompt: yield* promptFor(conflicted(stopped.paths))
       })
@@ -126,6 +118,6 @@ export const resolve = Command.make(
       )
       yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
     },
-    Effect.catchTag([...userFacing, "GitFailed", "WorktreeHeld", "AgentFailed"], asUserError)
+    Effect.catchTag(userFacingAndSession, asUserError)
   )
 ).pipe(Command.withDescription("Open a session on the conflict that stopped a rebase, in a worktree of my own"))

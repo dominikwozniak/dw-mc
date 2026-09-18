@@ -5,7 +5,7 @@ import type { ConfigFile, SettingsPatch } from "#adapters/config.ts"
 import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, write } from "#adapters/config.ts"
 import { currentRepo, requireAuth } from "#adapters/gh.ts"
 import { stateDirectory } from "#adapters/store.ts"
-import { asUserError } from "#cli/sweep.ts"
+import { asUserError } from "#cli/exit.ts"
 import type { Effort } from "#terms/review.ts"
 
 const effortFlag = Flag.Literals("effort", ["low", "medium", "high", "xhigh", "max"]).pipe(

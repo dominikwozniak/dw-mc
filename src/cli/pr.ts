@@ -1,11 +1,14 @@
 import { Effect, Option } from "effect"
 import { Argument, CliError } from "effect/unstable/cli"
 
+import type { ConfigFile } from "#adapters/config.ts"
+import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Reference } from "#domain/reference.ts"
 import { resolve } from "#domain/reference.ts"
+import { lastRun } from "#domain/review.ts"
 
 /** The pull request a command acts on, named the way I actually type it. */
 export const prArgument = Argument.String("pr").pipe(
@@ -32,6 +35,26 @@ export const named = (pr: string, registered: ReadonlyArray<string>) => {
     ? Effect.succeed(reference)
     : Effect.fail(new CliError.UserError({ cause: whyNothingNamed(reference) }))
 }
+
+/**
+ * What a command that acts on one pull request opens with: which pull request
+ * it is, and what the configuration says about its repository.
+ *
+ * Nine commands ask the file the same three questions before they do anything
+ * else, and asking them here is what keeps the answers the same: which
+ * repositories are registered decides what a bare `28` may name, and a command
+ * that read the file its own way would resolve a different pull request from
+ * the one beside it.
+ *
+ * `settings` and `launcher` come back whether or not this command wants them,
+ * because both are a merge of records already in hand and neither reads
+ * anything. The file itself does not, so nothing downstream keeps a copy of it.
+ */
+export const forPr = Effect.fn("pr.forPr")(function* (pr: string) {
+  const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
+  const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
+  return { repo, number, settings: settingsFor(file, repo), launcher: launcherOf(file) }
+})
 
 /**
  * A domain guard's word, as the command's own failure.
@@ -64,6 +87,25 @@ export const swept = Effect.fn("pr.swept")(function* (repo: string, number: numb
     })
   }
   return facts.value
+})
+
+/**
+ * The review run whose findings are the current ones, or the sentence saying
+ * there are none.
+ *
+ * The last run on the pull request is what "current" means here, and it is read
+ * off the state directory rather than worked out from GitHub: the commands that
+ * ask are ones I run inside a fix session, where another round trip to GitHub
+ * buys nothing the run it is about to fix does not already say.
+ */
+export const currentRun = Effect.fn("pr.currentRun")(function* (repo: string, number: number) {
+  const run = yield* lastRun(repo, number)
+  if (Option.isNone(run)) {
+    return yield* new CliError.UserError({
+      cause: `No review run on ${repo}#${number}. Run dw-mc review ${number} first.`
+    })
+  }
+  return run.value
 })
 
 /**
