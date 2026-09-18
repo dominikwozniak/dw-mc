@@ -1,15 +1,14 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Path, Stdio, Terminal } from "effect"
-import { Command } from "effect/unstable/cli"
+import { DateTime, Effect, Terminal } from "effect"
 import type { ChildProcess } from "effect/unstable/process"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { builtInLauncher, ConfigStore, write } from "#adapters/config.ts"
-import { key, layerScripted, typed } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
+import { builtInLauncher, write } from "#adapters/config.ts"
+import { prViewOf } from "#adapters/gh.ts"
+import { key, recording, typed } from "#adapters/picker.ts"
+import { json, layerStubbed, wrote } from "#adapters/spawner.ts"
 import { storeFor } from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
 
@@ -42,83 +41,49 @@ const machine = (options: {
   readonly drawn?: Array<string> | undefined
   /** The head GitHub says the pull request is at now. */
   readonly headRefOid?: string | undefined
-}) => {
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("fix.test: the fake was handed a piped command")
-    }
-    options.spawned.push(command)
-    const argv = command.args.join(" ")
-
-    if (command.command === launching) {
-      return Effect.succeed(fakeHandle({}))
-    }
-    if (command.command === "git") {
-      if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
-        return Effect.succeed(fakeHandle({ stdout: "true\n" }))
-      }
-      if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
-        return Effect.succeed(fakeHandle({ stdout: `${options.headRefOid ?? head}\n` }))
-      }
-      if (argv.startsWith(`-C ${clone} config `)) {
-        return Effect.succeed(fakeHandle({}))
-      }
-      if (argv === `-C ${clone} worktree list --porcelain`) {
-        return Effect.succeed(fakeHandle({ stdout: `worktree ${clone}\nbare\n` }))
-      }
-      return Effect.succeed(fakeHandle({}))
-    }
-    if (/^pr view 28 --repo \S+ --json \S+$/.test(argv)) {
-      return Effect.succeed(
-        fakeHandle({
-          stdout: JSON.stringify({
-            number: 28,
-            title: "feat: report a review run's findings",
-            url: `https://github.com/${repo}/pull/28`,
-            isDraft: false,
-            headRefOid: options.headRefOid ?? head,
-            headRefName: branch,
-            baseRefName: "main",
-            author: { login: "dominikwozniak" },
-            isCrossRepository: false,
-            mergeable: "MERGEABLE",
-            reviewDecision: "",
-            statusCheckRollup: []
-          })
-        })
-      )
-    }
-    return Effect.die(`fix.test: nothing stubbed for '${command.command} ${argv}'`)
+}) =>
+  machineOf({
+    keys: options.keys,
+    drawn: options.drawn,
+    spawner: layerStubbed({
+      onSpawn: (command) => options.spawned.push(command),
+      stubs: [
+        (command) => (command.command === launching ? wrote("") : undefined),
+        (command, argv) => {
+          if (command.command !== "git") {
+            return undefined
+          }
+          if (argv === `-C ${clone} rev-parse --is-bare-repository`) {
+            return wrote("true\n")
+          }
+          if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
+            return wrote(`${options.headRefOid ?? head}\n`)
+          }
+          if (argv === `-C ${clone} worktree list --porcelain`) {
+            return wrote(`worktree ${clone}\nbare\n`)
+          }
+          return wrote("")
+        },
+        (_, argv) =>
+          /^pr view 28 --repo \S+ --json \S+$/.test(argv)
+            ? json(
+                prViewOf(repo, {
+                  number: 28,
+                  title: "feat: report a review run's findings",
+                  headRefOid: options.headRefOid ?? head,
+                  headRefName: branch
+                })
+              )
+            : undefined
+      ]
+    })
   })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted(options.keys, options.drawn)
-    )
-  )
-}
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
 
 const registered = (...repos: ReadonlyArray<string>) =>
   write({ repos: Object.fromEntries(repos.map((name) => [name, {}])) } satisfies ConfigFile)
 
 /** A repository whose settings let a fix session commit what it changes. */
 const committing = write({ repos: { [repo]: { fix: { commits: true } } } } satisfies ConfigFile)
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /** The review run `dw-mc review` would have left behind. */
 const ran = (outcome: Outcome) =>

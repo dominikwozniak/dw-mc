@@ -1,12 +1,11 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { ConfigProvider, Effect, FileSystem, Layer, Path, Stdio } from "effect"
 
 import { ConfigStore } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { layerFake } from "#adapters/spawner.ts"
+import { layerScripted, recording } from "#adapters/picker.ts"
+import { layerStubbed } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
-import { dwMc, projectUrl, version } from "#cli/cli.ts"
+import { projectUrl, run, version } from "#cli/cli.ts"
 import * as Header from "#cli/header.ts"
 
 /** The machine a help screen is printed on: a terminal or a pipe, with or without `NO_COLOR`. */
@@ -23,16 +22,16 @@ interface Machine {
  */
 const screen = Effect.fnUntraced(function* (argv: ReadonlyArray<string>, machine: Machine = {}) {
   const printed: Array<string> = []
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
 
   // A screen is printed whether the run succeeds or not: `dw-mc bogus` prints
   // one on its way to failing, and that screen is what a test here reads.
-  yield* Command.runWith(dwMc, { version })(argv).pipe(
+  //
+  // The stack is assembled here rather than taken from `machineOf`, because
+  // this is not a command running: it is the help screen, which needs the
+  // header's formatter and a stdout that says whether it is a terminal.
+  yield* run(...argv).pipe(
     Effect.ignoreCause,
-    Effect.provideService(Console.Console, console_),
+    recording(printed),
     Effect.provide(
       Layer.provideMerge(
         Layer.mergeAll(ConfigStore.layerTest, Store.layerTest, Header.layer),
@@ -41,7 +40,7 @@ const screen = Effect.fnUntraced(function* (argv: ReadonlyArray<string>, machine
           FileSystem.layerNoop({}),
           Path.layer,
           Stdio.layerTest({ stdoutIsTerminal: Effect.succeed(machine.terminal ?? false) }),
-          layerFake(() => Effect.die("header.test: a help screen spawns nothing")),
+          layerStubbed({ stubs: [] }),
           layerScripted([])
         )
       )

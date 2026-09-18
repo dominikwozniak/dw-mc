@@ -1,10 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Console, Duration, Effect } from "effect"
+import { Duration, Effect } from "effect"
 import { TestClock } from "effect/testing"
 
 import type { Reads, Says } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
-import { layerScripted } from "#adapters/picker.ts"
+import { layerScripted, recording } from "#adapters/picker.ts"
 
 /** What a run has reached for so far, as the command that counts would hold it. */
 interface Doing {
@@ -17,15 +17,6 @@ const reads =
   (doing: Doing): Reads =>
   (since) =>
     `reviewing · ${doing.tools} tools · ${doing.subagents} subagents · ${since}`
-
-/** Collects what was printed a line at a time, beside what was drawn in place. */
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
 
 /** A run that reaches for three tools, one of them a subagent, then finishes. */
 const reaching = (says: Says) =>

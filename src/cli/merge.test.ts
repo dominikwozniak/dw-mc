@@ -1,14 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { DateTime, Effect } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
+import { write } from "#adapters/config.ts"
+import { prViewOf } from "#adapters/gh.ts"
+import { recording } from "#adapters/picker.ts"
+import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 import { prKey, storeFor } from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Finding } from "#domain/findings.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
@@ -34,65 +33,38 @@ const machine = (options: {
   readonly refusal?: string | undefined
   /** Where a test is about the heartbeat, what it drew in place. */
   readonly drawn?: Array<string> | undefined
-}) => {
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("merge.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    options.spawned.push(`${command.command} ${argv}`)
-
-    if (argv === "api user") {
-      return Effect.succeed(fakeHandle({ stdout: JSON.stringify({ login: me }) }))
-    }
-    if (/^pr view 28 --repo \S+ --json \S+$/.test(argv)) {
-      return Effect.succeed(
-        fakeHandle({
-          stdout: JSON.stringify({
-            number: 28,
-            title: "feat(merge): merge my own pull request",
-            url: `https://github.com/${repo}/pull/28`,
-            isDraft: options.draft ?? false,
-            headRefOid: head,
-            headRefName: "feat/57-merge-command",
-            baseRefName: "main",
-            author: { login: options.author ?? me },
-            isCrossRepository: false,
-            mergeable: options.mergeable ?? "MERGEABLE",
-            reviewDecision: options.reviewDecision ?? "APPROVED",
-            statusCheckRollup: options.checks ?? [passed]
-          })
-        })
-      )
-    }
-    if (argv.startsWith("pr merge")) {
-      return Effect.succeed(
-        options.refusal === undefined ? fakeHandle({}) : fakeHandle({ exitCode: 1, stderr: options.refusal })
-      )
-    }
-    return Effect.die(`merge.test: nothing stubbed for '${command.command} ${argv}'`)
+}) =>
+  machineOf({
+    drawn: options.drawn,
+    spawner: layerStubbed({
+      onSpawn: (command) => options.spawned.push(vectorOf(command)),
+      stubs: [
+        (_, argv) => (argv === "api user" ? json({ login: me }) : undefined),
+        (_, argv) =>
+          /^pr view 28 --repo \S+ --json \S+$/.test(argv)
+            ? json(
+                prViewOf(repo, {
+                  number: 28,
+                  title: "feat(merge): merge my own pull request",
+                  isDraft: options.draft,
+                  headRefOid: head,
+                  headRefName: "feat/57-merge-command",
+                  author: options.author,
+                  mergeable: options.mergeable,
+                  reviewDecision: options.reviewDecision ?? "APPROVED",
+                  statusCheckRollup: options.checks ?? [passed]
+                })
+              )
+            : undefined,
+        (_, argv) =>
+          argv.startsWith("pr merge")
+            ? options.refusal === undefined
+              ? wrote("")
+              : refused(options.refusal)
+            : undefined
+      ]
+    })
   })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted([], options.drawn)
-    )
-  )
-}
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
 
 const registered = write({ repos: { [repo]: {} } } satisfies ConfigFile)
 
@@ -139,8 +111,6 @@ const swept = (over: Partial<Facts>) =>
     })
   })
 
-const dwmc = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
-
 const merges = (spawned: ReadonlyArray<string>) => spawned.filter((vector) => vector.startsWith("gh pr merge"))
 
 describe("dw-mc merge", () => {
@@ -153,7 +123,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      yield* dwmc("merge", "28")
+      yield* run("merge", "28")
 
       assert.include(drawn.join("\n"), `reading ${repo}#28`)
       // What is left on the screen is what the merge said, not the reading of it.
@@ -170,7 +140,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      yield* dwmc("merge", "28")
+      yield* run("merge", "28")
 
       assert.deepStrictEqual(merges(spawned), [`gh pr merge 28 --repo ${repo} --squash --delete-branch`])
       const said = printed.join("\n")
@@ -188,7 +158,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      yield* dwmc("merge", "28")
+      yield* run("merge", "28")
 
       assert.strictEqual(merges(spawned).length, 1)
     }).pipe(Effect.provide(machine({ spawned, reviewDecision: "" })), recording(printed))
@@ -201,7 +171,7 @@ describe("dw-mc merge", () => {
     return Effect.gen(function* () {
       yield* registered
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "no review run on this head")
       assert.include(String(error.cause), "dw-mc review 28")
@@ -219,7 +189,7 @@ describe("dw-mc merge", () => {
         { file: "src/cli/merge.ts", line: 12, severity: "error", summary: "The guards are read off a sweep." }
       ])
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "1 blocking finding")
       assert.include(String(error.cause), "dw-mc fix 28")
@@ -236,7 +206,7 @@ describe("dw-mc merge", () => {
       yield* reviewed(head)
       yield* withdraw(repo, 28, head)
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "withdrawn by hand")
       assert.deepStrictEqual(merges(spawned), [])
@@ -251,7 +221,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "not Ready")
       assert.include(String(error.cause), "changes are requested")
@@ -267,7 +237,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      assert.include(String((yield* Effect.flip(dwmc("merge", "28"))).cause), "draft")
+      assert.include(String((yield* Effect.flip(run("merge", "28"))).cause), "draft")
       assert.deepStrictEqual(merges(spawned), [])
     }).pipe(Effect.provide(machine({ spawned, draft: true })), recording(printed))
   })
@@ -280,7 +250,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "merge conflict")
       assert.deepStrictEqual(merges(spawned), [])
@@ -295,7 +265,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "not mine")
       assert.deepStrictEqual(merges(spawned), [])
@@ -312,7 +282,7 @@ describe("dw-mc merge", () => {
       // A sweep that saw a green, approved, mergeable head. GitHub has moved on.
       yield* swept({})
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "CI is red")
       assert.deepStrictEqual(merges(spawned), [])
@@ -329,7 +299,7 @@ describe("dw-mc merge", () => {
       // The other way round: stale facts that would refuse, live ones that merge.
       yield* swept({ checks: "red", mergeable: "conflicting", reviewDecision: "changes-requested" })
 
-      yield* dwmc("merge", "28")
+      yield* run("merge", "28")
 
       assert.strictEqual(merges(spawned).length, 1)
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
@@ -343,7 +313,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(gone)
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "no review run on this head")
       assert.deepStrictEqual(merges(spawned), [])
@@ -358,7 +328,7 @@ describe("dw-mc merge", () => {
       yield* registered
       yield* reviewed(head)
 
-      const error = yield* Effect.flip(dwmc("merge", "28"))
+      const error = yield* Effect.flip(run("merge", "28"))
 
       assert.include(String(error.cause), "Protected branch update failed")
       assert.notInclude(printed.join("\n"), "squash-merged")

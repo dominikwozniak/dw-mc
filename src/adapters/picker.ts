@@ -1,5 +1,5 @@
 import type { Cause } from "effect"
-import { Effect, Layer, Option, Queue, Terminal } from "effect"
+import { Console, Effect, Layer, Option, Queue, Terminal } from "effect"
 import { Prompt } from "effect/unstable/cli"
 
 import { Paint, plain } from "#adapters/paint.ts"
@@ -164,3 +164,23 @@ export const layerScripted = (
       })
     })
   )
+
+/**
+ * A console that collects every line printed into `printed`, for tests.
+ *
+ * It sits beside the scripted terminal because the two are one screen: what a
+ * prompt draws in place goes to `drawn`, and what a command prints a line at a
+ * time comes here. `Console` is a `Context.Reference` Effect means to be
+ * overridden this way, so this sets a reference rather than standing in for a
+ * fourth seam.
+ *
+ * Errors are swallowed rather than collected: the CLI prints its own failures,
+ * and a test that reads them reads the failure instead.
+ */
+export const recording = (printed: Array<string>) => {
+  const console_: Console.Console = Object.assign(Object.create(console), {
+    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
+    error: () => {}
+  })
+  return Effect.provideService(Console.Console, console_)
+}

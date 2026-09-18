@@ -12,16 +12,13 @@ import {
   rollupState,
   workflowFailsOn
 } from "#adapters/ci.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { fakeHandle, layerStubbed } from "#adapters/spawner.ts"
 
 /** A spawner that answers every program the same way, and records the argv. */
 const answering = (spawned: Array<ReadonlyArray<string>>, handle: Parameters<typeof fakeHandle>[0]) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("ci.test: the fake was handed a piped command")
-    }
-    spawned.push([command.command, ...command.args])
-    return Effect.succeed(fakeHandle(handle))
+  layerStubbed({
+    onSpawn: (command) => spawned.push([command.command, ...command.args]),
+    stubs: [() => Effect.succeed(fakeHandle(handle))]
   })
 
 describe("rollupState", () => {

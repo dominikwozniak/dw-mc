@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { layerStubbed, refused, wrote } from "#adapters/spawner.ts"
 import type { Evidence } from "#domain/flaky.ts"
 import { classify, evidenceFor } from "#domain/flaky.ts"
 
@@ -161,19 +161,18 @@ describe("evidenceFor", () => {
     readonly refuses?: ReadonlyArray<string> | undefined
     readonly spawned?: Array<string> | undefined
   }) =>
-    layerFake((command) => {
-      if (command._tag !== "StandardCommand") {
-        return Effect.die("flaky.test: the fake was handed a piped command")
-      }
-      const argv = command.args.join(" ")
-      options.spawned?.push(argv)
-      if (options.refuses?.some((pattern) => argv.includes(pattern)) ?? false) {
-        return Effect.succeed(fakeHandle({ exitCode: 1, stderr: "gh: Not Found (HTTP 404)" }))
-      }
-      const key = Object.keys(options.answers).find((read) => argv.includes(read))
-      return key === undefined
-        ? Effect.die(`flaky.test: nothing stubbed for '${argv}'`)
-        : Effect.succeed(fakeHandle({ stdout: options.answers[key] }))
+    layerStubbed({
+      onSpawn: (command) => options.spawned?.push(command.args.join(" ")),
+      stubs: [
+        (_, argv) =>
+          (options.refuses?.some((pattern) => argv.includes(pattern)) ?? false)
+            ? refused("gh: Not Found (HTTP 404)")
+            : undefined,
+        (_, argv) => {
+          const key = Object.keys(options.answers).find((read) => argv.includes(read))
+          return key === undefined ? undefined : wrote(options.answers[key] ?? "")
+        }
+      ]
     })
 
   const answers = {

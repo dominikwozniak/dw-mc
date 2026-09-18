@@ -1,14 +1,11 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, Effect, FileSystem, Layer, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Effect, FileSystem, Layer, Path } from "effect"
 import type { ChildProcess } from "effect/unstable/process"
 
-import { ConfigStore } from "#adapters/config.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { recording } from "#adapters/picker.ts"
+import { layerStubbed, refused, wrote } from "#adapters/spawner.ts"
+import { machineOf, run } from "#cli/cli.ts"
 
 /** What the clone says about the fix branch: nothing at all, or a head and a count. */
 interface Branch {
@@ -31,60 +28,35 @@ const machine = (options: {
   readonly branch?: Branch | undefined
 }) => {
   const branch = options.branch ?? {}
-  const spawner = layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("uninstall.test: the fake was handed a piped command")
-    }
-    options.spawned.push(command)
-    const argv = command.args.join(" ")
-
-    if (argv.endsWith("status --porcelain")) {
-      return Effect.succeed(fakeHandle({ stdout: branch.changes ?? "" }))
-    }
-    if (argv.endsWith("rev-parse --verify --quiet refs/heads/dw-mc/fix/28")) {
-      return branch.at === undefined
-        ? Effect.succeed(fakeHandle({ exitCode: 1 }))
-        : Effect.succeed(fakeHandle({ stdout: `${branch.at}\n` }))
-    }
-    if (argv.endsWith("rev-parse refs/dw-mc/pr/28")) {
-      return branch.pullRequest === undefined
-        ? Effect.succeed(fakeHandle({ exitCode: 1, stderr: "fatal: bad revision\n" }))
-        : Effect.succeed(fakeHandle({ stdout: `${branch.pullRequest}\n` }))
-    }
-    if (argv.includes("rev-list --count")) {
-      return Effect.succeed(fakeHandle({ stdout: `${branch.ahead ?? 0}\n` }))
-    }
-    return Effect.succeed(fakeHandle({}))
+  return machineOf({
+    env: {
+      HOME: options.home,
+      XDG_STATE_HOME: options.home,
+      XDG_CONFIG_HOME: `${options.home}/config`
+    },
+    fileSystem: NodeFileSystem.layer,
+    spawner: layerStubbed({
+      onSpawn: (command) => options.spawned.push(command),
+      stubs: [
+        (_, argv) => (argv.endsWith("status --porcelain") ? wrote(branch.changes ?? "") : undefined),
+        (_, argv) =>
+          argv.endsWith("rev-parse --verify --quiet refs/heads/dw-mc/fix/28")
+            ? branch.at === undefined
+              ? refused("")
+              : wrote(`${branch.at}\n`)
+            : undefined,
+        (_, argv) =>
+          argv.endsWith("rev-parse refs/dw-mc/pr/28")
+            ? branch.pullRequest === undefined
+              ? refused("fatal: bad revision\n")
+              : wrote(`${branch.pullRequest}\n`)
+            : undefined,
+        (_, argv) => (argv.includes("rev-list --count") ? wrote(`${branch.ahead ?? 0}\n`) : undefined),
+        () => wrote("")
+      ]
+    })
   })
-
-  return Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(
-        ConfigProvider.fromEnvRecord({
-          HOME: options.home,
-          XDG_STATE_HOME: options.home,
-          XDG_CONFIG_HOME: `${options.home}/config`
-        })
-      ),
-      NodeFileSystem.layer,
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted([])
-    )
-  )
 }
-
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 const put = Effect.fnUntraced(function* (file: string, contents: string) {
   const fs = yield* FileSystem.FileSystem

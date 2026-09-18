@@ -10,16 +10,13 @@ import {
   reviewDecisionOf,
   viewer
 } from "#adapters/gh.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
+import { fakeHandle, layerFake, layerStubbed, wrote } from "#adapters/spawner.ts"
 
 /** A spawner that answers every program the same way, and records the argv. */
 const answering = (spawned: Array<ReadonlyArray<string>>, handle: Parameters<typeof fakeHandle>[0]) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("gh.test: the fake was handed a piped command")
-    }
-    spawned.push([command.command, ...command.args])
-    return Effect.succeed(fakeHandle(handle))
+  layerStubbed({
+    onSpawn: (command) => spawned.push([command.command, ...command.args]),
+    stubs: [() => Effect.succeed(fakeHandle(handle))]
   })
 
 describe("requireAuth", () => {
@@ -139,15 +136,15 @@ describe("viewer", () => {
 
 describe("prComments", () => {
   it.effect("says which comments came from an app rather than a person", () => {
-    const answered = layerFake((command) => {
-      if (command._tag !== "StandardCommand") {
-        return Effect.die("gh.test: the fake was handed a piped command")
-      }
-      const body =
-        (command.args[1]?.includes("/issues/") ?? false)
-          ? `[{"created_at":"2026-09-15T08:43:44Z","user":{"login":"coderabbitai[bot]","type":"Bot"}}]`
-          : `[{"created_at":"2026-09-15T09:00:00Z","user":{"login":"dominikwozniak","type":"User"}}]`
-      return Effect.succeed(fakeHandle({ stdout: body }))
+    const answered = layerStubbed({
+      stubs: [
+        (command) =>
+          wrote(
+            (command.args[1]?.includes("/issues/") ?? false)
+              ? `[{"created_at":"2026-09-15T08:43:44Z","user":{"login":"coderabbitai[bot]","type":"Bot"}}]`
+              : `[{"created_at":"2026-09-15T09:00:00Z","user":{"login":"dominikwozniak","type":"User"}}]`
+          )
+      ]
     })
 
     return Effect.gen(function* () {

@@ -1,15 +1,14 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Console, DateTime, Effect, FileSystem, Layer, Option, Path, Stdio } from "effect"
-import { Command } from "effect/unstable/cli"
+import { DateTime, Effect, Option } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { ConfigStore, write } from "#adapters/config.ts"
+import { write } from "#adapters/config.ts"
+import { prViewOf, viewFields } from "#adapters/gh.ts"
 import { coloured, Paint } from "#adapters/paint.ts"
-import { layerScripted } from "#adapters/picker.ts"
-import { fakeHandle, layerFake } from "#adapters/spawner.ts"
-import * as Store from "#adapters/store.ts"
+import { recording } from "#adapters/picker.ts"
+import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 import { storeFor } from "#adapters/store.ts"
-import { dwMc, version } from "#cli/cli.ts"
+import { machineOf, run } from "#cli/cli.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Finding } from "#domain/findings.ts"
 import { ReviewRun, runKey } from "#domain/review.ts"
@@ -72,25 +71,21 @@ interface Fixture {
   readonly refuses?: string
 }
 
-const view = (repo: string, pr: Fixture) => ({
-  number: pr.number,
-  title: pr.title ?? "feat: a pull request",
-  url: `https://github.com/${repo}/pull/${pr.number}`,
-  isDraft: pr.isDraft ?? false,
-  headRefOid: pr.headRefOid ?? "31268022360852f71815404b6bbdd6bd797cfb4c",
-  headRefName: `feat/${pr.number}-a-branch`,
-  baseRefName: "main",
-  author: { login: "dominikwozniak" },
-  isCrossRepository: false,
-  mergeable: pr.mergeable ?? "MERGEABLE",
-  reviewDecision: pr.reviewDecision ?? "",
-  // Every check of a PR reports at the same job, whose id is the PR's number,
-  // so a stubbed log is found from the URL the classifier follows.
-  statusCheckRollup: (pr.rollup ?? [check("Check", "SUCCESS")]).map((entry) => ({
-    ...entry,
-    detailsUrl: `https://github.com/${repo}/actions/runs/1/job/${pr.number}`
-  }))
-})
+const view = (repo: string, pr: Fixture) =>
+  prViewOf(repo, {
+    number: pr.number,
+    title: pr.title,
+    isDraft: pr.isDraft,
+    headRefOid: pr.headRefOid,
+    mergeable: pr.mergeable,
+    reviewDecision: pr.reviewDecision,
+    // Every check of a PR reports at the same job, whose id is the PR's number,
+    // so a stubbed log is found from the URL the classifier follows.
+    statusCheckRollup: (pr.rollup ?? [check("Check", "SUCCESS")]).map((entry) => ({
+      ...entry,
+      detailsUrl: `https://github.com/${repo}/actions/runs/1/job/${pr.number}`
+    }))
+  })
 
 /**
  * A `gh` that answers the six reads a sweep makes, from fixtures, and dies on
@@ -101,126 +96,96 @@ const github = (options: {
   readonly spawned?: Array<string> | undefined
   /** The workflows that are failing on the default branch as well. */
   readonly redOnDefaultBranch?: ReadonlyArray<string> | undefined
-}) =>
-  layerFake((command) => {
-    if (command._tag !== "StandardCommand") {
-      return Effect.die("status.test: the fake was handed a piped command")
-    }
-    const argv = command.args.join(" ")
-    options.spawned?.push(`${command.command} ${argv}`)
-    const json = (value: unknown) => Effect.succeed(fakeHandle({ stdout: JSON.stringify(value) }))
-    const refuse = (detail: string) => Effect.succeed(fakeHandle({ exitCode: 1, stderr: detail }))
+}) => {
+  const found = (repo: string, number: string): Fixture | undefined => {
+    const prs = options.repos[repo]
+    return prs === undefined || "refuses" in prs ? undefined : prs.find((pr) => pr.number === Number(number))
+  }
 
-    if (argv === "api user") {
-      return json({ login: me })
-    }
-
-    const search = /^search prs --author=@me --state=open --repo (\S+) --limit 100 --json number,repository$/.exec(argv)
-    if (search !== null) {
-      const repo = search[1] ?? ""
-      const prs = options.repos[repo]
-      if (prs === undefined) {
-        return refuse(`no such repository ${repo}`)
+  return layerStubbed({
+    onSpawn: (command) => options.spawned?.push(vectorOf(command)),
+    stubs: [
+      (_, argv) => (argv === "api user" ? json({ login: me }) : undefined),
+      (_, argv) => {
+        const search = /^search prs .* --repo (\S+) /.exec(argv)
+        if (search === null) {
+          return undefined
+        }
+        const repo = search[1] ?? ""
+        const prs = options.repos[repo]
+        if (prs === undefined) {
+          return refused(`no such repository ${repo}`)
+        }
+        if ("refuses" in prs) {
+          return refused(prs.refuses)
+        }
+        return json(prs.map((pr) => ({ number: pr.number, repository: { nameWithOwner: repo } })))
+      },
+      (_, argv) => {
+        const detail = /^pr view (\d+) --repo (\S+) --json (\S+)$/.exec(argv)
+        if (detail === null) {
+          return undefined
+        }
+        const [, number = "", repo = "", fields = ""] = detail
+        const pr = found(repo, number)
+        if (pr === undefined) {
+          return refused(`no pull request ${repo}#${number}`)
+        }
+        if (pr.refuses !== undefined) {
+          return refused(pr.refuses)
+        }
+        if (fields === "commits") {
+          return json({ commits: pr.commits ?? [] })
+        }
+        if (fields === "files") {
+          return json({ files: (pr.files ?? []).map((path) => ({ path })) })
+        }
+        return json(view(repo, pr))
+      },
+      (_, argv) =>
+        /^repo view \S+ --json defaultBranchRef$/.test(argv) ? json({ defaultBranchRef: { name: "main" } }) : undefined,
+      (_, argv) => {
+        const runs = /^run list --repo \S+ --branch main --workflow (.+) --limit 5 --json conclusion$/.exec(argv)
+        return runs === null
+          ? undefined
+          : json([{ conclusion: options.redOnDefaultBranch?.includes(runs[1] ?? "") === true ? "failure" : "success" }])
+      },
+      (_, argv) => {
+        const logs = /^api repos\/(\S+?)\/actions\/jobs\/(\d+)\/logs --allow-escape-sequences$/.exec(argv)
+        const [, repo = "", job = ""] = logs ?? []
+        return logs === null ? undefined : wrote(found(repo, job)?.log ?? "")
+      },
+      (_, argv) => {
+        const reviews = /^api repos\/(\S+?)\/pulls\/(\d+)\/reviews\?per_page=100$/.exec(argv)
+        if (reviews === null) {
+          return undefined
+        }
+        const [, repo = "", number = ""] = reviews
+        const pr = found(repo, number)
+        return pr === undefined ? refused(`no pull request ${repo}#${number}`) : json(pr.reviews ?? [])
+      },
+      (_, argv) => {
+        const rest = /^api repos\/(\S+?)\/(issues|pulls)\/(\d+)\/comments\?per_page=100$/.exec(argv)
+        if (rest === null) {
+          return undefined
+        }
+        const [, repo = "", kind = "", number = ""] = rest
+        const pr = found(repo, number)
+        return pr === undefined
+          ? refused(`no pull request ${repo}#${number}`)
+          : json((kind === "issues" ? pr.comments : pr.onDiff) ?? [])
       }
-      if ("refuses" in prs) {
-        return refuse(prs.refuses)
-      }
-      return json(prs.map((pr) => ({ number: pr.number, repository: { nameWithOwner: repo } })))
-    }
-
-    const found = (repo: string, number: string): Fixture | undefined => {
-      const prs = options.repos[repo]
-      return prs === undefined || "refuses" in prs ? undefined : prs.find((pr) => pr.number === Number(number))
-    }
-
-    const detail = /^pr view (\d+) --repo (\S+) --json (\S+)$/.exec(argv)
-    if (detail !== null) {
-      const [, number = "", repo = "", fields = ""] = detail
-      const pr = found(repo, number)
-      if (pr === undefined) {
-        return refuse(`no pull request ${repo}#${number}`)
-      }
-      if (pr.refuses !== undefined) {
-        return refuse(pr.refuses)
-      }
-      if (fields === "commits") {
-        return json({ commits: pr.commits ?? [] })
-      }
-      if (fields === "files") {
-        return json({ files: (pr.files ?? []).map((path) => ({ path })) })
-      }
-      return json(view(repo, pr))
-    }
-
-    const defaultBranchRef = /^repo view (\S+) --json defaultBranchRef$/.exec(argv)
-    if (defaultBranchRef !== null) {
-      return json({ defaultBranchRef: { name: "main" } })
-    }
-
-    const runs = /^run list --repo \S+ --branch main --workflow (.+) --limit 5 --json conclusion$/.exec(argv)
-    if (runs !== null) {
-      const workflow = runs[1] ?? ""
-      const red = options.redOnDefaultBranch?.includes(workflow) ?? false
-      return json([{ conclusion: red ? "failure" : "success" }])
-    }
-
-    const logs = /^api repos\/(\S+?)\/actions\/jobs\/(\d+)\/logs --allow-escape-sequences$/.exec(argv)
-    if (logs !== null) {
-      const [, repo = "", job = ""] = logs
-      return Effect.succeed(fakeHandle({ stdout: found(repo, job)?.log ?? "" }))
-    }
-
-    const reviews = /^api repos\/(\S+?)\/pulls\/(\d+)\/reviews\?per_page=100$/.exec(argv)
-    if (reviews !== null) {
-      const [, repo = "", number = ""] = reviews
-      const pr = found(repo, number)
-      if (pr === undefined) {
-        return refuse(`no pull request ${repo}#${number}`)
-      }
-      return json(pr.reviews ?? [])
-    }
-
-    const rest = /^api repos\/(\S+?)\/(issues|pulls)\/(\d+)\/comments\?per_page=100$/.exec(argv)
-    if (rest !== null) {
-      const [, repo = "", kind = "", number = ""] = rest
-      const pr = found(repo, number)
-      if (pr === undefined) {
-        return refuse(`no pull request ${repo}#${number}`)
-      }
-      return json((kind === "issues" ? pr.comments : pr.onDiff) ?? [])
-    }
-
-    return Effect.die(`status.test: nothing stubbed for '${command.command} ${argv}'`)
+    ]
   })
+}
 
 /** Everything the two commands run on, and nothing else: one fake `gh`, an
  * in-memory configuration file and an in-memory state directory. */
 const machine = (spawner: ReturnType<typeof github>, drawn?: Array<string>, columns?: number) =>
-  Layer.provideMerge(
-    Layer.mergeAll(ConfigStore.layerTest, Store.layerTest),
-    Layer.mergeAll(
-      ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw" })),
-      FileSystem.layerNoop({}),
-      Path.layer,
-      Stdio.layerTest({}),
-      spawner,
-      layerScripted([], drawn, columns)
-    )
-  )
-
-/** Collects what the command printed, so a test can read the table it wrote. */
-const recording = (printed: Array<string>) => {
-  const console_: Console.Console = Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
-  })
-  return Effect.provideService(Console.Console, console_)
-}
+  machineOf({ spawner, drawn, columns })
 
 const registered = (...repos: ReadonlyArray<string>) =>
   write({ repos: Object.fromEntries(repos.map((repo) => [repo, {}])) } satisfies ConfigFile)
-
-const run = (...argv: ReadonlyArray<string>) => Command.runWith(dwMc, { version })(argv)
 
 /** What `dw-mc review` leaves behind: a review run against one head. */
 const reviewed = (repo: string, number: number, head: string, findings: ReadonlyArray<Finding> = []) =>
@@ -884,7 +849,7 @@ describe("a red CI, classified", () => {
         "gh api user",
         `gh pr view 1 --repo ${repo} --json commits`,
         `gh pr view 1 --repo ${repo} --json files`,
-        `gh pr view 1 --repo ${repo} --json number,title,url,isDraft,headRefOid,headRefName,baseRefName,author,isCrossRepository,mergeable,reviewDecision,statusCheckRollup`,
+        `gh pr view 1 --repo ${repo} --json ${viewFields}`,
         `gh repo view ${repo} --json defaultBranchRef`,
         `gh run list --repo ${repo} --branch main --workflow Quality gate --limit 5 --json conclusion`,
         `gh search prs --author=@me --state=open --repo ${repo} --limit 100 --json number,repository`
