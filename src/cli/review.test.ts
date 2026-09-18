@@ -160,6 +160,8 @@ const machine = (options: {
           return wrote("")
         },
         (_, argv) => (argv === "api user" ? json({ login: me }) : undefined),
+        // `dw-mc status` runs from outside any repository, so it covers every registered one.
+        (_, argv) => (argv === "repo view --json nameWithOwner" ? refused("fatal: not a git repository") : undefined),
         (_, argv) => {
           const search = /^search prs .* --repo (\S+) /.exec(argv)
           const named = search?.[1] ?? ""
