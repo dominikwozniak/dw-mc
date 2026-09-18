@@ -1,6 +1,6 @@
 import type { Paint } from "#adapters/paint.ts"
 import { truncate } from "#cli/table.ts"
-import type { Bucket, Placed } from "#domain/bucket.ts"
+import type { Bucket, Facts, Placed } from "#domain/bucket.ts"
 import type { Since } from "#domain/watermark.ts"
 
 /**
@@ -52,7 +52,10 @@ export const marker: Record<Bucket, string> = {
  * It is one character from the part of Unicode every font has, for the reason
  * the marker is, and it is not coloured: the bucket is what the colour says.
  */
-export const gutter: Record<Since["_tag"], string> = { unseen: "+", moved: "*", still: " " }
+export const gutter: Record<Since["_tag"], string> = { new: "+", moved: "*", still: " " }
+
+/** How a row names its pull request. */
+export const reference = (facts: Facts): string => `${facts.repo}#${facts.number}`
 
 /** The colour a bucket is said in: red is mine, yellow is next, green is done, dim is not my turn. */
 export const tint = (paint: Paint, bucket: Bucket): ((text: string) => string) =>
@@ -82,6 +85,8 @@ export type Lead = "marker" | "named"
 /**
  * One row: which pull request, what it is, and what it waits on.
  *
+ * In front of it all is the gutter, which says what moved since I last looked.
+ *
  * A stamp is a mark beside the pull request rather than a column of its own, so
  * a table where nothing is stamped is exactly the table it was before: the
  * stamp is a thing I look for, not a thing I read every row of.
@@ -102,6 +107,7 @@ export type Lead = "marker" | "named"
 export const cells = (
   placed: Placed,
   stamped: boolean,
+  since: Since,
   room: number,
   paint: Paint,
   lead: Lead
@@ -109,13 +115,19 @@ export const cells = (
   const { facts } = placed
   const { bucket } = placed.placement
   const say = tint(paint, bucket)
-  const reference = `${facts.repo}#${facts.number}`
   const named = lead === "named"
-  const pr = `${named ? reference : paint.link(reference, facts.url)}${
+  const pr = `${named ? reference(facts) : paint.link(reference(facts), facts.url)}${
     facts.draft ? paint.dim(" (draft)") : ""
   }${stamped ? ` ${paint.green("✓")}` : ""}`
 
+  const front = gutter[since._tag]
+
   return named
-    ? [say(`${marker[bucket]} ${heading[bucket]}`), pr, truncate(facts.title, room), placed.placement.reason]
-    : [`${say(marker[bucket])} ${pr}`, paint.dim(truncate(facts.title, room)), say(placed.placement.reason)]
+    ? [
+        `${front} ${say(`${marker[bucket]} ${heading[bucket]}`)}`,
+        pr,
+        truncate(facts.title, room),
+        placed.placement.reason
+      ]
+    : [`${front} ${say(marker[bucket])} ${pr}`, paint.dim(truncate(facts.title, room)), say(placed.placement.reason)]
 }

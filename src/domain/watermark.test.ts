@@ -2,10 +2,9 @@ import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Effect } from "effect"
 
 import * as Store from "#adapters/store.ts"
-import { prKey } from "#adapters/store.ts"
 import type { Facts, Placed } from "#domain/bucket.ts"
 import { place } from "#domain/bucket.ts"
-import { since, sighted, sinceAmong, watermark } from "#domain/watermark.ts"
+import { markShown, since, sighted, sinceShown } from "#domain/watermark.ts"
 
 const at = (iso: string): DateTime.Utc => DateTime.makeUnsafe(iso)
 const shownAt = at("2026-09-18T09:00:00Z")
@@ -40,8 +39,8 @@ const placed = (over: Partial<Facts> = {}): Placed => {
 const between = (then: Partial<Facts>, now: Partial<Facts>) => since(sighted(placed(then), shownAt), placed(now))
 
 describe("since", () => {
-  it("calls a pull request never shown unseen, rather than moved", () => {
-    assert.deepStrictEqual(since(undefined, placed()), { _tag: "unseen" })
+  it("calls a pull request never shown new, rather than moved", () => {
+    assert.deepStrictEqual(since(undefined, placed()), { _tag: "new" })
   })
 
   it("marks nothing where nothing happened", () => {
@@ -123,21 +122,21 @@ describe("watermark", () => {
     Effect.gen(function* () {
       const shown = placed()
       const other = placed({ number: 25 })
-      yield* watermark([shown])
+      yield* markShown([shown])
 
-      const found = yield* sinceAmong([shown, other])
-      assert.deepStrictEqual(found.get(prKey(clean.repo, 24)), { _tag: "still" })
-      assert.deepStrictEqual(found.get(prKey(clean.repo, 25)), { _tag: "unseen" })
+      const found = yield* sinceShown([shown, other])
+      assert.deepStrictEqual(found(shown), { _tag: "still" })
+      assert.deepStrictEqual(found(other), { _tag: "new" })
     }).pipe(Effect.provide(Store.layerTest))
   )
 
   it.effect("moves to what was shown the next time", () =>
     Effect.gen(function* () {
-      yield* watermark([placed()])
-      yield* watermark([placed({ checks: "red" })])
+      yield* markShown([placed()])
+      yield* markShown([placed({ checks: "red" })])
 
-      const found = yield* sinceAmong([placed({ checks: "red" })])
-      assert.deepStrictEqual(found.get(prKey(clean.repo, 24)), { _tag: "still" })
+      const red = placed({ checks: "red" })
+      assert.deepStrictEqual((yield* sinceShown([red]))(red), { _tag: "still" })
     }).pipe(Effect.provide(Store.layerTest))
   )
 })

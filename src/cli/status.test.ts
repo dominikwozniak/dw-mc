@@ -1181,7 +1181,7 @@ describe("what moved since I last looked", () => {
       yield* registered(repo)
       yield* run("status")
 
-      prs[0] = { ...prs[0], number: 1, reviewDecision: "CHANGES_REQUESTED" }
+      prs[0] = { number: 1, title: "feat: two things", mergeable: "CONFLICTING", reviewDecision: "CHANGES_REQUESTED" }
       printed.length = 0
       yield* run("status")
 

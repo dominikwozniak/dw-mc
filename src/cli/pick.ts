@@ -7,17 +7,17 @@ import { Paint, ink, plain } from "#adapters/paint.ts"
 import { confirm, pick, width } from "#adapters/picker.ts"
 import { prKey } from "#adapters/store.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
-import { cells, gutter, rule } from "#cli/row.ts"
+import { cells, rule } from "#cli/row.ts"
 import { everything, printTroubles, sweeping } from "#cli/sweep.ts"
 import { table, truncate, visible } from "#cli/table.ts"
-import type { Facts } from "#domain/bucket.ts"
+import type { Facts, Placed } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 import type { Offer, Standing } from "#domain/pick.ts"
 import { actionsFor, argvFor } from "#domain/pick.ts"
 import { rerunFor } from "#domain/rerun.ts"
 import { stampedAmong } from "#domain/stamp.ts"
 import type { Since } from "#domain/watermark.ts"
-import { sinceAmong, watermark } from "#domain/watermark.ts"
+import { markShown, sinceShown } from "#domain/watermark.ts"
 
 /** A title cut this short says nothing, so a row that tight loses the column instead. */
 const shortest = 12
@@ -50,10 +50,8 @@ const screenRoom = (screen: number, paint: Paint): number =>
  * on every row; the rows are still in the order the buckets are acted on. The
  * gutter in front says what moved since I last looked, as it does in the table.
  */
-const cellsOf = ({ placed, stamped }: Standing, since: Since, room: number, paint: Paint): ReadonlyArray<string> => {
-  const [lead = "", ...rest] = cells(placed, stamped, room, paint, "named")
-  return [`${gutter[since._tag]} ${lead}`, ...rest]
-}
+const cellsOf = ({ placed, stamped }: Standing, since: Since, room: number, paint: Paint): ReadonlyArray<string> =>
+  cells(placed, stamped, since, room, paint, "named")
 
 /**
  * Every tracked PR as something to pick, aligned down the whole list.
@@ -67,20 +65,18 @@ const cellsOf = ({ placed, stamped }: Standing, since: Since, room: number, pain
  */
 const choicesOf = (
   standings: ReadonlyArray<Standing>,
-  seen: ReadonlyMap<string, Since>,
+  sinceOf: (placed: Placed) => Since,
   screen: number,
   paint: Paint
 ): ReadonlyArray<Prompt.SelectChoice<Standing>> => {
-  const sinceOf = ({ placed }: Standing): Since =>
-    seen.get(prKey(placed.facts.repo, placed.facts.number)) ?? { _tag: "unseen" }
-  const measured = standings.map((it) => cellsOf(it, sinceOf(it), Number.POSITIVE_INFINITY, paint))
+  const measured = standings.map((it) => cellsOf(it, sinceOf(it.placed), Number.POSITIVE_INFINITY, paint))
   const widest = (index: number) => Math.max(...measured.map((row) => visible(row[index] ?? "")))
   const room = screenRoom(screen, paint) - (widest(0) + widest(1) + widest(3)) - rule.length * 3
   const told = room >= shortest
 
   const rows = table(
     standings.map((it) => {
-      const row = cellsOf(it, sinceOf(it), told ? room : 0, paint)
+      const row = cellsOf(it, sinceOf(it.placed), told ? room : 0, paint)
       return told ? row : [row[0] ?? "", row[1] ?? "", row[3] ?? ""]
     }),
     rule
@@ -146,9 +142,9 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
       }
 
       const shown = standings.map((it) => it.placed)
-      const choices = choicesOf(standings, yield* sinceAmong(shown), yield* width, yield* Paint)
+      const choices = choicesOf(standings, yield* sinceShown(shown), yield* width, yield* Paint)
       // The list is on the screen from here, whatever I answer it with.
-      yield* watermark(shown)
+      yield* markShown(shown)
       const chosen = yield* pick("Which pull request?", choices)
       if (Option.isNone(chosen)) {
         return

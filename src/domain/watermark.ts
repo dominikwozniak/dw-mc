@@ -6,19 +6,8 @@ import { Bucket } from "#domain/bucket.ts"
 import { isAfter } from "#domain/moment.ts"
 import { ChecksState, Mergeability, ReviewDecision } from "#terms/pr.ts"
 
-/**
- * The moment a tracked PR's row was last shown to me, and what the row said.
- *
- * It is kept on its own rather than on `Facts`, because a quiet PR carries its
- * old facts forward unchanged and a moment stored there would be about the
- * wrong thing. What it holds is only what a row turns on, so a fact the sweep
- * starts reading later does not make every row look unseen.
- *
- * Only a command that puts the row on screen writes one. A sweep on its own
- * shows nothing, and moving the watermark there would erase movement nobody saw.
- */
-export const Watermark = Schema.Struct({
-  at: Schema.DateTimeUtcFromString,
+/** What a row turns on, which is what a watermark keeps of it. */
+const Said = Schema.Struct({
   bucket: Bucket,
   mergeable: Mergeability,
   checks: ChecksState,
@@ -29,6 +18,20 @@ export const Watermark = Schema.Struct({
   newestHumanCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   draft: Schema.Boolean
 })
+type Said = typeof Said.Type
+
+/**
+ * The moment a tracked PR's row was last shown to me, and what the row said.
+ *
+ * It is kept on its own rather than on `Facts`, because a quiet PR carries its
+ * old facts forward unchanged and a moment stored there would be about the
+ * wrong thing. What it holds is only what a row turns on, so a fact the sweep
+ * starts reading later does not make every row look new.
+ *
+ * Only a command that puts the row on screen writes one. A sweep on its own
+ * shows nothing, and moving the watermark there would erase movement nobody saw.
+ */
+export const Watermark = Schema.Struct({ at: Schema.DateTimeUtcFromString, ...Said.fields })
 export type Watermark = typeof Watermark.Type
 
 /**
@@ -39,13 +42,14 @@ export type Watermark = typeof Watermark.Type
  * and is there only where it left one.
  */
 export type Since =
-  | { readonly _tag: "unseen" }
+  | { readonly _tag: "new" }
   | { readonly _tag: "still" }
   | { readonly _tag: "moved"; readonly from: Bucket | undefined; readonly what: ReadonlyArray<string> }
 
-/** What a row said at the moment it was shown. */
-export const sighted = ({ facts, placement }: Placed, at: DateTime.Utc): Watermark => ({
-  at,
+const keyOf = ({ facts }: Placed): string => prKey(facts.repo, facts.number)
+
+/** What a row says. */
+const said = ({ facts, placement }: Placed): Said => ({
   bucket: placement.bucket,
   mergeable: facts.mergeable,
   checks: facts.checks,
@@ -56,7 +60,10 @@ export const sighted = ({ facts, placement }: Placed, at: DateTime.Utc): Waterma
   draft: facts.draft
 })
 
-const ci = (it: Watermark): string => (it.checks === "red" && it.excused ? "red, called flaky" : it.checks)
+/** What a row said at the moment it was shown. */
+export const sighted = (placed: Placed, at: DateTime.Utc): Watermark => ({ at, ...said(placed) })
+
+const ci = (it: Said): string => (it.checks === "red" && it.excused ? "red, called flaky" : it.checks)
 
 const review: Record<ReviewDecision, string> = {
   approved: "approved",
@@ -72,7 +79,7 @@ const review: Record<ReviewDecision, string> = {
  * leads with it drowns what the push did. A mergeability GitHub has not worked
  * out yet is left out too, because it flickers to unknown and back on its own.
  */
-const moved = (then: Watermark, now: Watermark): ReadonlyArray<string> =>
+const moved = (then: Said, now: Said): ReadonlyArray<string> =>
   [
     then.mergeable !== now.mergeable && then.mergeable !== "unknown" && now.mergeable !== "unknown"
       ? `${then.mergeable} → ${now.mergeable}`
@@ -92,35 +99,40 @@ const moved = (then: Watermark, now: Watermark): ReadonlyArray<string> =>
  * What happened to a row since `watermark`, the last time it was shown.
  *
  * Movement is a bucket transition plus the facts that moved with it. Either one
- * alone misses something: a field-level diff drowns in the head, and a bucket
+ * alone misses something: every field compared drowns in the head, and a bucket
  * on its own says nothing when CI goes green on a PR still mine for another
  * reason.
  */
 export const since = (watermark: Watermark | undefined, placed: Placed): Since => {
   if (watermark === undefined) {
-    return { _tag: "unseen" }
+    return { _tag: "new" }
   }
-  const now = sighted(placed, watermark.at)
+  const now = said(placed)
   const what = moved(watermark, now)
   const from = watermark.bucket === now.bucket ? undefined : watermark.bucket
   return from === undefined && what.length === 0 ? { _tag: "still" } : { _tag: "moved", from, what }
 }
 
-/** What happened to each of these rows since it was last shown, by `prKey`. */
-export const sinceAmong = Effect.fn("watermark.sinceAmong")(function* (placed: ReadonlyArray<Placed>) {
+/**
+ * What happened to each of these rows since it was last shown.
+ *
+ * It answers for any row, and a row it was not given is one it has no
+ * watermark for, which is a row never shown.
+ */
+export const sinceShown = Effect.fn("watermark.sinceShown")(function* (placed: ReadonlyArray<Placed>) {
   const store = yield* storeFor("watermarks", Watermark)
-  const found = yield* Effect.forEach(placed, (it) => {
-    const key = prKey(it.facts.repo, it.facts.number)
-    return Effect.map(remembered(store.get(key)), (seen) => [key, since(Option.getOrUndefined(seen), it)] as const)
-  })
-  return new Map(found)
+  const found = new Map(
+    yield* Effect.forEach(placed, (it) => {
+      const key = keyOf(it)
+      return Effect.map(remembered(store.get(key)), (mark) => [key, since(Option.getOrUndefined(mark), it)] as const)
+    })
+  )
+  return (it: Placed): Since => found.get(keyOf(it)) ?? { _tag: "new" }
 })
 
 /** Records that these rows were shown to me, now, saying what they say. */
-export const watermark = Effect.fn("watermark.watermark")(function* (placed: ReadonlyArray<Placed>) {
+export const markShown = Effect.fn("watermark.markShown")(function* (placed: ReadonlyArray<Placed>) {
   const store = yield* storeFor("watermarks", Watermark)
   const now = yield* DateTime.now
-  yield* Effect.forEach(placed, (it) => store.set(prKey(it.facts.repo, it.facts.number), sighted(it, now)), {
-    discard: true
-  })
+  yield* Effect.forEach(placed, (it) => store.set(keyOf(it), sighted(it, now)), { discard: true })
 })

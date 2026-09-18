@@ -4,16 +4,14 @@ import { Command } from "effect/unstable/cli"
 import { Paint } from "#adapters/paint.ts"
 import { prKey } from "#adapters/store.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
-import { cells, gutter, heading, rule, titleWidth } from "#cli/row.ts"
+import { cells, heading, reference, rule, titleWidth } from "#cli/row.ts"
 import { allFlag, askedOf, printLeftOut, printTroubles, repoFlag, sweeping } from "#cli/sweep.ts"
 import { table } from "#cli/table.ts"
 import type { Grouped, Placed } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
 import { stampedAmong } from "#domain/stamp.ts"
 import type { Since } from "#domain/watermark.ts"
-import { sinceAmong, watermark } from "#domain/watermark.ts"
-
-const keyOf = (placed: Placed): string => prKey(placed.facts.repo, placed.facts.number)
+import { markShown, sinceShown } from "#domain/watermark.ts"
 
 /** What moved a row, said on its own line above the group it now sits in. */
 const movement = (placed: Placed, since: Since): ReadonlyArray<string> => {
@@ -22,7 +20,7 @@ const movement = (placed: Placed, since: Since): ReadonlyArray<string> => {
   }
   const from = since.from === undefined ? "" : ` from ${heading[since.from]}`
   const what = since.what.length === 0 ? "" : `: ${since.what.join(", ")}`
-  return [`  ↳ ${placed.facts.repo}#${placed.facts.number}${from}${what}`]
+  return [`  ↳ ${reference(placed.facts)}${from}${what}`]
 }
 
 /**
@@ -39,16 +37,21 @@ const movement = (placed: Placed, since: Since): ReadonlyArray<string> => {
 const lines = (
   grouped: ReadonlyArray<Grouped>,
   stamped: ReadonlySet<string>,
-  seen: ReadonlyMap<string, Since>,
+  sinceOf: (placed: Placed) => Since,
   paint: Paint
 ): ReadonlyArray<string> => {
-  const sinceOf = (placed: Placed): Since => seen.get(keyOf(placed)) ?? { _tag: "unseen" }
   const rows = table(
     grouped.flatMap((it) =>
-      it.placed.map((placed) => {
-        const [lead = "", ...rest] = cells(placed, stamped.has(keyOf(placed)), titleWidth, paint, "marker")
-        return [`${gutter[sinceOf(placed)._tag]} ${lead}`, ...rest]
-      })
+      it.placed.map((placed) =>
+        cells(
+          placed,
+          stamped.has(prKey(placed.facts.repo, placed.facts.number)),
+          sinceOf(placed),
+          titleWidth,
+          paint,
+          "marker"
+        )
+      )
     ),
     rule
   )
@@ -87,13 +90,12 @@ export const status = Command.make(
         yield* Console.log("No open pull requests.")
       }
       const shown = grouped.flatMap((it) => it.placed)
-      const seen = yield* sinceAmong(shown)
-      for (const line of lines(grouped, yield* stampedAmong(report.facts), seen, yield* Paint)) {
+      for (const line of lines(grouped, yield* stampedAmong(report.facts), yield* sinceShown(shown), yield* Paint)) {
         yield* Console.log(line)
       }
-      yield* watermark(shown)
       yield* printLeftOut(report)
       yield* printTroubles(report.troubles)
+      yield* markShown(shown)
     },
     Effect.catchTag(userFacing, asUserError)
   )
