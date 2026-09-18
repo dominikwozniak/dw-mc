@@ -1,6 +1,6 @@
 import type { Thread } from "#adapters/conversation.ts"
 import type { Moment } from "#domain/moment.ts"
-import { isAfter } from "#domain/moment.ts"
+import { isAfter, newest } from "#domain/moment.ts"
 
 /**
  * A pull request's conversation as it goes on screen: what people said, and
@@ -58,3 +58,19 @@ export const shown = (threads: ReadonlyArray<Thread>, options: { readonly since:
     bots: kept.flatMap((it) => only(it, (bot) => bot, options.since, options.all))
   } satisfies Shown
 }
+
+/**
+ * The comment an acknowledgement of this conversation covers: the newest thing
+ * a person said in it, whichever thread it is in.
+ *
+ * The whole conversation rather than what went on screen, because the bucket
+ * rule counts the whole of it: a comment on a thread somebody resolved still
+ * puts the pull request in Needs me, and an acknowledgement that stopped short
+ * of it would settle nothing. A bot is left out for the reason the rule leaves
+ * it out.
+ *
+ * It is a comment's own moment and never the clock's, so a comment written
+ * after the conversation was read is one the acknowledgement does not cover.
+ */
+export const acknowledging = (threads: ReadonlyArray<Thread>): Moment =>
+  newest(threads.flatMap((thread) => thread.comments.filter((it) => !it.bot).map((it) => it.at)))

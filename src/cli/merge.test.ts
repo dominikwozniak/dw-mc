@@ -105,6 +105,7 @@ const swept = (over: Partial<Facts>) =>
       newestHumanCommentAt: null,
       myLastCommentAt: null,
       myLastCommitAt: null,
+      acknowledgedAt: null,
       reviewRunHead: head,
       blockingFindings: 0,
       ...over

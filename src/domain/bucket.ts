@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 
+import type { Moment } from "#domain/moment.ts"
 import { isAfter, later } from "#domain/moment.ts"
 import { ChecksState, Mergeability, ReviewDecision } from "#terms/pr.ts"
 
@@ -30,6 +31,8 @@ export const Facts = Schema.Struct({
   newestHumanCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   myLastCommentAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   myLastCommitAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  /** The newest comment my acknowledgement covers, or null where I have made none. */
+  acknowledgedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   /** The head a review run has already covered, or null where none has. */
   reviewRunHead: Schema.NullOr(Schema.String),
   /** Findings on this head that withhold the stamp, at the bar `stamp.blocks_on` sets. */
@@ -78,6 +81,18 @@ export const unanswered = "a comment I have not answered"
 export const blockedBy = (n: number): string => `${n} blocking finding${n === 1 ? "" : "s"}`
 
 /**
+ * How far my answer to the conversation reaches: the latest of my last comment,
+ * my last commit and my acknowledgement.
+ *
+ * A comment is answered by a reply, by a push, or by my word that nothing in it
+ * was mine to answer. It is named because it is read twice: here, where a newer
+ * comment puts the PR in Needs me, and by `dw-mc comments`, which shows exactly
+ * the comments newer than it.
+ */
+export const answeredAt = (facts: Facts): Moment =>
+  later(later(facts.myLastCommentAt, facts.myLastCommitAt), facts.acknowledgedAt)
+
+/**
  * The first of the rules that makes a PR mine to move, or null when none
  * does. The order is the order I would fix them in: a conflict makes every
  * other signal on the PR stale, and a red build is worth more than a comment.
@@ -98,7 +113,7 @@ const needsMe = (facts: Facts): string | null => {
   if (facts.blockingFindings > 0) {
     return blockedBy(facts.blockingFindings)
   }
-  if (isAfter(facts.newestHumanCommentAt, later(facts.myLastCommentAt, facts.myLastCommitAt))) {
+  if (isAfter(facts.newestHumanCommentAt, answeredAt(facts))) {
     return unanswered
   }
   return null

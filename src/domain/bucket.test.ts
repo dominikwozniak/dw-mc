@@ -22,6 +22,7 @@ const clean: Facts = {
   newestHumanCommentAt: null,
   myLastCommentAt: null,
   myLastCommitAt: at("2026-09-16T10:05:57Z"),
+  acknowledgedAt: null,
   reviewRunHead: "31268022360852f71815404b6bbdd6bd797cfb4c",
   blockingFindings: 0
 }
@@ -115,6 +116,69 @@ describe("place", () => {
         ).bucket,
         "needs-me"
       )
+    })
+
+    describe("a comment is answered by the latest of my comment, my commit and my acknowledgement", () => {
+      const comment = at("2026-09-15T09:00:00Z")
+      const before = at("2026-09-15T08:00:00Z")
+      const after = at("2026-09-15T09:30:00Z")
+      const nothing = { myLastCommentAt: null, myLastCommitAt: null, acknowledgedAt: null }
+
+      it("claims a PR whose comment is newer than all three", () => {
+        assert.strictEqual(
+          place(
+            facts({
+              newestHumanCommentAt: comment,
+              myLastCommentAt: before,
+              myLastCommitAt: before,
+              acknowledgedAt: before
+            })
+          ).reason,
+          "a comment I have not answered"
+        )
+      })
+
+      it("counts my comment", () => {
+        assert.strictEqual(
+          place(facts({ ...nothing, newestHumanCommentAt: comment, myLastCommentAt: after })).bucket,
+          "ready"
+        )
+      })
+
+      it("counts my commit", () => {
+        assert.strictEqual(
+          place(facts({ ...nothing, newestHumanCommentAt: comment, myLastCommitAt: after })).bucket,
+          "ready"
+        )
+      })
+
+      it("counts my acknowledgement", () => {
+        assert.strictEqual(
+          place(facts({ ...nothing, newestHumanCommentAt: comment, acknowledgedAt: comment })).bucket,
+          "ready"
+        )
+      })
+
+      it("takes a comment newer than my acknowledgement back to Needs me", () => {
+        assert.strictEqual(
+          place(facts({ ...nothing, newestHumanCommentAt: after, acknowledgedAt: comment })).reason,
+          "a comment I have not answered"
+        )
+      })
+
+      it("leaves changes requested in Needs me whatever I have acknowledged", () => {
+        assert.deepStrictEqual(
+          place(
+            facts({
+              ...nothing,
+              newestHumanCommentAt: comment,
+              acknowledgedAt: after,
+              reviewDecision: "changes-requested"
+            })
+          ),
+          { bucket: "needs-me", reason: "changes requested" }
+        )
+      })
     })
 
     it("takes the highest rule when two of them claim the same PR", () => {

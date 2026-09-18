@@ -8,15 +8,20 @@ import { Paint as PaintService } from "#adapters/paint.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { forPr, prArgument, reading, swept } from "#cli/pr.ts"
 import { heading } from "#cli/row.ts"
+import { acknowledge } from "#domain/acknowledgement.ts"
 import type { Facts } from "#domain/bucket.ts"
-import { place, unanswered } from "#domain/bucket.ts"
+import { answeredAt, place, unanswered } from "#domain/bucket.ts"
 import type { Shown } from "#domain/comments.ts"
-import { shown } from "#domain/comments.ts"
-import { later } from "#domain/moment.ts"
+import { acknowledging, shown } from "#domain/comments.ts"
 
 const allFlag = Flag.Boolean("all").pipe(
   Flag.withDefault(false),
   Flag.withDescription("Print the whole conversation, including what is resolved, outdated and already answered")
+)
+
+const ackFlag = Flag.Boolean("ack").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Record that I have read the conversation and nothing in it is mine to answer")
 )
 
 /** Where a thread hangs: a line of the diff, or the pull request itself. */
@@ -81,52 +86,82 @@ const nothing = (facts: Facts, all: boolean): ReadonlyArray<string> => {
   const rest = `dw-mc comments ${facts.number} --all prints the whole conversation.`
   return placement.bucket === "needs-me" && placement.reason === unanswered
     ? [
-        `Nothing here is waiting on you: every thread is resolved, outdated, or older than your last comment ` +
-          `or commit.`,
-        `${pr} sits in ${heading[placement.bucket]} all the same, and a reply or a push is what settles it.`,
+        `Nothing here is waiting on you: every thread is resolved, outdated, or older than your last comment, ` +
+          `commit or acknowledgement.`,
+        `${pr} sits in ${heading[placement.bucket]} all the same, and a reply, a push or ` +
+          `dw-mc comments ${facts.number} --ack is what settles it.`,
         rest
       ]
-    : [`Nothing has been said on ${pr} since your last comment or commit.`, rest]
+    : [`Nothing has been said on ${pr} since your last comment, commit or acknowledgement.`, rest]
 }
+
+/**
+ * Records an acknowledgement of the conversation read, and says what it covers
+ * and where the pull request sits with it.
+ *
+ * Where it sits is worked out from the last sweep with the acknowledgement laid
+ * over it, which is the same answer the next sweep gives unless somebody says
+ * something new in between.
+ */
+const acknowledged = Effect.fn("comments.acknowledged")(function* (facts: Facts, threads: ReadonlyArray<Thread>) {
+  const pr = `${facts.repo}#${facts.number}`
+  const at = acknowledging(threads)
+  if (at === null) {
+    yield* Console.log(`Nothing to acknowledge: nobody has said anything on ${pr}.`)
+    return
+  }
+  yield* acknowledge(facts.repo, facts.number, at)
+  const placement = place({ ...facts, acknowledgedAt: at })
+  yield* Console.log(`Acknowledged everything said on ${pr} up to ${DateTime.formatIso(at)}.`)
+  yield* Console.log(`${pr} sits in ${heading[placement.bucket]}: ${placement.reason}.`)
+})
 
 /**
  * The conversation on one tracked pull request, and nothing else.
  *
  * What it shows by default is what the bucket rule measures: the comments newer
- * than the later of my last comment and my last commit, which are the ones that
- * put the pull request in Needs me. Reading it answers the question the table
- * asked.
+ * than the latest of my last comment, my last commit and my acknowledgement,
+ * which are the ones that put the pull request in Needs me. Reading it answers
+ * the question the table asked.
  *
  * The cutoff is read off the last sweep rather than worked out again here, so
  * the command shows exactly what `dw-mc status` counted rather than a second
  * opinion about it.
  *
- * It writes nothing, here or on GitHub: no reply, no resolve, no reaction
- * (ADR 0002). Reading is the whole command.
+ * It writes nothing to GitHub: no reply, no resolve, no reaction (ADR 0002).
+ * `--ack` is the one thing it writes at all, and only on this machine: whether a
+ * comment needs an answer is known after reading it, so reading cannot be what
+ * decides it.
  */
 export const comments = Command.make(
   "comments",
-  { pr: prArgument, all: allFlag },
+  { pr: prArgument, all: allFlag, ack: ackFlag },
   Effect.fn("comments")(
-    function* ({ all, pr }) {
+    function* ({ ack, all, pr }) {
       const { number, repo } = yield* forPr(pr)
 
       const facts = yield* swept(repo, number)
       const paint = yield* PaintService
-      const view = shown(yield* reading(`${repo}#${number}`, prConversation(repo, number)), {
-        since: later(facts.myLastCommentAt, facts.myLastCommitAt),
-        all
-      })
+      const threads = yield* reading(`${repo}#${number}`, prConversation(repo, number))
+      const view = shown(threads, { since: answeredAt(facts), all })
 
       if (view.people.length === 0 && view.bots.length === 0) {
         yield* Effect.forEach(nothing(facts, all), (line) => Console.log(line))
-        return
+      } else {
+        yield* Console.log(paint.bold(`${repo}#${number}`) + `  ${paint.dim(facts.title)}`)
+        yield* Console.log("")
+        yield* Effect.forEach(lines(view, paint), (line) => Console.log(line))
       }
 
-      yield* Console.log(paint.bold(`${repo}#${number}`) + `  ${paint.dim(facts.title)}`)
-      yield* Console.log("")
-      yield* Effect.forEach(lines(view, paint), (line) => Console.log(line))
+      if (ack) {
+        yield* Console.log("")
+        yield* acknowledged(facts, threads)
+      }
     },
     Effect.catchTag(userFacing, asUserError)
   )
-).pipe(Command.withDescription("Print the conversation on one pull request, and what is waiting on me in it"))
+).pipe(
+  Command.withDescription(
+    "Print the conversation on one pull request and what is waiting on me in it, and with --ack record that I read it"
+  )
+)

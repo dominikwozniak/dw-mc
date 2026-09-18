@@ -22,6 +22,7 @@ const facts = (over: Partial<Facts> = {}): Facts => ({
   newestHumanCommentAt: null,
   myLastCommentAt: null,
   myLastCommitAt: null,
+  acknowledgedAt: null,
   reviewRunHead: null,
   blockingFindings: 0,
   ...over

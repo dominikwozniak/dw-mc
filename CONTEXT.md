@@ -21,6 +21,10 @@ _Avoid_: discussion, feedback
 One strand of a conversation: a review thread on a line of the diff, or the pull request's own comments, which hang off no path. A thread somebody resolved and one against code that is gone are settled - read on request, never counted as waiting on me.
 _Avoid_: discussion, note
 
+**Acknowledgement**:
+My local mark that I have read a tracked PR's conversation as far as its newest comment, and that nothing in it is mine to answer. It counts beside my last comment and my last commit as my answer to a comment, and a newer comment takes it back. It is about the conversation rather than the code, so a head change leaves it standing, and it never lifts changes requested. It lives only on this machine.
+_Avoid_: read receipt, dismissal, mute
+
 **Sweep**:
 One pass over the tracked PRs of the repositories it covers that refreshes what mission control knows about them. It covers the registered repository I stand in, the one `--repo` names, or every registered one: with `--all`, from the picker, or from anywhere else. A sweep only reads.
 _Avoid_: poll, refresh, sync
@@ -44,7 +48,7 @@ The one place a tracked PR sits at a time, named for what it waits on. Every tra
 _Avoid_: column, lane, status
 
 **Needs me**:
-The bucket for a PR only I can move: a conflict, red CI that is not flaky, changes requested, a human comment newer than my last activity, or a blocking finding.
+The bucket for a PR only I can move: a conflict, red CI that is not flaky, changes requested, a human comment newer than my last comment, commit and acknowledgement, or a blocking finding.
 
 **Needs review run**:
 The bucket for a PR whose current head has no review run behind it.

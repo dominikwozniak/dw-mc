@@ -61,23 +61,23 @@ Every command that takes a pull request takes it as `62` inside the repository, 
 
 ## Commands
 
-| Command               | Flags                                                                                        | What it does                                                                                      |
-| --------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `dw-mc`               | —                                                                                            | Opens the picker: every tracked pull request under its bucket, and what moves the one you choose. |
-| `dw-mc init`          | `--effort`, `--base`                                                                         | Sets this machine up and registers the repository you are in.                                     |
-| `dw-mc sweep`         | —                                                                                            | Refreshes what mission control knows about every tracked pull request. It only reads.             |
-| `dw-mc status`        | —                                                                                            | Shows which bucket every tracked pull request sits in, and which ones you have stamped.           |
-| `dw-mc comments <pr>` | `--all`                                                                                      | Prints the conversation on a pull request, and what in it is waiting on you.                      |
-| `dw-mc review <pr>`   | `--command`, `--prompt`, `--effort`, `--model`, `--prompt-only`, `--command-only`, `--force` | Reviews one pull request on Claude Code, in a throwaway worktree.                                 |
-| `dw-mc findings <pr>` | `--json`                                                                                     | Prints what the current review run found.                                                         |
-| `dw-mc fix <pr>`      | `--print`, `--commit`                                                                        | Opens a session on the findings you pick, in a worktree that outlives it.                         |
-| `dw-mc stamp <pr>`    | `--withdraw`                                                                                 | Prints your stamp on a pull request, or withdraws it by hand.                                     |
-| `dw-mc rebase <pr>`   | —                                                                                            | Rebases a branch onto its base and pushes it with a lease.                                        |
-| `dw-mc resolve <pr>`  | `--print`                                                                                    | Opens a session on the conflict that stopped a rebase.                                            |
-| `dw-mc rerun <pr>`    | —                                                                                            | Runs a flaky red CI again, once per head.                                                         |
-| `dw-mc merge <pr>`    | —                                                                                            | Squash-merges a Ready, stamped pull request of yours and deletes its branch.                      |
-| `dw-mc cleanup`       | `--yes`                                                                                      | Takes back the disk spent on clones and review worktrees, and keeps everything you decided.       |
-| `dw-mc uninstall`     | `--config`, `--force`, `--yes`                                                               | Removes everything the tool wrote on this machine, and says how to remove the binary.             |
+| Command               | Flags                                                                                        | What it does                                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `dw-mc`               | —                                                                                            | Opens the picker: every tracked pull request under its bucket, and what moves the one you choose.          |
+| `dw-mc init`          | `--effort`, `--base`                                                                         | Sets this machine up and registers the repository you are in.                                              |
+| `dw-mc sweep`         | —                                                                                            | Refreshes what mission control knows about every tracked pull request. It only reads.                      |
+| `dw-mc status`        | —                                                                                            | Shows which bucket every tracked pull request sits in, and which ones you have stamped.                    |
+| `dw-mc comments <pr>` | `--all`, `--ack`                                                                             | Prints the conversation on a pull request, and with `--ack` records that nothing in it is yours to answer. |
+| `dw-mc review <pr>`   | `--command`, `--prompt`, `--effort`, `--model`, `--prompt-only`, `--command-only`, `--force` | Reviews one pull request on Claude Code, in a throwaway worktree.                                          |
+| `dw-mc findings <pr>` | `--json`                                                                                     | Prints what the current review run found.                                                                  |
+| `dw-mc fix <pr>`      | `--print`, `--commit`                                                                        | Opens a session on the findings you pick, in a worktree that outlives it.                                  |
+| `dw-mc stamp <pr>`    | `--withdraw`                                                                                 | Prints your stamp on a pull request, or withdraws it by hand.                                              |
+| `dw-mc rebase <pr>`   | —                                                                                            | Rebases a branch onto its base and pushes it with a lease.                                                 |
+| `dw-mc resolve <pr>`  | `--print`                                                                                    | Opens a session on the conflict that stopped a rebase.                                                     |
+| `dw-mc rerun <pr>`    | —                                                                                            | Runs a flaky red CI again, once per head.                                                                  |
+| `dw-mc merge <pr>`    | —                                                                                            | Squash-merges a Ready, stamped pull request of yours and deletes its branch.                               |
+| `dw-mc cleanup`       | `--yes`                                                                                      | Takes back the disk spent on clones and review worktrees, and keeps everything you decided.                |
+| `dw-mc uninstall`     | `--config`, `--force`, `--yes`                                                               | Removes everything the tool wrote on this machine, and says how to remove the binary.                      |
 
 `dw-mc <command> --help` prints the flags and what each one is worth.
 

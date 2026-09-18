@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { DateTime } from "effect"
 
 import type { Remark, Thread } from "#adapters/conversation.ts"
-import { shown } from "#domain/comments.ts"
+import { acknowledging, shown } from "#domain/comments.ts"
 
 const at = (iso: string): DateTime.Utc => DateTime.makeUnsafe(iso)
 
@@ -85,5 +85,30 @@ describe("shown", () => {
 
       assert.deepStrictEqual(shown([resolved, outdated], { since: mine, all: true }).people, [resolved, outdated])
     })
+  })
+})
+
+describe("acknowledging", () => {
+  it("covers the newest thing a person said, in any thread, settled or not", () => {
+    const threads = [
+      thread({ path: null, line: null, comments: [said({ at: at("2026-09-17T14:00:00Z") })] }),
+      thread({ resolved: true, comments: [said({ at: at("2026-09-17T16:00:00Z") })] }),
+      thread({ outdated: true, comments: [said({ at: at("2026-09-17T15:00:00Z") })] })
+    ]
+    assert.deepStrictEqual(acknowledging(threads), at("2026-09-17T16:00:00Z"))
+  })
+
+  it("leaves a bot out, because the bucket rule never counted one", () => {
+    const threads = [
+      thread({
+        comments: [said({ at: at("2026-09-17T14:00:00Z") }), said({ bot: true, at: at("2026-09-17T18:00:00Z") })]
+      })
+    ]
+    assert.deepStrictEqual(acknowledging(threads), at("2026-09-17T14:00:00Z"))
+  })
+
+  it("covers nothing where no person has said anything", () => {
+    assert.isNull(acknowledging([thread({ comments: [said({ bot: true })] })]))
+    assert.isNull(acknowledging([]))
   })
 })
