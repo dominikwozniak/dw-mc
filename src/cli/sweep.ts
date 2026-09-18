@@ -288,7 +288,7 @@ export const sweepCommand = Command.make(
       yield* Console.log(
         report.repos.length === 0
           ? "No repositories registered. Run dw-mc init inside a repository to register it."
-          : `Swept ${count(report.facts.length, "pull request")} across ${report.repos.length === 1 ? "1 repository" : `${report.repos.length} repositories`}`
+          : `Swept ${count(report.facts.length, "pull request")} across ${repositories(report.repos.length)}`
       )
       yield* printTroubles(report.troubles)
     },

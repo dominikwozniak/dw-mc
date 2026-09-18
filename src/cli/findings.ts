@@ -4,6 +4,7 @@ import { CliError, Command, Flag } from "effect/unstable/cli"
 import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { named, prArgument } from "#cli/pr.ts"
+import { rule } from "#cli/row.ts"
 import { asUserError } from "#cli/sweep.ts"
 import { count, table } from "#cli/table.ts"
 import type { Findings } from "#domain/findings.ts"
@@ -40,7 +41,7 @@ export const header = (run: ReviewRun, found: Findings, blocksOn: Severity): str
 export const lines = (found: Findings): ReadonlyArray<string> =>
   table(
     found.findings.map((finding) => [`${finding.file}:${finding.line}`, finding.severity, finding.summary]),
-    " │ "
+    rule
   )
 
 /**

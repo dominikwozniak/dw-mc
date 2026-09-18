@@ -68,6 +68,16 @@ export const order: ReadonlyArray<Bucket> = ["needs-me", "needs-review-run", "wa
 export const unanswered = "a comment I have not answered"
 
 /**
+ * Why a PR is mine to move when a review run found something that withholds
+ * the stamp.
+ *
+ * It is named for the reason `unanswered` is: `dw-mc stamp` says this same
+ * sentence about this same number, and two spellings of it would be two
+ * answers to what a blocking finding is worth.
+ */
+export const blockedBy = (n: number): string => `${n} blocking finding${n === 1 ? "" : "s"}`
+
+/**
  * The first of the rules that makes a PR mine to move, or null when none
  * does. The order is the order I would fix them in: a conflict makes every
  * other signal on the PR stale, and a red build is worth more than a comment.
@@ -86,7 +96,7 @@ const needsMe = (facts: Facts): string | null => {
     return "changes requested"
   }
   if (facts.blockingFindings > 0) {
-    return `${facts.blockingFindings} blocking finding${facts.blockingFindings === 1 ? "" : "s"}`
+    return blockedBy(facts.blockingFindings)
   }
   if (isAfter(facts.newestHumanCommentAt, later(facts.myLastCommentAt, facts.myLastCommitAt))) {
     return unanswered
