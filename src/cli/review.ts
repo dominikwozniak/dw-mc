@@ -3,17 +3,16 @@ import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { AgentFailed } from "#adapters/agent.ts"
 import { reviewTurns } from "#adapters/claude.ts"
-import type { ConfigFile, Launcher, Settings } from "#adapters/config.ts"
-import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
+import type { Launcher, Settings } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { announce } from "#adapters/notify.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
+import { asUserError, userFacingAndGit } from "#cli/exit.ts"
 import { lines, summary } from "#cli/findings.ts"
-import { named, prArgument } from "#cli/pr.ts"
-import { asUserError, userFacing } from "#cli/sweep.ts"
+import { forPr, prArgument } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
 import { asMarkdown, jsonSchema, Reported } from "#domain/findings.ts"
 import type { Reviewing } from "#domain/persona.ts"
@@ -282,10 +281,7 @@ export const review = Command.make(
   },
   Effect.fn("review")(
     function* ({ command, commandOnly, effort, force, model, pr, prompt, promptOnly }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
-      const settings = settingsFor(file, repo)
-      const launcher = launcherOf(file)
+      const { number, repo, settings, launcher } = yield* forPr(pr)
       const asked = yield* asking({ settings, command, prompt, effort, model, promptOnly, commandOnly })
 
       const view = yield* prView(repo, number)
@@ -373,6 +369,6 @@ export const review = Command.make(
     },
     // No `AgentFailed` here: the run's own failure is caught where it happens
     // and written down as the run's outcome, so it never reaches this far.
-    Effect.catchTag([...userFacing, "GitFailed"], asUserError)
+    Effect.catchTag(userFacingAndGit, asUserError)
   )
 ).pipe(Command.withDescription("Review one pull request on Claude Code, in a throwaway worktree"))

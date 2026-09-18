@@ -1,10 +1,8 @@
-import { Console, Effect, Option } from "effect"
+import { Console, Effect } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig } from "#adapters/config.ts"
-import { named, prArgument, swept } from "#cli/pr.ts"
-import { asUserError } from "#cli/sweep.ts"
+import { asUserError } from "#cli/exit.ts"
+import { forPr, prArgument, swept } from "#cli/pr.ts"
 import { short } from "#domain/review.ts"
 import { stampOf, withdraw } from "#domain/stamp.ts"
 
@@ -35,8 +33,7 @@ export const stampCommand = Command.make(
   { pr: prArgument, withdraw: withdrawFlag },
   Effect.fn("stamp")(
     function* ({ pr, withdraw: byHand }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
+      const { number, repo } = yield* forPr(pr)
 
       const facts = yield* swept(repo, number)
       const where = `${repo}#${number}  ${short(facts.head)}`

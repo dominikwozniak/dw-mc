@@ -1,15 +1,13 @@
-import { Console, DateTime, Effect, Option } from "effect"
+import { Console, DateTime, Effect } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig } from "#adapters/config.ts"
 import type { Thread } from "#adapters/conversation.ts"
 import { prConversation } from "#adapters/conversation.ts"
 import type { Paint } from "#adapters/paint.ts"
 import { Paint as PaintService } from "#adapters/paint.ts"
-import { named, prArgument, reading, swept } from "#cli/pr.ts"
+import { asUserError, userFacing } from "#cli/exit.ts"
+import { forPr, prArgument, reading, swept } from "#cli/pr.ts"
 import { heading } from "#cli/row.ts"
-import { asUserError, userFacing } from "#cli/sweep.ts"
 import type { Facts } from "#domain/bucket.ts"
 import { place, unanswered } from "#domain/bucket.ts"
 import type { Shown } from "#domain/comments.ts"
@@ -111,8 +109,7 @@ export const comments = Command.make(
   { pr: prArgument, all: allFlag },
   Effect.fn("comments")(
     function* ({ all, pr }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
+      const { number, repo } = yield* forPr(pr)
 
       const facts = yield* swept(repo, number)
       const paint = yield* PaintService
@@ -130,6 +127,6 @@ export const comments = Command.make(
       yield* Console.log("")
       yield* Effect.forEach(lines(view, paint), (line) => Console.log(line))
     },
-    Effect.catchTag(["ConfigMalformed", ...userFacing], asUserError)
+    Effect.catchTag(userFacing, asUserError)
   )
 ).pipe(Command.withDescription("Print the conversation on one pull request, and what is waiting on me in it"))

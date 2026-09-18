@@ -1,16 +1,14 @@
-import { Console, Effect, Option, Schema } from "effect"
+import { Console, Effect, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
-import { named, prArgument } from "#cli/pr.ts"
+import { asUserError } from "#cli/exit.ts"
+import { currentRun, forPr, prArgument } from "#cli/pr.ts"
 import { rule } from "#cli/row.ts"
-import { asUserError } from "#cli/sweep.ts"
 import { count, table } from "#cli/table.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Findings as FindingsSchema } from "#domain/findings.ts"
 import type { ReviewRun } from "#domain/review.ts"
-import { lastRun, reportedBy, short } from "#domain/review.ts"
+import { reportedBy, short } from "#domain/review.ts"
 import type { Severity } from "#terms/review.ts"
 
 /** The findings as the JSON the schema defines, rather than as this file spells it. */
@@ -43,22 +41,6 @@ export const lines = (found: Findings): ReadonlyArray<string> =>
     found.findings.map((finding) => [`${finding.file}:${finding.line}`, finding.severity, finding.summary]),
     rule
   )
-
-/**
- * The review run whose findings are the current ones, or the sentence saying
- * there are none.
- *
- * The last run on the pull request is what "current" means here, and it is read
- * off the state directory rather than worked out from GitHub: this command is
- * one I run inside a fix session, where another round trip to GitHub buys
- * nothing the run it is about to fix does not already say.
- */
-export const currentRun = Effect.fn("findings.currentRun")(function* (repo: string, number: number) {
-  const run = yield* lastRun(repo, number)
-  return Option.isSome(run)
-    ? run.value
-    : yield* asUserError(`No review run on ${repo}#${number}. Run dw-mc review ${number} first.`)
-})
 
 /**
  * What the run reported, or the sentence saying it reported nothing at all.
@@ -96,9 +78,7 @@ export const findings = Command.make(
   { pr: prArgument, json: jsonFlag },
   Effect.fn("findings")(
     function* ({ json, pr }) {
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-      const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
-      const settings = settingsFor(file, repo)
+      const { number, repo, settings } = yield* forPr(pr)
 
       const run = yield* currentRun(repo, number)
       const found = yield* whatItFound(run)
