@@ -25,6 +25,15 @@ const git = (args: ReadonlyArray<string>) =>
     })
   )
 
+/**
+ * `n` commits, which is the one thing this file counts out loud.
+ *
+ * It is said twice - before a session is cut and before one is taken away -
+ * and about the same commits both times: the ones the pull request's head does
+ * not have.
+ */
+const commits = (n: number): string => `${n} commit${n === 1 ? "" : "s"}`
+
 /** A checkout cut for one run, and the commit it stands on. */
 export interface Worktree {
   readonly directory: string
@@ -224,7 +233,7 @@ export const standingWorktree = Effect.fn("git.standingWorktree")(function* (
     return yield* new WorktreeHeld({
       directory,
       detail:
-        `The last fix session on ${repo}#${number} left ${ahead} commit${ahead === 1 ? "" : "s"} ` +
+        `The last fix session on ${repo}#${number} left ${commits(ahead)} ` +
         `that the pull request's head does not have. Push them or drop them before opening another session.`
     })
   }
@@ -466,7 +475,7 @@ export const holding = Effect.fn("git.holding")(function* (repo: string, number:
     ? clear
     : ({
         _tag: "held",
-        detail: `${ahead} commit${ahead === 1 ? "" : "s"} that the pull request's head does not have`
+        detail: `${commits(ahead)} that the pull request's head does not have`
       } satisfies Holding)
 })
 

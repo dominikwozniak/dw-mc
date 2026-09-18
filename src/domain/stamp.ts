@@ -2,6 +2,7 @@ import { Effect, Option, Schema } from "effect"
 
 import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import type { Facts } from "#domain/bucket.ts"
+import { blockedBy } from "#domain/bucket.ts"
 
 /** My local mark that a tracked PR has passed my bar, and what it rests on. */
 export interface Stamp {
@@ -72,7 +73,7 @@ export const stampFor = (facts: Stampable, withdrawnAt: string | null): Stamp =>
     return withheld("no review run on this head")
   }
   if (facts.blockingFindings > 0) {
-    return withheld(`${facts.blockingFindings} blocking finding${facts.blockingFindings === 1 ? "" : "s"}`)
+    return withheld(blockedBy(facts.blockingFindings))
   }
   const ci = whyNotGreen[facts.checks]
   if (ci !== null) {
