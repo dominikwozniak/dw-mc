@@ -104,9 +104,9 @@
       }
     },
     {
-      // `domain/` has no code yet, so this block guards a directory that does not exist.
-      // The guard has to be here before the first file is, or the first file is the one
-      // that gets it wrong.
+      // The domain decides and never reaches for a command. `terms/` is below it and is
+      // not named here, because a rule the domain may import is exactly what that layer
+      // is for.
       "files": ["src/domain/**"],
       "excludeFiles": ["src/**/*.test.ts"],
       "rules": {
@@ -125,6 +125,55 @@
               {
                 "regex": "^(#|\\.{1,2}/(.*/)?)cli/",
                 "message": "The domain takes facts and returns decisions: a command calls it, never the reverse (ADR 0006)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // ADR 0006: `terms/` is the bottom layer. It holds the words and reaches for nothing
+      // in `src/`, so all three layers above it are refused here. Without this block the
+      // directory would inherit the root one, which restricts a relative specifier and the
+      // platform package and nothing else, and a term importing a command would pass.
+      "files": ["src/terms/**"],
+      "excludeFiles": ["src/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.",
+                "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
+              },
+              {
+                "regex": "^@effect/platform-node(/|$)",
+                "message": "The entry point is the one place the platform services are provided: take the service and let `src/cli/bin.ts` supply its layer (ADR 0006)."
+              },
+              {
+                "regex": "^(#|\\.{1,2}/(.*/)?)(cli|domain|adapters)/",
+                "message": "A term is a word and nothing else: it reaches for no layer above it (ADR 0006)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/terms/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "^\\.",
+                "message": "A module is named, never counted: import it as `#<layer>/<module>.ts` (ADR 0006)."
+              },
+              {
+                "regex": "^(#|\\.{1,2}/(.*/)?)(cli|domain|adapters)/",
+                "message": "A term is a word and nothing else: it reaches for no layer above it (ADR 0006)."
               }
             ]
           }

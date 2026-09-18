@@ -56,7 +56,7 @@ export const merge = Command.make(
           reviewDecision: reviewDecisionOf(view.reviewDecision),
           checks: rollupState(view.statusCheckRollup, settings.ci.ignore),
           mergeable: mergeabilityOf(view.mergeable),
-          ...(yield* reviewedAt(repo, number, head, settings)),
+          ...(yield* reviewedAt(repo, number, head, settings.stamp.blocks_on)),
           withdrawnAt: yield* withdrawnAt(repo, number)
         })
       )

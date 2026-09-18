@@ -1,7 +1,7 @@
 import { Console, Effect, Option, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
-import type { ConfigFile, Severity } from "#adapters/config.ts"
+import type { ConfigFile } from "#adapters/config.ts"
 import { read as readConfig, settingsFor } from "#adapters/config.ts"
 import { named, prArgument } from "#cli/pr.ts"
 import { asUserError } from "#cli/sweep.ts"
@@ -10,6 +10,7 @@ import type { Findings } from "#domain/findings.ts"
 import { blocking, Findings as FindingsSchema } from "#domain/findings.ts"
 import type { ReviewRun } from "#domain/review.ts"
 import { lastRun, reportedBy, short } from "#domain/review.ts"
+import type { Severity } from "#terms/review.ts"
 
 /** The findings as the JSON the schema defines, rather than as this file spells it. */
 const asJson = Schema.encodeEffect(Schema.fromJsonString(FindingsSchema))

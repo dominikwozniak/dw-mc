@@ -1,8 +1,8 @@
 import { Effect, Option, Schema } from "effect"
 
 import { prKey, storeFor } from "#adapters/store.ts"
-import type { ChecksState } from "#domain/bucket.ts"
 import { short } from "#domain/review.ts"
+import type { ChecksState } from "#terms/pr.ts"
 
 /**
  * Everything the re-run guards know before the classifier has been asked.

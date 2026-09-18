@@ -1,6 +1,7 @@
-import type { ChecksState, Facts } from "#domain/bucket.ts"
+import type { Facts } from "#domain/bucket.ts"
 import type { Moment } from "#domain/moment.ts"
 import { isSame } from "#domain/moment.ts"
+import type { ChecksState } from "#terms/pr.ts"
 
 /**
  * The three signals that say whether a tracked PR has moved at all.

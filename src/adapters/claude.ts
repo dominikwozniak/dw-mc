@@ -8,23 +8,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import type { Reported, AgentFailed } from "#adapters/agent.ts"
 import { failedBy, patience, turn } from "#adapters/agent.ts"
 import type { Launcher } from "#adapters/config.ts"
-
-/**
- * What one review run opens on: a slash command, or the tool's own prompt.
- *
- * Which of the two it is decides how many turns the run takes, and that is a
- * fact about Claude Code rather than about reviewing, so the shape is declared
- * here and filled in by the domain (ADR 0006).
- */
-export type ReviewTurn =
-  | {
-      readonly _tag: "command"
-      /** The slash command and whatever follows it, as one line. */
-      readonly line: string
-      /** What else the run is told to look at, on the system prompt beside the command. */
-      readonly instructions: string | null
-    }
-  | { readonly _tag: "prompt"; readonly text: string }
+import type { ReviewTurn } from "#terms/review.ts"
 
 /** What one turn came back with. */
 export interface Turn {

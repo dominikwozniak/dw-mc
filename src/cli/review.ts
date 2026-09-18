@@ -2,9 +2,8 @@ import { Console, DateTime, Effect, Exit, Option, Result, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { AgentFailed } from "#adapters/agent.ts"
-import type { ReviewTurn } from "#adapters/claude.ts"
 import { reviewTurns } from "#adapters/claude.ts"
-import type { ConfigFile, Effort, Launcher, Settings } from "#adapters/config.ts"
+import type { ConfigFile, Launcher, Settings } from "#adapters/config.ts"
 import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
@@ -33,6 +32,7 @@ import {
   short,
   skippedSince
 } from "#domain/review.ts"
+import type { Effort, ReviewTurn } from "#terms/review.ts"
 
 /** What the spinner says a run has got through, while it is still going. */
 const saying = (doing: Doing, since: string): string =>

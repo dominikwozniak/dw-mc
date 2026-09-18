@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect"
 import type { CheckEntry } from "#adapters/gh.ts"
 import { GhReadFailed, readJson, unavailable } from "#adapters/gh.ts"
 import { capture } from "#adapters/spawner.ts"
+import type { ChecksState } from "#terms/pr.ts"
 
 /**
  * What GitHub says about a pull request's checks, and the evidence a red one
@@ -27,10 +28,7 @@ const hasFailed = (entry: CheckEntry): boolean => failing.has(entry.conclusion ?
  * `ci.ignore` names the checks that do not count towards green, so a check I
  * have decided to live with cannot hold a PR out of Ready.
  */
-export const rollupState = (
-  entries: ReadonlyArray<CheckEntry> | null,
-  ignore: ReadonlyArray<string>
-): "green" | "red" | "pending" | "none" => {
+export const rollupState = (entries: ReadonlyArray<CheckEntry> | null, ignore: ReadonlyArray<string>): ChecksState => {
   const checks = checksThatCount(entries, ignore)
   if (checks.length === 0) {
     return "none"

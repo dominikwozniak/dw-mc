@@ -72,7 +72,7 @@ const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: stri
   // facts, and these facts are a cache of GitHub: reading them again costs a
   // sweep some calls, where failing here would cost the PR its row for good.
   const previous = Option.getOrUndefined(yield* Effect.orElseSucceed(store.get(key), () => Option.none<Facts>()))
-  const reviewed = yield* reviewedAt(found.repo, found.number, view.headRefOid, settings)
+  const reviewed = yield* reviewedAt(found.repo, found.number, view.headRefOid, settings.stamp.blocks_on)
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
       ? previous

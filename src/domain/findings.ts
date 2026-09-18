@@ -1,6 +1,6 @@
 import { Schema, SchemaRepresentation, SchemaTransformation } from "effect"
 
-import { Severity } from "#adapters/config.ts"
+import { Severity } from "#terms/review.ts"
 
 /** Whether a review run found anything at all. */
 export const Verdict = Schema.Literals(["clean", "findings"])

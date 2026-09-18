@@ -5,7 +5,7 @@
  * tool's own, so my bar is not one agent's idea of a code review. How a turn is
  * spawned belongs to the Claude Code adapter; which turn it is belongs here.
  */
-import type { ReviewTurn } from "#adapters/claude.ts"
+import type { ReviewTurn } from "#terms/review.ts"
 
 /**
  * The reviewer persona, derived from Addy Osmani's `code-reviewer` agent

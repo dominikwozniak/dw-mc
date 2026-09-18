@@ -1,7 +1,7 @@
 import { Effect, Option, Schema } from "effect"
 
 import { prKey, storeFor } from "#adapters/store.ts"
-import type { ChecksState } from "#domain/bucket.ts"
+import type { ChecksState } from "#terms/pr.ts"
 
 /** One open pull request as a stack is read from: the branch it stands on and the one it merges into. */
 export interface Branches {
