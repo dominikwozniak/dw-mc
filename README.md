@@ -4,10 +4,10 @@
 
 <h1 align="center">dw-mc</h1>
 
-<p align="center"><strong>Local-first PR mission control for agent-driven engineering.</strong></p>
+<p align="center"><strong>A local CLI for tracking and reviewing your open pull requests.</strong></p>
 
 <p align="center">
-  Turn every open pull request into one clear next move — triaged, reviewed and ready from your terminal.
+  See what each pull request is waiting on and what you can do next.
 </p>
 
 <p align="center">
@@ -19,14 +19,14 @@
 
 ![Pull requests flowing through the local dw-mc terminal into four action buckets](docs/assets/dw-mc-hero.png)
 
-`dw-mc` reads GitHub through your own `gh`, runs review agents through the Claude Code already on your machine, and keeps its state in plain local files. No hosted control plane. No GitHub App. No hidden automation.
+`dw-mc` reads GitHub through your own `gh`, runs code reviews with the Claude Code already on your machine, and puts each pull request in one bucket based on what it waits on. It has no server, GitHub App or webhooks.
 
-- **One PR, one next move** — _Needs me_, _Needs review run_, _Waiting on others_ or _Ready_.
-- **Agent-native reviews** — run `/code-review`, your own review brief or both in an isolated worktree.
-- **Local by design** — your credentials, configuration and review history stay under your control.
-- **Transparent automation** — use the interactive picker or run every command directly.
+- **One bucket per pull request** — _Needs me_, _Needs review run_, _Waiting on others_ or _Ready_.
+- **Local code reviews** — run `/code-review`, your own review brief or both in a throwaway worktree.
+- **State in plain files** — configuration, records and review reports use XDG paths.
+- **Picker or commands** — use the interactive picker or run every command directly.
 
-## See the signal
+## Example
 
 ```
 $ dw-mc status
@@ -46,7 +46,7 @@ Ready
   ◆ dominikwozniak/dw-mc#62 ✓ │ feat(comments): read a pull request's threads       │ approved, green, mergeable
 ```
 
-## Launch mission control
+## Install
 
 ```sh
 pnpm add -g dw-mc
@@ -54,14 +54,14 @@ pnpm add -g dw-mc
 
 To look before installing, `pnpm dlx dw-mc --help` runs the same binary from a throwaway copy.
 
-### What you need
+### Requirements
 
 - Node 24 or newer
 - [`gh`](https://cli.github.com), authenticated: `gh auth login`
 - `git`
 - [Claude Code](https://claude.com/claude-code) as `claude`, for review runs and the sessions they open
 
-## From zero to signal
+## Quick start
 
 ```sh
 dw-mc init      # once on the machine, then once inside each repository you want followed
@@ -73,7 +73,7 @@ dw-mc review 62 # or drive any command straight
 
 Every command that takes a pull request takes it as `62` inside the repository, or as `owner/name#62` from anywhere.
 
-## Command surface
+## Commands
 
 | Command               | Flags                                                                                        | What it does                                                                                               |
 | --------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -96,7 +96,7 @@ Every command that takes a pull request takes it as `62` inside the repository, 
 
 `dw-mc <command> --help` prints the flags and what each one is worth.
 
-## One PR. One bucket.
+## How it works
 
 A **bucket** is the one place a pull request sits at a time, named for what it waits on. The rules are tried in order and the first that claims the pull request wins, so a pull request that both needs a review run and has changes requested is yours to move, not the review's.
 
@@ -113,7 +113,7 @@ A review run works in a worktree that is thrown away when the run ends. The work
 
 Every other word this tool uses is defined in [`CONTEXT.md`](./CONTEXT.md), and the decisions behind them in [`docs/adr/`](./docs/adr).
 
-## Make it yours
+## Configuration
 
 - Configuration: `$XDG_CONFIG_HOME/dw-mc/config.yaml`, or `~/.config/dw-mc/config.yaml`
 - State, including the worktrees: `$XDG_STATE_HOME/dw-mc`, or `~/.local/state/dw-mc`
@@ -146,7 +146,7 @@ repos:
     # the same keys, overriding defaults
 ```
 
-## Clean exit
+## Uninstall
 
 Removing the package removes the binary and nothing else — a package manager runs no uninstall script, so the two directories above would stay where they are. The tool takes them back itself.
 
@@ -160,7 +160,7 @@ Both print what they would take, with its weight, and ask before taking it; `--y
 
 Neither forgets a pull request's records; being done is what does that. `dw-mc merge` forgets the pull request it merged, and `dw-mc forget <pr>` forgets one that closed another way. A sweep never forgets anything, because a pull request missing from one search is not one that is gone. A `fix` or `resolve` session's worktree survives both, and is named.
 
-## Agent-native access
+## Agent skill
 
 An agent session can reach mission control's state through the `/dw-mc` skill, which lives in this repository and calls the CLI and nothing else:
 
@@ -168,7 +168,7 @@ An agent session can reach mission control's state through the `/dw-mc` skill, w
 pnpm dlx skills@latest add dominikwozniak/dw-mc
 ```
 
-## Build with us
+## Contributing
 
 ```sh
 pnpm install
