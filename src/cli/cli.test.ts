@@ -47,17 +47,19 @@ describe("dw-mc cli", () => {
   })
 
   for (const argv of [...Object.values(readsTheFile), []]) {
-    it.effect(`dw-mc ${argv.join(" ") || "(the picker)"} says what is wrong with a configuration file that is`, () =>
-      Effect.gen(function* () {
-        const config = yield* ConfigStore
-        yield* config.store.set("config.yaml", "defaults:\n  review:\n    commnad: /code-review\n")
+    it.effect(
+      `dw-mc ${argv.join(" ") || "(the picker)"} names what is wrong in a configuration file it cannot read`,
+      () =>
+        Effect.gen(function* () {
+          const config = yield* ConfigStore
+          yield* config.store.set("config.yaml", "defaults:\n  review:\n    commnad: /code-review\n")
 
-        const error = yield* Effect.flip(run(...argv))
+          const error = yield* Effect.flip(run(...argv))
 
-        assert.strictEqual(error._tag, "UserError")
-        assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
-        assert.include(error.message, "commnad")
-      }).pipe(Effect.provide(machineOf({ spawner: layerStubbed({ stubs: [] }) })), recording([]))
+          assert.strictEqual(error._tag, "UserError")
+          assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
+          assert.include(error.message, "commnad")
+        }).pipe(Effect.provide(machineOf({ spawner: layerStubbed({ stubs: [] }) })), recording([]))
     )
   }
 })

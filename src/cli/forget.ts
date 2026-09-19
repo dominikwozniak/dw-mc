@@ -36,11 +36,11 @@ export const forgetting = Effect.fn("forgetting")(function* (
     return [forgotten]
   }
 
-  const tracked = options.deleted === undefined ? "" : `, which tracked ${options.deleted} - deleted with the merge`
+  const branchGone = options.deleted === undefined ? "" : `, which tracked ${options.deleted} - deleted with the merge`
   const rows = table(
     sessions.map((it) => [
       paint.dim(path.relative(found.directory, it.directory)),
-      `a ${sessionName(it.session)} session's worktree, on ${sessionBranch(it.session, number)}${tracked}`
+      `a ${sessionName(it.session)} session's worktree, on ${sessionBranch(it.session, number)}${branchGone}`
     ])
   )
   return [forgotten, block("Stays", rows), ["What you committed there is yours, so nothing here takes it down."]]

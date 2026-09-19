@@ -96,7 +96,7 @@ export class GhReadFailed extends Schema.TaggedError<GhReadFailed>()("GhReadFail
   }
 }
 
-/** What a `gh` call that failed comes to: unavailable when it would not start, a failed read under `command` when it refused. */
+/** A failed `gh` call: `GhUnavailable` if it would not start, `GhReadFailed` under `command` if it refused. */
 export const failedAs =
   (command: string) =>
   <A, R>(
