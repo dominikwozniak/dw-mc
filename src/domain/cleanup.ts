@@ -45,10 +45,11 @@ export const orphaned = (inventory: Inventory): ReadonlyArray<Cutting> =>
 const sum = (sizes: ReadonlyArray<ByteSize.ByteSize>): ByteSize.ByteSize =>
   ByteSize.bytes(sizes.reduce((total, size) => total + ByteSize.toBigInt(size), BigInt(0)))
 
+/** What the glossary calls the session a standing checkout was cut for. */
+export const sessionName = (session: Session): string => (session === "fix" ? "fix" : "resolve")
+
 const reason = (sessions: ReadonlyArray<Standing>): string =>
-  sessions
-    .map((it) => `a ${it.session === "fix" ? "fix" : "resolve"} session stands on ${it.repo}#${it.number}`)
-    .join(", ")
+  sessions.map((it) => `a ${sessionName(it.session)} session stands on ${it.repo}#${it.number}`).join(", ")
 
 /**
  * What a cleanup would take, weighed.

@@ -4,6 +4,7 @@ import { Command } from "effect/unstable/cli"
 import { rollupState } from "#adapters/ci.ts"
 import { mergeabilityOf, mergePr, prView, reviewDecisionOf, viewer } from "#adapters/gh.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
+import { forgetting } from "#cli/forget.ts"
 import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { decide } from "#domain/merge.ts"
 import { reviewedAt, short } from "#domain/review.ts"
@@ -29,6 +30,10 @@ import { withdrawnAt } from "#domain/stamp.ts"
  *
  * Typing the command is the confirmation, so it takes no flag. The picker,
  * where a keystroke is cheaper, asks before it dispatches.
+ *
+ * Its last step is forgetting the pull request, in every namespace. A session
+ * worktree standing on it stays, and is named, because its branch tracked the
+ * one this just deleted.
  */
 export const merge = Command.make(
   "merge",
@@ -63,6 +68,18 @@ export const merge = Command.make(
           `and ${view.headRefName} deleted`
       )
       yield* Console.log(`The squash subject is the pull request title: ${view.title}`)
+
+      // The one moment the tool knows a pull request is finished rather than
+      // guessing it, so the records go here and nowhere else automatic.
+      // The merge has happened by now, so a forget that fails says so beside it
+      // rather than turning a landed pull request into a failed command.
+      yield* forgetting(repo, number, { deleted: view.headRefName }).pipe(
+        Effect.catch((error) =>
+          Console.log(
+            `\nCould not forget ${repo}#${number}: ${error.message}. Run dw-mc forget ${number} to try again.`
+          )
+        )
+      )
     },
     Effect.catchTag(userFacing, asUserError)
   )

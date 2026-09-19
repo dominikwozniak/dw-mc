@@ -7,7 +7,7 @@ import { prViewOf, viewFields } from "#adapters/gh.ts"
 import { coloured, Paint } from "#adapters/paint.ts"
 import { recording } from "#adapters/picker.ts"
 import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
-import { storeFor } from "#adapters/store.ts"
+import { allKeys, storeFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
 import { acknowledge } from "#domain/acknowledgement.ts"
 import { Facts } from "#domain/bucket.ts"
@@ -681,6 +681,37 @@ describe("dw-mc sweep", () => {
       ])
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
+})
+
+describe("a sweep that no longer finds a pull request", () => {
+  const held = Effect.gen(function* () {
+    return (yield* allKeys).toSorted()
+  })
+
+  for (const [what, prs] of [
+    ["a search that finds nothing", []],
+    ["a search that fails", { refuses: "HTTP 502: Bad Gateway" }]
+  ] as const) {
+    it.effect(`removes nothing it knew about it, after ${what}`, () => {
+      const repo = "dominikwozniak/dw-mc"
+      const found: Record<string, ReadonlyArray<Fixture> | Refusal> = { [repo]: [{ number: 1 }] }
+      const spawner = github({ repos: found })
+
+      return Effect.gen(function* () {
+        yield* registered(repo)
+        yield* run("sweep")
+        yield* reviewed(repo, 1, "31268022360852f71815404b6bbdd6bd797cfb4c")
+        yield* withdraw(repo, 1, "31268022360852f71815404b6bbdd6bd797cfb4c")
+        const before = yield* held
+
+        found[repo] = prs
+        yield* run("sweep")
+
+        assert.isAbove(before.length, 2)
+        assert.deepStrictEqual(yield* held, before)
+      }).pipe(Effect.provide(machine(spawner)), recording([]))
+    })
+  }
 })
 
 describe("a sweep narrowed to one repository", () => {
