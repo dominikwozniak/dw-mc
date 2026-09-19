@@ -58,10 +58,10 @@ The bucket for a PR only I can move: a conflict, red CI that is not flaky, chang
 The bucket for a PR whose current head has no review run behind it.
 
 **Waiting on others**:
-The bucket for a PR with nothing left for me: a human review is pending.
+The bucket for a PR with nothing left for me that still waits: a review from someone else is pending, or CI is still running.
 
 **Ready**:
-The bucket for a PR that is approved, green and mergeable. Only my merge is left.
+The bucket for a PR nothing is waiting on: no reason to need me, a review run on its head, no review pending and no CI running. An approval is not required, because a repository with no required reviewer never produces one. Only my merge is left.
 
 ### Rebase
 

@@ -15,7 +15,7 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Not the same surface as ADR 0002
 
-[ADR 0002](../adr/0002-github-write-boundary.md) bars mission control, the program, from commenting, labelling, reviewing or merging on the pull requests it tracks. That boundary is about the tool's runtime behaviour against other people's PR surfaces.
+[ADR 0002](../adr/0002-github-write-boundary.md) bars mission control, the program, from commenting, labelling or reviewing on the pull requests it tracks, and [ADR 0008](../adr/0008-merging-my-own-pull-request.md) admits one merge: my own Ready, stamped pull request. That boundary is about the tool's runtime behaviour against other people's PR surfaces.
 
 This file is about the agent's own workflow on this repo's issues. Creating, labelling, commenting on and closing `dominikwozniak/dw-mc` issues is how the work is tracked and is unaffected by ADR 0002.
 

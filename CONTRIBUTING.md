@@ -15,7 +15,7 @@ Straight to a pull request is fine for: a bug fix with a failing test, a documen
 
 Two boundaries are settled and are not up for a pull request on their own:
 
-- **Nothing leaves the machine** but calls to GitHub and to local agent CLIs — [ADR 0001](./docs/adr/0001-local-first.md).
+- **Nothing leaves the machine** but calls to GitHub and to the local Claude Code — [ADR 0001](./docs/adr/0001-local-first.md).
 - **What the tool may write to GitHub** is your own branches, your own pull request bodies, your own failed runs, and the squash merge of your own stamped pull request — [ADR 0002](./docs/adr/0002-github-write-boundary.md), [ADR 0008](./docs/adr/0008-merging-my-own-pull-request.md). It never comments, labels, reviews or approves.
 
 ## Setup
@@ -55,7 +55,7 @@ A commit hook formats what you staged, so a pull request never fails on whitespa
 
 `dw-mc` is TypeScript on [Effect](https://effect.website) v4. Before writing Effect code, read `node_modules/effect/AGENTS.md` and follow its links into `node_modules/effect/ai-docs/`; for what the guide does not cover, read `node_modules/effect/src`.
 
-Where a module goes, which way an import may cross a layer, and where its test and its fake live are decided in [ADR 0006](./docs/adr/0006-source-layout.md): `cli` → `domain` → `adapters`, one direction only, no relative imports, a test beside the module it covers. Read it before adding a file to `src/`.
+Where a module goes, which way an import may cross a layer, and where its test and its fake live are decided in [ADR 0006](./docs/adr/0006-source-layout.md): `cli` → `domain` → `adapters` → `terms`, one direction only, no relative imports, a test beside the module it covers. Read it before adding a file to `src/`.
 
 What a command may print — what colour says, what dim says, what is never coloured — is [ADR 0007](./docs/adr/0007-what-the-screen-says.md).
 

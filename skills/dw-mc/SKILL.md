@@ -5,7 +5,7 @@ description: Mission control on my open pull requests, read from inside a sessio
 
 # dw-mc
 
-`dw-mc` is my local mission control: it keeps the state of my open pull requests on disk, reads GitHub through `gh`, and runs code reviews through local agent CLIs. This skill is a way into that state from a session I am already steering. It has no state of its own: every answer comes from running the CLI.
+`dw-mc` is my local mission control: it keeps the state of my open pull requests on disk, reads GitHub through `gh`, and runs code reviews through the local Claude Code. This skill is a way into that state from a session I am already steering. It has no state of its own: every answer comes from running the CLI.
 
 Use mission control's words: tracked PR, bucket, stamp, review run, finding, fix session, conflict record, resolve session, flaky failure, legitimate failure. They are defined in [`CONTEXT.md`](https://github.com/dominikwozniak/dw-mc/blob/main/CONTEXT.md), so a copy of this skill installed anywhere still reaches it.
 
@@ -15,7 +15,7 @@ Every command here names the pull request it acts on, because `dw-mc` with no ar
 
 | I want                                                               | run                          |
 | -------------------------------------------------------------------- | ---------------------------- |
-| what every tracked PR waits on                                       | `dw-mc status --json`        |
+| what the tracked PRs in the pass wait on                             | `dw-mc status --json`        |
 | the same, as the table I read                                        | `dw-mc status`               |
 | what mission control knows refreshed, and no table                   | `dw-mc sweep`                |
 | the conversation on a pull request, and what in it waits on me       | `dw-mc comments <pr>`        |
@@ -26,6 +26,8 @@ Every command here names the pull request it acts on, because `dw-mc` with no ar
 
 `<pr>` is `28` where one repository is registered, and `owner/name#28` otherwise.
 
+A pass - `status`, `sweep` - covers the registered repository the working directory is in, and every registered repository from anywhere else. `--all` covers every one, and `--repo owner/name` covers that one, wherever the working directory is.
+
 `dw-mc status` sweeps before it prints, so it costs a round of `gh` calls and is never stale. Read it with `--json`: every fact of every row is a field, and what the sweep could not read is in `troubles`. `--json` leaves what I last looked at alone, so the next table I read still marks what moved. The other reads answer from what the last sweep wrote down; `dw-mc sweep` refreshes that and prints what it swept.
 
 Print findings again in the turn that needs them. The printed run is the state; what an earlier turn said about it is a copy, and a review run at a newer head replaces it.
@@ -34,18 +36,19 @@ Print findings again in the turn that needs them. The printed run is the state; 
 
 These change something, so run one only when I ask for it by name.
 
-| I want                                                      | run                               |
-| ----------------------------------------------------------- | --------------------------------- |
-| a review run against the current head                       | `dw-mc review <pr>`               |
-| that run where the re-run rule would skip it                | `dw-mc review <pr> --force`       |
-| that run at a chosen effort, over the configured one        | `dw-mc review <pr> --effort high` |
-| the stamp off, until the head changes                       | `dw-mc stamp <pr> --withdraw`     |
-| the branch rebased onto its base and pushed                 | `dw-mc rebase <pr>`               |
-| a flaky red CI run again, once                              | `dw-mc rerun <pr>`                |
-| a Ready, stamped pull request landed                        | `dw-mc merge <pr>`                |
-| what is kept about a pull request that closed another way   | `dw-mc forget <pr>`               |
-| this machine set up and the repository I am in tracked      | `dw-mc init`                      |
-| the disk the tool spent on clones and review worktrees back | `dw-mc cleanup`                   |
+| I want                                                        | run                               |
+| ------------------------------------------------------------- | --------------------------------- |
+| a review run against the current head                         | `dw-mc review <pr>`               |
+| that run where the re-run rule would skip it                  | `dw-mc review <pr> --force`       |
+| that run at a chosen effort, over the configured one          | `dw-mc review <pr> --effort high` |
+| the stamp off, until the head changes                         | `dw-mc stamp <pr> --withdraw`     |
+| the branch rebased onto its base and pushed                   | `dw-mc rebase <pr>`               |
+| a flaky red CI run again, once                                | `dw-mc rerun <pr>`                |
+| a Ready, stamped pull request landed                          | `dw-mc merge <pr>`                |
+| a conversation marked read, with nothing in it mine to answer | `dw-mc comments <pr> --ack`       |
+| what is kept about a pull request that closed another way     | `dw-mc forget <pr>`               |
+| this machine set up and the repository I am in tracked        | `dw-mc init`                      |
+| the disk the tool spent on clones and review worktrees back   | `dw-mc cleanup`                   |
 
 `dw-mc review` runs a model and takes minutes.
 
