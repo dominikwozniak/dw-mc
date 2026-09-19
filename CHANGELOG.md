@@ -1,5 +1,13 @@
 # dw-mc
 
+## 0.7.0
+
+### Minor Changes
+
+- 5fd4f25: `dw-mc merge` forgets the pull request it merged: every record, review run and report the state directory kept about it. `dw-mc forget <pr>` does the same by hand for a pull request that closed another way. A sweep still removes nothing, and a `fix` or `resolve` session's worktree survives both and is named.
+- 26048d0: `dw-mc status` and the picker mark what moved since you last looked. A row whose bucket or whose facts changed carries `*`, a pull request never shown carries `+`, and a line above the group says where the row came from and what moved. `dw-mc sweep` shows nothing, so it leaves the mark where it was. The first `dw-mc status` after upgrading has shown you nothing yet, so it marks every row `+`.
+- b3771a2: `dw-mc comments <pr> --ack` records that you have read a pull request's conversation and nothing in it is yours to answer. The acknowledgement counts beside your last comment and your last commit, so the pull request leaves Needs me until somebody says something newer. It survives a push, and it never lifts changes requested.
+
 ## 0.6.0
 
 ### Minor Changes
