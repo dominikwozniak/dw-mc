@@ -47,7 +47,7 @@ publish from a machine. A change someone installing `dw-mc` would notice carries
 pull request that makes it - `pnpm changeset`, `patch` for a fix, `minor` for new behaviour, `major`
 for a break, written for whoever reads it on npm. Anything else carries none and nothing complains. A
 merge to `main` with changesets waiting opens a version pull request; merging that one publishes, tags
-and releases. See [ADR 0008](docs/adr/0008-npm-publication.md).
+and releases. See [ADR 0011](docs/adr/0011-npm-publication.md).
 
 ## Agent skills
 

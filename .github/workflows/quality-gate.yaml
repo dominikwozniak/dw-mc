@@ -53,7 +53,7 @@ jobs:
       - run: pnpm check
 
       # The source passing says nothing about the package, so the gate installs what npm
-      # would serve and runs it. ADR 0008 lists what only this step can catch.
+      # would serve and runs it. ADR 0011 lists what only this step can catch.
       - name: Install the tarball and run it
         run: |
           set -euo pipefail
