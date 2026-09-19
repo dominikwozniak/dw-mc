@@ -1,11 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/Effect-TS/language-service/refs/heads/main/schema.json",
   // One configuration, because nothing here builds: `tsdown` bundles and `tsc` only checks.
-  // `tools/` is a lint plugin and `tsdown.config.ts` is the build's own configuration; neither
-  // ships, and both break the gate when they stop compiling. The vendored rules are excluded
-  // because they are upstream's to typecheck, not this repository's.
+  // It checks all of `src`, the tests with the modules they sit beside; the bundle starts at
+  // the entry point and never reaches a test. `tools/` is a lint plugin and `tsdown.config.ts`
+  // is the build's own configuration; neither ships, and both break the gate when they stop
+  // compiling. The vendored rules are excluded because they are upstream's to typecheck, not
+  // this repository's.
   "include": ["src", "tools", "tsdown.config.ts"],
-  "exclude": ["src/**/*.test.ts", "tools/oxlint/anti-slop"],
+  "exclude": ["tools/oxlint/anti-slop"],
   "compilerOptions": {
     "target": "ES2023",
     "module": "NodeNext",

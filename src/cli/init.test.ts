@@ -252,6 +252,7 @@ describe("dw-mc init, run again", () => {
       yield* init()
 
       const defaults = Option.getOrThrow(yield* read).defaults
+      assert.isDefined(defaults)
       assert.deepStrictEqual(defaults, { review: { effort: "high" }, rebase: { enabled: true } })
       // What the file leaves out is inherited rather than reset, so a block I
       // wrote by hand is not filled in behind me.

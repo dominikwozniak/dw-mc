@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { ConfigProvider, Effect, Layer, Option, Path, Predicate } from "effect"
+import { ConfigProvider, Effect, Layer, Option, Path, Predicate, SchemaAST } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
 import type { Settings, SettingsPatch } from "#adapters/config.ts"
@@ -25,27 +25,17 @@ const home = (record: Record<string, string | undefined> = { HOME: "/home/dw" })
   )
 
 /**
- * A schema as this file has to read it: a struct keeps its `fields`, and
- * `optionalKey` keeps the field it wrapped as `schema`. Those two shapes are the
- * whole of the configuration, so walking them names every key it has.
- */
-interface Declaring {
-  readonly fields?: { readonly [key: string]: Declaring }
-  readonly schema?: Declaring
-}
-
-/**
  * Every key path a schema declares, `section.key` deep.
  *
- * A record is one key and not a shape: what a repository holds is the same
- * `SettingsPatch` as `defaults`, so walking into it would name every key twice.
+ * A struct is the one shape the configuration nests, so a node that names its
+ * properties is walked and every other node is a key. A record names none: it
+ * is one key and not a shape, because what a repository holds is the same
+ * `SettingsPatch` as `defaults`, and walking into it would name every key twice.
  */
-const declaredBy = (schema: Declaring, at: ReadonlyArray<string> = []): ReadonlyArray<string> => {
-  const fields = (schema.schema ?? schema).fields
-  return fields === undefined
-    ? [at.join(".")]
-    : Object.entries(fields).flatMap(([key, field]) => declaredBy(field, [...at, key]))
-}
+const declaredBy = (ast: SchemaAST.AST, at: ReadonlyArray<string> = []): ReadonlyArray<string> =>
+  SchemaAST.isObjects(ast) && ast.propertySignatures.length > 0
+    ? ast.propertySignatures.flatMap((property) => declaredBy(property.type, [...at, String(property.name)]))
+    : [at.join(".")]
 
 /** What a value holds at one of those paths, or nothing where it holds nothing. */
 const held = (value: unknown, path: ReadonlyArray<string>): unknown =>
@@ -115,7 +105,7 @@ describe("config file", () => {
       // missing a key asserts nothing about that key: it would round-trip a file
       // the writer had quietly dropped it from.
       assert.deepStrictEqual(
-        declaredBy(ConfigFile).filter((key) => held(file, key.split(".")) === undefined),
+        declaredBy(ConfigFile.ast).filter((key) => held(file, key.split(".")) === undefined),
         []
       )
 
