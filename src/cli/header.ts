@@ -1,9 +1,12 @@
-import type { Config, Stdio } from "effect"
-import { Effect, Layer } from "effect"
+import type { Path, Stdio } from "effect"
+import { Config, Effect, Layer, Option } from "effect"
 import type { HelpDoc } from "effect/unstable/cli"
 import { CliConfig, CliOutput, GlobalFlag } from "effect/unstable/cli"
 
+import { ConfigStore, read } from "#adapters/config.ts"
+import type { Paint } from "#adapters/paint.ts"
 import { paintFor, screened } from "#adapters/paint.ts"
+import { stateDirectory } from "#adapters/store.ts"
 import { projectUrl, version } from "#cli/cli.ts"
 
 /** The tool's name, drawn. Plain ASCII, so a pipe and a paste show one picture. */
@@ -34,19 +37,60 @@ const header = (colors: boolean): string => {
     .join("\n")
 }
 
+/** Where this machine keeps its setup, worked out from the environment alone. */
+interface Setup {
+  readonly config: string
+  readonly state: string
+}
+
+/** A path under my home, the way I would type it. */
+const tilde = (path: string, home: string | undefined): string =>
+  home !== undefined && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
+
+/**
+ * What the configuration file says of this machine, in the few words a help
+ * screen has room for.
+ *
+ * A file that cannot be read keeps the help screen standing and says only that
+ * it cannot: the reason is ADR 0010's, and every other command prints it.
+ */
+const standing = read.pipe(
+  Effect.map(
+    Option.match({
+      onNone: () => "not set up - run dw-mc init",
+      onSome: (file) => {
+        const n = Object.keys(file.repos ?? {}).length
+        return n === 1 ? "1 repository registered" : `${n} repositories registered`
+      }
+    })
+  ),
+  Effect.orElseSucceed(() => "cannot be read - any other command says why")
+)
+
+/**
+ * The two lines naming this machine's setup, with the labels `dw-mc init`
+ * prints. The paths are dimmed as context, and nothing is coloured by state.
+ */
+const described = (setup: Setup, said: string, paint: Paint): ReadonlyArray<string> => [
+  `config  ${paint.dim(setup.config)}   ${said}`,
+  `state   ${paint.dim(setup.state)}`
+]
+
 /**
  * The formatter for the two screens the tool introduces itself on, with the
- * header above what the default formatter draws.
+ * header above what the default formatter draws, and on the help screen the
+ * lines naming this machine's setup under it.
  *
  * The root command is the one whose help document lists subcommands, which is
  * what keeps the header off `dw-mc status --help`.
  */
-const formatter = (colors: boolean): CliOutput.Formatter => {
+const formatter = (colors: boolean, machine: ReadonlyArray<string>): CliOutput.Formatter => {
   const inner = CliOutput.defaultFormatter({ colors })
   const drawn = header(colors)
+  const introduced = machine.length === 0 ? drawn : `${drawn}\n\n${machine.join("\n")}`
   return {
     formatHelpDoc: (doc: HelpDoc.HelpDoc) =>
-      doc.subcommands === undefined ? inner.formatHelpDoc(doc) : `${drawn}\n\n${inner.formatHelpDoc(doc)}`,
+      doc.subcommands === undefined ? inner.formatHelpDoc(doc) : `${introduced}\n\n${inner.formatHelpDoc(doc)}`,
     formatVersion: (name: string, printed: string) => `${drawn}\n\n${inner.formatVersion(name, printed)}`,
     formatCliError: inner.formatCliError,
     formatError: inner.formatError,
@@ -60,15 +104,38 @@ const formatter = (colors: boolean): CliOutput.Formatter => {
  * It replaces the formatter under `--help` and `--version` rather than for the
  * run, because a failed parse prints the help screen through the same
  * formatter: decorating that one would bury the error under a logo.
+ *
+ * The paths are worked out as the layer is built, from the environment alone.
+ * The configuration file is read only once `--help` is asked for, because no
+ * other run of the tool prints what it says here.
  */
-export const layer: Layer.Layer<never, Config.ConfigError, Stdio.Stdio> = Layer.unwrap(
-  Effect.map(screened, (colors) => {
-    const introducing = Effect.provideService(CliOutput.Formatter, formatter(colors))
+export const layer: Layer.Layer<never, Config.ConfigError, Stdio.Stdio | ConfigStore | Path.Path> = Layer.unwrap(
+  Effect.gen(function* () {
+    const colors = yield* screened
+    const config = yield* ConfigStore
+    const home = Option.getOrUndefined(yield* Config.String("HOME").pipe(Config.option))
+    const setup: Setup = { config: tilde(config.path, home), state: tilde(yield* stateDirectory, home) }
+
+    const machine = Effect.map(Effect.provideService(standing, ConfigStore, config), (said) =>
+      described(setup, said, paintFor(colors))
+    )
     return CliConfig.layer({
       builtIns: CliConfig.defaults.builtIns.map((builtIn) =>
-        builtIn === GlobalFlag.Help || builtIn === GlobalFlag.Version
-          ? GlobalFlag.Action({ flag: builtIn.flag, run: (value, context) => introducing(builtIn.run(value, context)) })
-          : builtIn
+        builtIn === GlobalFlag.Help
+          ? GlobalFlag.Action({
+              flag: builtIn.flag,
+              run: (value, context) =>
+                Effect.flatMap(machine, (lines) =>
+                  Effect.provideService(builtIn.run(value, context), CliOutput.Formatter, formatter(colors, lines))
+                )
+            })
+          : builtIn === GlobalFlag.Version
+            ? GlobalFlag.Action({
+                flag: builtIn.flag,
+                run: (value, context) =>
+                  Effect.provideService(builtIn.run(value, context), CliOutput.Formatter, formatter(colors, []))
+              })
+            : builtIn
       )
     })
   })
