@@ -38,6 +38,9 @@
     "anti-slop/no-module-mocking": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
     "anti-slop-effect/prefer-effect-match": "error",
+    // `recommended.json` leaves this off. A service's key names the module it lives in, as
+    // `node_modules/effect/AGENTS.md` asks, so two services can never share one by accident.
+    "effecttsgo/deterministic-keys": "error",
     // Two ADR 0006 invariants, held for every file the linter sees and restated by each
     // override below.
     //

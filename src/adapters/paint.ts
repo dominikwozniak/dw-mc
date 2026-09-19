@@ -86,7 +86,9 @@ export const screened: Effect.Effect<boolean, Config.ConfigError, Stdio.Stdio> =
  * text. Colour arrives when the entry point builds the layer below, which is
  * the one place that knows what stdout is.
  */
-export const Paint: Context.Reference<Paint> = Context.Reference("dw-mc/Paint", { defaultValue: (): Paint => plain })
+export const Paint: Context.Reference<Paint> = Context.Reference("dw-mc/adapters/paint/Paint", {
+  defaultValue: (): Paint => plain
+})
 
 /** The ink the machine deserves, as the layer the entry point provides. */
 export const layer: Layer.Layer<never, Config.ConfigError, Stdio.Stdio> = Layer.effect(

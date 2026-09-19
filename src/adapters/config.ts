@@ -223,7 +223,7 @@ export const configPath: Effect.Effect<string, Config.ConfigError, Path.Path> = 
 const service = Effect.gen(function* () {
   const store = yield* KeyValueStore.KeyValueStore
   const path = yield* configPath
-  return { path, store }
+  return ConfigStore.of({ path, store })
 })
 
 const onDisk = Layer.unwrap(Effect.map(configDirectory, (directory) => KeyValueStore.layerFileSystem(directory)))
@@ -241,7 +241,7 @@ export class ConfigStore extends Context.Service<
     readonly path: string
     readonly store: KeyValueStore.KeyValueStore
   }
->()("dw-mc/config/ConfigStore") {
+>()("dw-mc/adapters/config/ConfigStore") {
   /** The configuration file on disk. */
   static readonly layer: Layer.Layer<
     ConfigStore,
