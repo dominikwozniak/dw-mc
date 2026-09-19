@@ -48,17 +48,19 @@ These change something, so run one only when I ask for it by name.
 | a conversation marked read, with nothing in it mine to answer | `dw-mc comments <pr> --ack`       |
 | what is kept about a pull request that closed another way     | `dw-mc forget <pr>`               |
 | this machine set up and the repository I am in tracked        | `dw-mc init`                      |
-| the disk the tool spent on clones and review worktrees back   | `dw-mc cleanup`                   |
+| the disk the tool spent on clones and review worktrees back   | `dw-mc cleanup --yes`             |
 
 `dw-mc review` runs a model and takes minutes.
 
 `dw-mc init` is what "No repositories registered" asks for. It writes my config on this machine and reaches nothing else.
 
-`dw-mc cleanup` removes only what the tool rebuilds by itself, and never a worktree a session stands in. `dw-mc uninstall` removes everything the tool wrote and is mine to run, never yours: ask me for it rather than running it.
+`dw-mc cleanup` removes only what the tool rebuilds by itself, and never a worktree a session stands in. It asks before it removes anything, and a session has no terminal to answer, so run it with `--yes`. `dw-mc uninstall` removes everything the tool wrote and is mine to run, never yours: ask me for it rather than running it.
 
 `dw-mc rebase`, `dw-mc rerun` and `dw-mc merge` are the three commands that write to GitHub, and the CLI owns all three: run them as they are, and leave every write of my own - comment, review, label, approval, status - unmade (ADR 0002).
 
 `dw-mc rebase` and `dw-mc rerun` stay inside that boundary: a `--force-with-lease` push to a branch I author, and the failed jobs of a workflow run on a pull request I author. `dw-mc rerun` refuses a failure the classifier calls legitimate, and refuses a head it has already re-run, so running it on a red CI is never a way to hide one.
+
+`dw-mc rebase` runs only where `rebase.enabled` is on in my config, and never while CI is running. A conflict aborts the rebase and records it; `dw-mc resolve <pr> --print` is the next step (see Sessions).
 
 `dw-mc merge` is ADR 0008's, and it is the one no reflog of mine undoes: a squash merge that deletes the branch. It lands nothing that is not both Ready and stamped at the head it reads, and it refuses everything else with the command that earns the stamp. Run it only when I name the pull request and ask for it merged.
 
