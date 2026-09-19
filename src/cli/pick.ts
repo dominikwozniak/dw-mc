@@ -1,14 +1,13 @@
 import { Console, Effect, Option } from "effect"
 import type { Prompt } from "effect/unstable/cli"
 
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import { readOrEmpty, settingsFor } from "#adapters/config.ts"
 import { Paint, ink, plain } from "#adapters/paint.ts"
 import { confirm, pick, width } from "#adapters/picker.ts"
 import { prKey } from "#adapters/store.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { cells, rule } from "#cli/row.ts"
-import { everything, printTroubles, sweeping } from "#cli/sweep.ts"
+import { everything, noneRegistered, printTroubles, sweeping } from "#cli/sweep.ts"
 import { table, truncate, visible } from "#cli/table.ts"
 import type { Facts, Placed } from "#domain/bucket.ts"
 import { group } from "#domain/bucket.ts"
@@ -117,12 +116,12 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
       const report = yield* sweeping(everything)
 
       if (report.repos.length === 0) {
-        yield* Console.log("No repositories registered. Run dw-mc init inside a repository to register it.")
+        yield* Console.log(noneRegistered)
         return
       }
 
       const stamped = yield* stampedAmong(report.facts)
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
+      const file = yield* readOrEmpty
       const standings = yield* Effect.forEach(
         group(report.facts).flatMap((grouped) => grouped.placed),
         Effect.fnUntraced(function* (placed) {

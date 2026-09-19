@@ -4,6 +4,7 @@ import { Command } from "effect/unstable/cli"
 import { Paint } from "#adapters/paint.ts"
 import { inventory, sessionBranch } from "#adapters/store.ts"
 import { block, print, separated } from "#cli/block.ts"
+import { asUserError } from "#cli/exit.ts"
 import { forPr, prArgument } from "#cli/pr.ts"
 import { count, table } from "#cli/table.ts"
 import { sessionName } from "#domain/cleanup.ts"
@@ -22,7 +23,6 @@ export const forgetting = Effect.fn("forgetting")(function* (
   number: number,
   options: { readonly deleted?: string | undefined } = {}
 ) {
-  const deleted = options.deleted
   const path = yield* Path.Path
   const paint = yield* Paint
   const where = `${repo}#${number}`
@@ -36,11 +36,11 @@ export const forgetting = Effect.fn("forgetting")(function* (
     return [forgotten]
   }
 
+  const branchGone = options.deleted === undefined ? "" : `, which tracked ${options.deleted} - deleted with the merge`
   const rows = table(
     sessions.map((it) => [
       paint.dim(path.relative(found.directory, it.directory)),
-      `a ${sessionName(it.session)} session's worktree, on ${sessionBranch(it.session, number)}` +
-        (deleted === undefined ? "" : `, which tracked ${deleted} - deleted with the merge`)
+      `a ${sessionName(it.session)} session's worktree, on ${sessionBranch(it.session, number)}${branchGone}`
     ])
   )
   return [forgotten, block("Stays", rows), ["What you committed there is yours, so nothing here takes it down."]]
@@ -58,8 +58,11 @@ export const forgetting = Effect.fn("forgetting")(function* (
 export const forgetCommand = Command.make(
   "forget",
   { pr: prArgument },
-  Effect.fn("forget")(function* ({ pr }) {
-    const { number, repo } = yield* forPr(pr)
-    yield* print(separated(yield* forgetting(repo, number)))
-  })
+  Effect.fn("forget")(
+    function* ({ pr }) {
+      const { number, repo } = yield* forPr(pr)
+      yield* print(separated(yield* forgetting(repo, number)))
+    },
+    Effect.catchTag(["ConfigMalformed"], asUserError)
+  )
 ).pipe(Command.withDescription("Forget everything kept about a pull request that is done"))

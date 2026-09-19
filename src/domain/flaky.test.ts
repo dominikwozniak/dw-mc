@@ -218,33 +218,33 @@ describe("evidenceFor", () => {
     }).pipe(Effect.provide(gh({ answers, spawned })))
   })
 
-  it.effect("keeps the signals it can read when a log has aged out of GitHub", () => {
-    return Effect.gen(function* () {
+  it.effect("keeps the signals it can read when a log has aged out of GitHub", () =>
+    Effect.gen(function* () {
       const read = yield* evidenceFor(repo, 25, [failed()], [])
 
       assert.strictEqual(read.log, "")
       assert.deepStrictEqual(read.alsoRedOnDefaultBranch, ["Quality gate"])
       assert.deepStrictEqual(read.changedFiles, ["src/cli/sweep.ts"])
     }).pipe(Effect.provide(gh({ answers, refuses: ["/logs"] })))
-  })
+  )
 
-  it.effect("keeps the signals it can read when the changed files will not come back", () => {
-    return Effect.gen(function* () {
+  it.effect("keeps the signals it can read when the changed files will not come back", () =>
+    Effect.gen(function* () {
       const read = yield* evidenceFor(repo, 25, [failed()], [])
 
       assert.deepStrictEqual(read.changedFiles, [])
       assert.strictEqual(read.log, "connect ETIMEDOUT")
     }).pipe(Effect.provide(gh({ answers, refuses: ["--json files"] })))
-  })
+  )
 
-  it.effect("comes back with nothing, and so with legitimate, when gh will not say which branch", () => {
-    return Effect.gen(function* () {
+  it.effect("comes back with nothing, and so with legitimate, when gh will not say which branch", () =>
+    Effect.gen(function* () {
       const read = yield* evidenceFor(repo, 25, [failed()], [])
 
       assert.deepStrictEqual(read, { alsoRedOnDefaultBranch: [], changedFiles: [], log: "" })
       assert.strictEqual(classify(read, []).classification, "legitimate")
     }).pipe(Effect.provide(gh({ answers, refuses: ["--json defaultBranchRef"] })))
-  })
+  )
 
   it.effect("reads nothing at all for a check ci.ignore says does not count", () => {
     const spawned: Array<string> = []

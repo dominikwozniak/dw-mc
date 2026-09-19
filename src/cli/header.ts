@@ -3,7 +3,7 @@ import { Config, Effect, Layer, Option } from "effect"
 import type { HelpDoc } from "effect/unstable/cli"
 import { CliConfig, CliOutput, GlobalFlag } from "effect/unstable/cli"
 
-import { ConfigStore, read } from "#adapters/config.ts"
+import { ConfigStore, read, registeredIn } from "#adapters/config.ts"
 import type { Paint } from "#adapters/paint.ts"
 import { paintFor, screened } from "#adapters/paint.ts"
 import { stateDirectory } from "#adapters/store.ts"
@@ -54,12 +54,12 @@ const tilde = (path: string, home: string | undefined): string =>
  * A file that cannot be read keeps the help screen standing and says only that
  * it cannot: the reason is ADR 0010's, and every other command prints it.
  */
-const standing = read.pipe(
+const registration = read.pipe(
   Effect.map(
     Option.match({
       onNone: () => "not set up - run dw-mc init",
       onSome: (file) => {
-        const n = Object.keys(file.repos ?? {}).length
+        const n = registeredIn(file).length
         return n === 1 ? "1 repository registered" : `${n} repositories registered`
       }
     })
@@ -117,7 +117,7 @@ export const layer: Layer.Layer<never, Config.ConfigError, Stdio.Stdio | ConfigS
     const home = Option.getOrUndefined(yield* Config.String("HOME").pipe(Config.option))
     const setup: Setup = { config: tilde(config.path, home), state: tilde(yield* stateDirectory, home) }
 
-    const setupLines = Effect.provideService(standing, ConfigStore, config).pipe(
+    const setupLines = Effect.provideService(registration, ConfigStore, config).pipe(
       Effect.map((said) => described(setup, said, paintFor(colors))),
       Effect.orElseSucceed((): ReadonlyArray<string> => [])
     )
@@ -130,13 +130,15 @@ export const layer: Layer.Layer<never, Config.ConfigError, Stdio.Stdio | ConfigS
           )
       })
     return CliConfig.layer({
-      builtIns: CliConfig.defaults.builtIns.map((builtIn) =>
-        builtIn === GlobalFlag.Help
-          ? introducing(GlobalFlag.Help, setupLines)
-          : builtIn === GlobalFlag.Version
-            ? introducing(GlobalFlag.Version, Effect.succeed([]))
-            : builtIn
-      )
+      builtIns: CliConfig.defaults.builtIns.map((builtIn) => {
+        if (builtIn === GlobalFlag.Help) {
+          return introducing(GlobalFlag.Help, setupLines)
+        }
+        if (builtIn === GlobalFlag.Version) {
+          return introducing(GlobalFlag.Version, Effect.succeed([]))
+        }
+        return builtIn
+      })
     })
   })
 )

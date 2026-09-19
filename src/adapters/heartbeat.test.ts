@@ -19,19 +19,18 @@ const reads =
     `reviewing · ${doing.tools} tools · ${doing.subagents} subagents · ${since}`
 
 /** A run that reaches for three tools, one of them a subagent, then finishes. */
-const reaching = (says: Says) =>
-  Effect.gen(function* () {
-    let doing: Doing = { tools: 0, subagents: 0 }
-    const onTool = (tool: string) => {
-      doing = { tools: doing.tools + 1, subagents: doing.subagents + (tool === "Agent" ? 1 : 0) }
-      return says(reads(doing), `  · ${tool}`)
-    }
-    yield* onTool("Bash")
-    yield* onTool("Agent")
-    yield* onTool("Bash")
-    yield* TestClock.adjust(Duration.seconds(75))
-    return "reviewed"
-  })
+const reaching = Effect.fnUntraced(function* (says: Says) {
+  let doing: Doing = { tools: 0, subagents: 0 }
+  const onTool = (tool: string) => {
+    doing = { tools: doing.tools + 1, subagents: doing.subagents + (tool === "Agent" ? 1 : 0) }
+    return says(reads(doing), `  · ${tool}`)
+  }
+  yield* onTool("Bash")
+  yield* onTool("Agent")
+  yield* onTool("Bash")
+  yield* TestClock.adjust(Duration.seconds(75))
+  return "reviewed"
+})
 
 /** Work that counts nothing at all, which is every command that reads two guards. */
 const reading = () => Effect.as(TestClock.adjust(Duration.seconds(3)), "read")

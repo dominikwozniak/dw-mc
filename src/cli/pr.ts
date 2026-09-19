@@ -1,8 +1,7 @@
 import { Effect, Option } from "effect"
 import { Argument, CliError } from "effect/unstable/cli"
 
-import type { ConfigFile } from "#adapters/config.ts"
-import { launcherOf, read as readConfig, settingsFor } from "#adapters/config.ts"
+import { launcherOf, readOrEmpty, registeredIn, settingsFor } from "#adapters/config.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import { Facts } from "#domain/bucket.ts"
@@ -51,8 +50,8 @@ export const named = (pr: string, registered: ReadonlyArray<string>) => {
  * anything. The file itself does not, so nothing downstream keeps a copy of it.
  */
 export const forPr = Effect.fn("pr.forPr")(function* (pr: string) {
-  const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-  const { number, repo } = yield* named(pr, Object.keys(file.repos ?? {}).toSorted())
+  const file = yield* readOrEmpty
+  const { number, repo } = yield* named(pr, registeredIn(file))
   return { repo, number, settings: settingsFor(file, repo), launcher: launcherOf(file) }
 })
 

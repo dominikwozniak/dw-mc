@@ -51,11 +51,10 @@ const declaredBy = (schema: Declaring, at: ReadonlyArray<string> = []): Readonly
 const held = (value: unknown, path: ReadonlyArray<string>): unknown =>
   path.length === 0 ? value : Predicate.isReadonlyObject(value) ? held(value[path[0]], path.slice(1)) : undefined
 
-const put = (yaml: string) =>
-  Effect.gen(function* () {
-    const config = yield* ConfigStore
-    yield* config.store.set("config.yaml", yaml)
-  })
+const put = Effect.fnUntraced(function* (yaml: string) {
+  const config = yield* ConfigStore
+  yield* config.store.set("config.yaml", yaml)
+})
 
 describe("config file", () => {
   it.effect("sits under XDG_CONFIG_HOME when it is set", () =>

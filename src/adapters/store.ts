@@ -75,7 +75,7 @@ export const remembered = <A, E, R>(
 export class Keys extends Context.Service<
   Keys,
   { readonly all: Effect.Effect<ReadonlyArray<string>, KeyValueStore.KeyValueStoreError> }
->()("dw-mc/store/Keys") {}
+>()("dw-mc/adapters/store/Keys") {}
 
 /**
  * The key a file in the state directory was written under, and none for a
@@ -104,7 +104,7 @@ const keysOnDisk = (directory: string) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const directories = new Set<string>([clonesIn, ...cuts])
-      return {
+      return Keys.of({
         all: fs.readDirectory(directory).pipe(
           Effect.map((entries) => entries.filter((entry) => !directories.has(entry)).flatMap(keyOf)),
           Effect.mapError(
@@ -112,15 +112,13 @@ const keysOnDisk = (directory: string) =>
               new KeyValueStore.KeyValueStoreError({ method: "keys", message: "Unable to list the keys", cause })
           )
         )
-      }
+      })
     })
   )
 
 /** Every key the state directory holds. */
-export const allKeys: Effect.Effect<ReadonlyArray<string>, KeyValueStore.KeyValueStoreError, Keys> = Effect.gen(
-  function* () {
-    return yield* (yield* Keys).all
-  }
+export const allKeys: Effect.Effect<ReadonlyArray<string>, KeyValueStore.KeyValueStoreError, Keys> = Keys.use(
+  (keys) => keys.all
 )
 
 /** The state directory on disk. */
@@ -147,7 +145,7 @@ export const layerTest: Layer.Layer<KeyValueStore.KeyValueStore | Keys> = Layer.
       clear: Effect.tap(inner.clear, () => Effect.sync(() => held.clear()))
     })
     return Context.make(KeyValueStore.KeyValueStore, store).pipe(
-      Context.add(Keys, { all: Effect.sync(() => [...held]) })
+      Context.add(Keys, Keys.of({ all: Effect.sync(() => [...held]) }))
     )
   })
 ).pipe(Layer.provide(KeyValueStore.layerMemory))

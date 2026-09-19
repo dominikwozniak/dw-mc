@@ -8,9 +8,9 @@ import { Paint } from "#adapters/paint.ts"
 import { stateDirectory } from "#adapters/store.ts"
 import { print } from "#cli/block.ts"
 import { asUserError } from "#cli/exit.ts"
-import type { Effort } from "#terms/review.ts"
+import { Effort } from "#terms/review.ts"
 
-const effortFlag = Flag.Literals("effort", ["low", "medium", "high", "xhigh", "max"]).pipe(
+const effortFlag = Flag.Literals("effort", Effort.literals).pipe(
   Flag.withDescription("How much a review run spends on this repository"),
   Flag.optional
 )

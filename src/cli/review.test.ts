@@ -208,22 +208,21 @@ const runOf = (head_: string) =>
   Effect.flatMap(storeFor("runs", ReviewRun), (runs) => runs.get(runKey(repo, 28, head_)))
 
 /** A review run this head has already had, as a previous command would have left it. */
-const already = (at: string, outcome: Outcome) =>
-  Effect.gen(function* () {
-    const runs = yield* storeFor("runs", ReviewRun)
-    const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, at), {
-      repo,
-      number: 28,
-      head: at,
-      command: "/code-review",
-      effort: "low",
-      sessionId: session,
-      ranAt: DateTime.makeUnsafe("2026-09-15T10:00:00Z"),
-      outcome
-    })
-    yield* latest.set(latestKey(repo, 28), { head: at })
+const already = Effect.fnUntraced(function* (at: string, outcome: Outcome) {
+  const runs = yield* storeFor("runs", ReviewRun)
+  const latest = yield* storeFor("runs", LastReviewed)
+  yield* runs.set(runKey(repo, 28, at), {
+    repo,
+    number: 28,
+    head: at,
+    command: "/code-review",
+    effort: "low",
+    sessionId: session,
+    ranAt: DateTime.makeUnsafe("2026-09-15T10:00:00Z"),
+    outcome
   })
+  yield* latest.set(latestKey(repo, 28), { head: at })
+})
 
 const clean: Outcome = { _tag: "reported", verdict: "clean", findings: [] }
 

@@ -802,14 +802,14 @@ describe("a sweep narrowed to one repository", () => {
     }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording([]))
   })
 
-  it.effect("refuses --repo and --all together", () => {
-    return Effect.gen(function* () {
+  it.effect("refuses --repo and --all together", () =>
+    Effect.gen(function* () {
       yield* registered("dominikwozniak/dw-mc")
       const error = yield* Effect.flip(run("status", "--repo", "dominikwozniak/dw-mc", "--all"))
 
       assert.include(String(error.cause), "--all")
     }).pipe(Effect.provide(machine(github({ repos: two }), undefined, 0)), recording([]))
-  })
+  )
 
   it.effect("says nothing of the rest where only one repository is registered", () => {
     const printed: Array<string> = []

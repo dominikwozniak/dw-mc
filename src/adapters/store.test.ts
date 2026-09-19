@@ -68,11 +68,10 @@ describe("store", () => {
   const env = (record: Record<string, string | undefined>) =>
     Effect.provide(Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnvRecord(record)), Path.layer))
 
-  const write = (run: ReviewRun) =>
-    Effect.gen(function* () {
-      const runs = yield* storeFor("review-run", ReviewRun)
-      yield* runs.set("7", run)
-    })
+  const write = Effect.fnUntraced(function* (run: ReviewRun) {
+    const runs = yield* storeFor("review-run", ReviewRun)
+    yield* runs.set("7", run)
+  })
 
   const read = Effect.gen(function* () {
     const runs = yield* storeFor("review-run", ReviewRun)
@@ -173,12 +172,11 @@ describe("store", () => {
   const laidOut = Effect.fnUntraced(function* (state: string) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const put = (where: ReadonlyArray<string>, contents: string) =>
-      Effect.gen(function* () {
-        const file = path.join(state, ...where)
-        yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-        yield* fs.writeFileString(file, contents)
-      })
+    const put = Effect.fnUntraced(function* (where: ReadonlyArray<string>, contents: string) {
+      const file = path.join(state, ...where)
+      yield* fs.makeDirectory(path.dirname(file), { recursive: true })
+      yield* fs.writeFileString(file, contents)
+    })
 
     yield* put(["repos", "dw", "one.git", "HEAD"], "ref: refs/heads/main\n")
     yield* put(["worktrees", "dw", "one", "28", "README.md"], "cut for a review run\n")

@@ -35,22 +35,21 @@ const registered = (...repos: ReadonlyArray<string>) =>
   write({ repos: Object.fromEntries(repos.map((name) => [name, {}])) } satisfies ConfigFile)
 
 /** The review run `dw-mc review` would have left behind. */
-const ran = (outcome: Outcome) =>
-  Effect.gen(function* () {
-    const runs = yield* storeFor("runs", ReviewRun)
-    const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, head), {
-      repo,
-      number: 28,
-      head,
-      command: "/code-review",
-      effort: "low",
-      sessionId: session,
-      ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
-      outcome
-    })
-    yield* latest.set(latestKey(repo, 28), { head })
+const ran = Effect.fnUntraced(function* (outcome: Outcome) {
+  const runs = yield* storeFor("runs", ReviewRun)
+  const latest = yield* storeFor("runs", LastReviewed)
+  yield* runs.set(runKey(repo, 28, head), {
+    repo,
+    number: 28,
+    head,
+    command: "/code-review",
+    effort: "low",
+    sessionId: session,
+    ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
+    outcome
   })
+  yield* latest.set(latestKey(repo, 28), { head })
+})
 
 describe("dw-mc findings", () => {
   it.effect("prints the findings as JSON and nothing else, so they pipe", () => {

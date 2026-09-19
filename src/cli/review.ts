@@ -33,7 +33,8 @@ import {
   short,
   skippedSince
 } from "#domain/review.ts"
-import type { Effort, ReviewTurn } from "#terms/review.ts"
+import type { ReviewTurn } from "#terms/review.ts"
+import { Effort } from "#terms/review.ts"
 
 /** What a review run has reached for so far, which is what its heartbeat counts. */
 interface Doing {
@@ -59,7 +60,7 @@ const promptFlag = Flag.String("prompt").pipe(
   Flag.optional
 )
 
-const effortFlag = Flag.Literals("effort", ["low", "medium", "high", "xhigh", "max"]).pipe(
+const effortFlag = Flag.Literals("effort", Effort.literals).pipe(
   Flag.withDescription("How much this run spends, over what the repository configured"),
   Flag.optional
 )

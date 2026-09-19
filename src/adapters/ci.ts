@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect"
 
 import type { CheckEntry } from "#adapters/gh.ts"
-import { GhReadFailed, readJson, unavailable } from "#adapters/gh.ts"
+import { failedAs, readJson } from "#adapters/gh.ts"
 import { capture } from "#adapters/spawner.ts"
 import type { ChecksState } from "#terms/pr.ts"
 
@@ -174,12 +174,7 @@ export const jobLog = Effect.fnUntraced(function* (repo: string, jobId: string) 
     "api",
     `repos/${repo}/actions/jobs/${jobId}/logs`,
     "--allow-escape-sequences"
-  ]).pipe(
-    Effect.catchTags({
-      PlatformError: (error) => Effect.fail(unavailable(error)),
-      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: "api job logs", detail: error.stderr }))
-    })
-  )
+  ]).pipe(failedAs("api job logs"))
   return log.length <= logTailBytes ? log : log.slice(-logTailBytes)
 })
 
@@ -214,10 +209,5 @@ export const failedRuns = (
  * write to GitHub, and it is one of the three ADR 0002 allows.
  */
 export const rerunFailed = Effect.fnUntraced(function* (repo: string, runId: string) {
-  yield* capture("gh", ["run", "rerun", runId, "--repo", repo, "--failed"]).pipe(
-    Effect.catchTags({
-      PlatformError: (error) => Effect.fail(unavailable(error)),
-      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: "run rerun", detail: error.stderr }))
-    })
-  )
+  yield* capture("gh", ["run", "rerun", runId, "--repo", repo, "--failed"]).pipe(failedAs("run rerun"))
 })

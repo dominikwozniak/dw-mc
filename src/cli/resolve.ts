@@ -1,5 +1,5 @@
 import { Console, Effect } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command } from "effect/unstable/cli"
 
 import { steeredSession } from "#adapters/claude.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
@@ -7,14 +7,10 @@ import { rebaseInPlace, standingWorktree } from "#adapters/git.ts"
 import { Paint } from "#adapters/paint.ts"
 import { following, opener, print, retype, stoppedOn } from "#cli/block.ts"
 import { asUserError, userFacingAndSession } from "#cli/exit.ts"
+import { printFlag } from "#cli/fix.ts"
 import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { conflictFor, stackOf } from "#domain/rebase.ts"
 import { decide, promptFor } from "#domain/resolve.ts"
-
-const printFlag = Flag.Boolean("print").pipe(
-  Flag.withDefault(false),
-  Flag.withDescription("Print the prompt a session would open on, and open none")
-)
 
 /**
  * A session on the conflict that stopped a rebase, in a worktree that is mine.

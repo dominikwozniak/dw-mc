@@ -223,7 +223,7 @@ export const configPath: Effect.Effect<string, Config.ConfigError, Path.Path> = 
 const service = Effect.gen(function* () {
   const store = yield* KeyValueStore.KeyValueStore
   const path = yield* configPath
-  return { path, store }
+  return ConfigStore.of({ path, store })
 })
 
 const onDisk = Layer.unwrap(Effect.map(configDirectory, (directory) => KeyValueStore.layerFileSystem(directory)))
@@ -241,7 +241,7 @@ export class ConfigStore extends Context.Service<
     readonly path: string
     readonly store: KeyValueStore.KeyValueStore
   }
->()("dw-mc/config/ConfigStore") {
+>()("dw-mc/adapters/config/ConfigStore") {
   /** The configuration file on disk. */
   static readonly layer: Layer.Layer<
     ConfigStore,
@@ -361,6 +361,17 @@ export const read = Effect.gen(function* () {
     }).pipe(Effect.mapError((error) => malformed(error.message)))
   )
 }).pipe(Effect.withSpan("config.read"))
+
+/**
+ * The configuration file, or an empty one when this machine has none yet.
+ *
+ * Only a missing file comes back empty: one that is there and is wrong fails
+ * exactly as `read` fails.
+ */
+export const readOrEmpty = read.pipe(Effect.map(Option.getOrElse((): ConfigFile => ({}))))
+
+/** The repositories `file` registers, sorted so every command lists them in one order. */
+export const registeredIn = (file: ConfigFile): ReadonlyArray<string> => Object.keys(file.repos ?? {}).toSorted()
 
 const mapping = (entries: ReadonlyArray<readonly [string, Value | undefined]>): { readonly [key: string]: Value } => {
   const out: Record<string, Value> = {}
