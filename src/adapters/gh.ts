@@ -2,6 +2,7 @@ import { DateTime, Effect, Match, PlatformError, Schema } from "effect"
 import type { ChildProcessSpawner } from "effect/unstable/process"
 
 import { capture } from "#adapters/spawner.ts"
+import type { CommandFailed } from "#adapters/spawner.ts"
 import type { Mergeability, ReviewDecision } from "#terms/pr.ts"
 
 /** `gh` is on the machine but would not run. */
@@ -42,10 +43,8 @@ export class GhUnreadable extends Schema.TaggedError<GhUnreadable>()("GhUnreadab
 }
 
 /** What a `gh` that would not even start comes to. */
-export const unavailable = (error: PlatformError.PlatformError): GhUnavailable =>
-  new GhUnavailable({
-    detail: error.reason._tag === "NotFound" ? "it is not installed" : error.message
-  })
+const unavailable = (error: PlatformError.PlatformError): GhUnavailable =>
+  new GhUnavailable({ detail: error.reason._tag === "NotFound" ? "it is not installed" : error.message })
 
 /**
  * Stops unless `gh` is installed and logged in.
@@ -97,6 +96,17 @@ export class GhReadFailed extends Schema.TaggedError<GhReadFailed>()("GhReadFail
   }
 }
 
+/** What a `gh` call that failed comes to: unavailable when it would not start, a failed read under `command` when it refused. */
+export const failedAs =
+  (command: string) =>
+  <A, R>(
+    call: Effect.Effect<A, PlatformError.PlatformError | CommandFailed, R>
+  ): Effect.Effect<A, GhUnavailable | GhReadFailed, R> =>
+    Effect.catchTags(call, {
+      PlatformError: (error) => Effect.fail(unavailable(error)),
+      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command, detail: error.stderr }))
+    })
+
 /** Anything that can go wrong reading GitHub through `gh`. */
 export type GhError = GhUnavailable | GhReadFailed | GhUnreadable
 
@@ -108,10 +118,7 @@ export const readJson = <A>(
   schema: Schema.Codec<A, string>
 ): Effect.Effect<A, GhError, ChildProcessSpawner.ChildProcessSpawner> =>
   capture(command, args).pipe(
-    Effect.catchTags({
-      PlatformError: (error) => Effect.fail(unavailable(error)),
-      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: label, detail: error.stderr }))
-    }),
+    failedAs(label),
     Effect.flatMap((json) =>
       Schema.decodeEffect(schema)(json).pipe(
         Effect.mapError((error) => new GhUnreadable({ command: label, reason: error.message }))
@@ -441,10 +448,7 @@ export const reviewDecisionOf = (raw: string): ReviewDecision =>
  */
 export const mergePr = Effect.fnUntraced(function* (repo: string, number: number) {
   yield* capture("gh", ["pr", "merge", String(number), "--repo", repo, "--squash", "--delete-branch"]).pipe(
-    Effect.catchTags({
-      PlatformError: (error) => Effect.fail(unavailable(error)),
-      CommandFailed: (error) => Effect.fail(new GhReadFailed({ command: "pr merge", detail: error.stderr }))
-    })
+    failedAs("pr merge")
   )
 })
 
