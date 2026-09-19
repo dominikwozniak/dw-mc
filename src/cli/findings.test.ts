@@ -3,10 +3,12 @@ import { DateTime, Effect } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { write } from "#adapters/config.ts"
+import { coloured } from "#adapters/paint.ts"
 import { recording } from "#adapters/picker.ts"
 import { layerStubbed } from "#adapters/spawner.ts"
 import { storeFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
+import { lines } from "#cli/findings.ts"
 import type { Outcome } from "#domain/review.ts"
 import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
 
@@ -140,5 +142,24 @@ describe("dw-mc findings", () => {
       assert.strictEqual(error._tag, "UserError")
       assert.include(error.message, "2 repositories are registered")
     }).pipe(Effect.provide(nothingSpawned), recording(printed))
+  })
+})
+
+describe("the findings on a screen", () => {
+  it("dim the place, colour the severity by what it blocks, and leave what it says alone", () => {
+    const [first, second, third] = lines(
+      {
+        verdict: "findings",
+        findings: [
+          { file: "a.ts", line: 1, severity: "error", summary: "one" },
+          { file: "a.ts", line: 2, severity: "warning", summary: "two" },
+          { file: "a.ts", line: 3, severity: "info", summary: "three" }
+        ]
+      },
+      coloured
+    )
+    assert.strictEqual(first, `${coloured.dim("a.ts:1")} │ ${coloured.red("error")}   │ one`)
+    assert.strictEqual(second, `${coloured.dim("a.ts:2")} │ ${coloured.yellow("warning")} │ two`)
+    assert.strictEqual(third, `${coloured.dim("a.ts:3")} │ ${coloured.dim("info")}    │ three`)
   })
 })

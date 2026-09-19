@@ -4,7 +4,9 @@ import { Command, Flag } from "effect/unstable/cli"
 import { steeredSession } from "#adapters/claude.ts"
 import { prView } from "#adapters/gh.ts"
 import { standingWorktree } from "#adapters/git.ts"
+import { Paint, plain } from "#adapters/paint.ts"
 import { choose, note, width } from "#adapters/picker.ts"
+import { following, indent, print } from "#cli/block.ts"
 import { asUserError, userFacingAndSession } from "#cli/exit.ts"
 import { header, lines, whatItFound } from "#cli/findings.ts"
 import { currentRun, forPr, prArgument, reading, refuse } from "#cli/pr.ts"
@@ -29,10 +31,11 @@ const commitFlag = Flag.Boolean("commit").pipe(
  * The rows come from there rather than being built again here, so the list I
  * pick from and the list I read are the same list. A row that does not fit the
  * screen is cut: a prompt draws its own frame around the row, and a row that
- * wraps takes the whole list's alignment with it.
+ * wraps takes the whole list's alignment with it. They are plain, because a
+ * prompt counts the colour it erases as rows (ADR 0007).
  */
 const choicesOf = (found: Findings, screen: number) => {
-  const rows = lines(found)
+  const rows = lines(found, plain)
   const room = screen === 0 ? Number.POSITIVE_INFINITY : screen - 6
   return found.findings.map((finding, index) => ({
     title: truncate(rows[index] ?? finding.summary, room),
@@ -75,12 +78,13 @@ export const fix = Command.make(
   "fix",
   { pr: prArgument, commit: commitFlag, print: printFlag },
   Effect.fn("fix")(
-    function* ({ commit, pr, print }) {
+    function* ({ commit, pr, print: promptOnly }) {
       const { number, repo, settings, launcher } = yield* forPr(pr)
+      const paint = yield* Paint
 
       const run = yield* currentRun(repo, number)
       const found = yield* whatItFound(run)
-      yield* Console.log(header(run, found, settings.stamp.blocks_on))
+      yield* print([header(run, found, settings.stamp.blocks_on, paint)])
       if (found.findings.length === 0) {
         return
       }
@@ -101,16 +105,16 @@ export const fix = Command.make(
       // The prompt on its own, for the session I already have open. Nothing is
       // cut and nothing is spawned: the session this is pasted into is one I am
       // steering already, in whatever checkout I am steering it from.
-      if (print) {
+      if (promptOnly) {
         yield* Console.log(yield* promptFor({ repo, number, head: run.head, findings: chosen }, commits))
         return
       }
 
       const worktree = yield* standingWorktree(repo, number, view.headRefName, "fix")
-      yield* Console.log(
-        `  ${chosen.length} of ${found.findings.length} findings, ${commits ? "committing" : "not committing"}`
-      )
-      yield* Console.log(`  ${worktree.directory}, pushing to ${view.headRefName}`)
+      yield* print([
+        indent(`${chosen.length} of ${found.findings.length} findings, ${commits ? "committing" : "not committing"}`),
+        indent(`${paint.dim(worktree.directory)}, pushing to ${view.headRefName}`)
+      ])
 
       const ended = yield* steeredSession({
         launcher,
@@ -118,12 +122,16 @@ export const fix = Command.make(
         prompt: yield* promptFor({ repo, number, head: worktree.head, findings: chosen }, commits)
       })
 
-      yield* Console.log(ended === 0 ? "The session is over." : `The session ended with ${ended}.`)
-      yield* Console.log(
-        `${commits ? "Nothing was pushed" : "Nothing was committed or pushed"} for you; ` +
-          `the worktree stands at ${worktree.directory}.`
+      yield* print(
+        following([
+          [
+            ended === 0 ? "The session is over." : `The session ended with ${ended}.`,
+            `${commits ? "Nothing was pushed" : "Nothing was committed or pushed"} for you; ` +
+              `the worktree stands at ${paint.dim(worktree.directory)}.`,
+            `Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`
+          ]
+        ])
       )
-      yield* Console.log(`Once you have pushed, dw-mc review ${number} reviews the new head as a new run.`)
     },
     Effect.catchTag(userFacingAndSession, asUserError)
   )

@@ -1,14 +1,15 @@
-import { Console, Effect } from "effect"
+import { Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { failedRuns, rerunFailed, rollupState } from "#adapters/ci.ts"
 import { prView, viewer } from "#adapters/gh.ts"
+import { Paint } from "#adapters/paint.ts"
+import { opener, print, separated } from "#cli/block.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
 import { flakyReason } from "#domain/flaky.ts"
 import { decide, recordRerun, refusedUnclassified, rerunFor } from "#domain/rerun.ts"
-import { short } from "#domain/review.ts"
 
 /**
  * Runs a flaky CI again, once, and never a CI that is mine to fix.
@@ -64,12 +65,21 @@ export const rerun = Command.make(
       yield* recordRerun(repo, number, view.headRefOid)
       yield* Effect.forEach(unclassified.runs, (run) => rerunFailed(repo, run))
 
-      const where = `${repo}#${number}`
-      yield* Console.log(
-        `${where}  ${short(view.headRefOid)}  re-ran the failed jobs of ${count(unclassified.runs.length, "workflow run")}`
+      const paint = yield* Paint
+      yield* print(
+        separated([
+          [
+            opener(
+              paint,
+              repo,
+              number,
+              view.headRefOid,
+              `re-ran the failed jobs of ${count(unclassified.runs.length, "workflow run")}`
+            )
+          ],
+          [`It is flaky because ${flaky}.`, `This head gets no second re-run; if it fails again, the failure is yours.`]
+        ])
       )
-      yield* Console.log(`It is flaky because ${flaky}.`)
-      yield* Console.log(`This head gets no second re-run; if it fails again, the failure is yours.`)
     },
     Effect.catchTag(userFacing, asUserError)
   )

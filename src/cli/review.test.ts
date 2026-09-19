@@ -270,6 +270,7 @@ describe("dw-mc review", () => {
         "2 findings, 1 blocking",
         "  src/cli/review.ts:88 │ error │ The run is never recorded.",
         "  docs/v1-design.md:3  │ info  │ The build order is out of date.",
+        "",
         `Recorded against 284d599 in ${state}`
       ])
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
@@ -630,6 +631,24 @@ describe("dw-mc review, and a second turn that does not report", () => {
       assert.include(outcome._tag === "failed" ? outcome.detail : "", "severity")
     })
   )
+
+  it.effect("says a run reported nothing under the head it ran on, and still says where it was recorded", () => {
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* Effect.ignore(run("review", "28"))
+
+      const failed = printed.findIndex((line) => line.startsWith("  reported nothing: "))
+      assert.isAbove(failed, 0)
+      assert.include(printed[failed] ?? "", "No conversation found")
+      assert.deepStrictEqual(printed.slice(failed - 1, failed), [""])
+      assert.deepStrictEqual(printed.slice(failed + 1), ["", `Recorded against 284d599 in ${state}`])
+    }).pipe(
+      Effect.provide(machine({ spawned: [], findings: { stderr: "No conversation found\n", exitCode: 1 } })),
+      recording(printed)
+    )
+  })
 
   it.effect("keeps the report of a run whose findings failed, and still needs a review run", () => {
     const printed: Array<string> = []

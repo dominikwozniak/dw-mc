@@ -7,6 +7,7 @@ import type { Paint } from "#adapters/paint.ts"
 import { Paint as PaintService } from "#adapters/paint.ts"
 import { confirm } from "#adapters/picker.ts"
 import { discard, inventory } from "#adapters/store.ts"
+import { block, print, separated } from "#cli/block.ts"
 import { yesFlag } from "#cli/cleanup.ts"
 import { table } from "#cli/table.ts"
 import type { Standing } from "#domain/cleanup.ts"
@@ -28,24 +29,23 @@ interface Held {
   readonly detail: string
 }
 
-const block = (heading: string, rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<string> =>
-  rows.length === 0 ? [] : [heading, ...table(rows).map((line) => `  ${line}`), ""]
-
 const removes = (
   state: { readonly directory: string; readonly size: string },
   config: string | undefined,
   paint: Paint
 ): ReadonlyArray<string> =>
-  block("Removes", [
-    [paint.dim(state.directory), state.size, "every record, report, clone and worktree"],
-    ...(config === undefined ? [] : [[paint.dim(config), "", "the runner and every repository registered"]])
-  ])
+  block(
+    "Removes",
+    table([
+      [paint.dim(state.directory), state.size, "every record, report, clone and worktree"],
+      ...(config === undefined ? [] : [[paint.dim(config), "", "the runner and every repository registered"]])
+    ])
+  )
 
 const held = (holds: ReadonlyArray<Held>, paint: Paint): ReadonlyArray<string> =>
-  block(
-    "Holds work of mine",
-    holds.map((it) => [paint.dim(it.at.directory), it.detail])
-  )
+  holds.length === 0
+    ? []
+    : block("Holds work of mine", table(holds.map((it) => [paint.dim(it.at.directory), it.detail])))
 
 /**
  * Takes the tool's own footprint off this machine, which no package manager
@@ -84,21 +84,22 @@ export const uninstall = Command.make(
       )
     ).pipe(Effect.map((found_) => found_.flat()))
 
-    yield* Effect.forEach(
-      removes(
-        { directory: found.directory, size: weight(everything(found)) },
-        alsoConfig && configured ? file : undefined,
-        paint
-      ),
-      (line) => Console.log(line)
-    )
+    // The blank line closes the report, before the question or the outcome.
+    yield* print([
+      ...separated([
+        removes(
+          { directory: found.directory, size: weight(everything(found)) },
+          alsoConfig && configured ? file : undefined,
+          paint
+        ),
+        held(holds, paint)
+      ]),
+      ""
+    ])
 
-    if (holds.length > 0) {
-      yield* Effect.forEach(held(holds, paint), (line) => Console.log(line))
-      if (!force) {
-        yield* Console.log("Nothing was removed. Push that work or drop it, or run this again with --force.")
-        return
-      }
+    if (holds.length > 0 && !force) {
+      yield* Console.log("Nothing was removed. Push that work or drop it, or run this again with --force.")
+      return
     }
 
     if (!yes && !(yield* confirm("Remove it all?"))) {

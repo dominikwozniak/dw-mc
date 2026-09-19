@@ -7,6 +7,7 @@ import type { Paint } from "#adapters/paint.ts"
 import { Paint as PaintService } from "#adapters/paint.ts"
 import { confirm } from "#adapters/picker.ts"
 import { discard, inventory, tidy } from "#adapters/store.ts"
+import { block, print, separated } from "#cli/block.ts"
 import { table } from "#cli/table.ts"
 import type { Plan } from "#domain/cleanup.ts"
 import { empty, plan, weight } from "#domain/cleanup.ts"
@@ -45,12 +46,7 @@ const lines = (it: Plan, state: string, path: Path.Path, paint: Paint): Readonly
     it.kept.map((kept) => [paint.dim(inside(path, state, kept.clone.directory)), weight(kept.clone.size), kept.because])
   )
 
-  return [
-    "Takes back",
-    ...taking.map((line) => `  ${line}`),
-    "",
-    ...(staying.length === 0 ? [] : ["Stays", ...staying.map((line) => `  ${line}`), ""])
-  ]
+  return separated([block("Takes back", taking), staying.length === 0 ? [] : block("Stays", staying)])
 }
 
 /**
@@ -90,7 +86,8 @@ export const cleanup = Command.make(
       return
     }
 
-    yield* Effect.forEach(lines(it, found.directory, path, paint), (line) => Console.log(line))
+    // The blank line closes the report, before the question or the outcome.
+    yield* print([...lines(it, found.directory, path, paint), ""])
 
     if (!yes && !(yield* confirm(`Take back ${weight(it.size)}?`))) {
       yield* Console.log("Nothing was removed.")

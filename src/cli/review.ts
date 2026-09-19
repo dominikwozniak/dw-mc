@@ -1,4 +1,4 @@
-import { Console, DateTime, Effect, Exit, Option, Result, Schema } from "effect"
+import { DateTime, Effect, Exit, Option, Result, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import type { AgentFailed } from "#adapters/agent.ts"
@@ -9,7 +9,9 @@ import { withWorktree } from "#adapters/git.ts"
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { announce } from "#adapters/notify.ts"
+import { Paint } from "#adapters/paint.ts"
 import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
+import { block, following, indent, print } from "#cli/block.ts"
 import { asUserError, userFacingAndGit } from "#cli/exit.ts"
 import { lines, summary } from "#cli/findings.ts"
 import { forPr, prArgument } from "#cli/pr.ts"
@@ -190,7 +192,7 @@ const reviewOn = Effect.fn("review.reviewOn")(function* (options: {
       jsonSchema,
       onTool: (tool) => {
         doing = { tools: doing.tools + 1, subagents: doing.subagents + (tool === "Agent" ? 1 : 0) }
-        return says(saying(doing), `  · ${tool}`)
+        return says(saying(doing), indent(`· ${tool}`))
       }
     })
   )
@@ -284,17 +286,20 @@ export const review = Command.make(
       const { number, repo, settings, launcher } = yield* forPr(pr)
       const asked = yield* asking({ settings, command, prompt, effort, model, promptOnly, commandOnly })
 
+      const paint = yield* Paint
       const view = yield* prView(repo, number)
-      yield* Console.log(`${repo}#${number}  ${view.title}`)
+      yield* print([`${repo}#${number}  ${paint.dim(view.title)}`])
 
       const since = force
         ? null
         : skippedSince(yield* askedOf(repo, number, view.headRefOid), settings.review.docs_only)
       if (since !== null) {
-        yield* Console.log(
-          `  only documentation changed since ${short(since)}, so this run is skipped. ` +
-            `Pass --force to review it anyway.`
-        )
+        yield* print([
+          indent(
+            `only documentation changed since ${paint.dim(short(since))}, so this run is skipped. ` +
+              `Pass --force to review it anyway.`
+          )
+        ])
         return
       }
 
@@ -313,7 +318,7 @@ export const review = Command.make(
       yield* Effect.gen(function* () {
         const ran = yield* withWorktree(repo, number, (worktree) =>
           Effect.gen(function* () {
-            yield* Console.log(`  head ${short(worktree.head)}  ${spending(turn, asked.model)}`)
+            yield* print([indent(`head ${paint.dim(short(worktree.head))}  ${spending(turn, asked.model)}`)])
             const got = yield* Effect.result(
               reviewOn({ launcher, directory: worktree.directory, turn, model: asked.model })
             )
@@ -341,25 +346,16 @@ export const review = Command.make(
         yield* latest.set(latestKey(repo, number), { head: run.head })
         yield* reports.set(reportKey(repo, number, run.head), reportDocument(run, view.title, got.prose ?? ""))
 
-        yield* Console.log("")
         const detail = detailOf(run)
-        if (detail !== null) {
-          yield* Console.log(`  reported nothing: ${detail}`)
-        } else {
-          const found = reportedBy(run)
-          if (found !== null) {
-            if (got.prose !== null) {
-              yield* Console.log(got.prose)
-              yield* Console.log("")
-            }
-            yield* Console.log(summary(found, settings.stamp.blocks_on))
-            for (const line of lines(found)) {
-              yield* Console.log(`  ${line}`)
-            }
-          }
-        }
-
-        yield* Console.log(`Recorded against ${short(ran.head)} in ${yield* stateDirectory}`)
+        const found = detail === null ? reportedBy(run) : null
+        yield* print(
+          following([
+            detail === null ? [] : [indent(`reported nothing: ${detail}`)],
+            found === null || got.prose === null ? [] : [got.prose],
+            found === null ? [] : block(summary(found, settings.stamp.blocks_on), lines(found, paint)),
+            [`Recorded against ${paint.dim(short(ran.head))} in ${paint.dim(yield* stateDirectory)}`]
+          ])
+        )
         yield* unreported(run, number)
       }).pipe(
         Effect.onExit((exit) =>
