@@ -170,7 +170,8 @@ describe("what the root help screen says about this machine", () => {
   const three = "repos:\n  a/one: {}\n  a/two: {}\n  a/three: {}\n"
 
   /** The header's lines that name this machine's setup, by their label. */
-  const setup = (lines: ReadonlyArray<string>) => above(lines).filter((line) => /^(config|state) /.test(line))
+  const naming = /^(config|state) /
+  const setup = (lines: ReadonlyArray<string>) => above(lines).filter((line) => naming.test(line))
 
   it.effect("names the configuration, what it registers, and the state directory under the logo", () =>
     Effect.gen(function* () {
@@ -238,7 +239,7 @@ describe("what the root help screen says about this machine", () => {
         const lines = yield* screen(argv, { config: three })
 
         assert.isFalse(
-          lines.some((line) => /^(config|state) /.test(line)),
+          lines.some((line) => naming.test(line)),
           `dw-mc ${argv.join(" ")} names nothing of this machine`
         )
       }

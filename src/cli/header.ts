@@ -64,15 +64,15 @@ const standing = read.pipe(
       }
     })
   ),
-  Effect.orElseSucceed(() => "cannot be read - any other command says why")
+  Effect.catchTag("ConfigMalformed", () => Effect.succeed("cannot be read - any other command says why"))
 )
 
 /**
  * The two lines naming this machine's setup, with the labels `dw-mc init`
  * prints. The paths are dimmed as context, and nothing is coloured by state.
  */
-const described = (setup: Setup, said: string, paint: Paint): ReadonlyArray<string> => [
-  `config  ${paint.dim(setup.config)}   ${said}`,
+const described = (setup: Setup, registered: string, paint: Paint): ReadonlyArray<string> => [
+  `config  ${paint.dim(setup.config)}   ${registered}`,
   `state   ${paint.dim(setup.state)}`
 ]
 
@@ -84,13 +84,13 @@ const described = (setup: Setup, said: string, paint: Paint): ReadonlyArray<stri
  * The root command is the one whose help document lists subcommands, which is
  * what keeps the header off `dw-mc status --help`.
  */
-const formatter = (colors: boolean, machine: ReadonlyArray<string>): CliOutput.Formatter => {
+const formatter = (colors: boolean, setupLines: ReadonlyArray<string>): CliOutput.Formatter => {
   const inner = CliOutput.defaultFormatter({ colors })
   const drawn = header(colors)
-  const introduced = machine.length === 0 ? drawn : `${drawn}\n\n${machine.join("\n")}`
+  const withSetup = setupLines.length === 0 ? drawn : `${drawn}\n\n${setupLines.join("\n")}`
   return {
     formatHelpDoc: (doc: HelpDoc.HelpDoc) =>
-      doc.subcommands === undefined ? inner.formatHelpDoc(doc) : `${introduced}\n\n${inner.formatHelpDoc(doc)}`,
+      doc.subcommands === undefined ? inner.formatHelpDoc(doc) : `${withSetup}\n\n${inner.formatHelpDoc(doc)}`,
     formatVersion: (name: string, printed: string) => `${drawn}\n\n${inner.formatVersion(name, printed)}`,
     formatCliError: inner.formatCliError,
     formatError: inner.formatError,
@@ -107,7 +107,8 @@ const formatter = (colors: boolean, machine: ReadonlyArray<string>): CliOutput.F
  *
  * The paths are worked out as the layer is built, from the environment alone.
  * The configuration file is read only once `--help` is asked for, because no
- * other run of the tool prints what it says here.
+ * other run of the tool prints what it says here. A store that fails outright
+ * leaves the lines off rather than the help screen.
  */
 export const layer: Layer.Layer<never, Config.ConfigError, Stdio.Stdio | ConfigStore | Path.Path> = Layer.unwrap(
   Effect.gen(function* () {
@@ -116,25 +117,24 @@ export const layer: Layer.Layer<never, Config.ConfigError, Stdio.Stdio | ConfigS
     const home = Option.getOrUndefined(yield* Config.String("HOME").pipe(Config.option))
     const setup: Setup = { config: tilde(config.path, home), state: tilde(yield* stateDirectory, home) }
 
-    const machine = Effect.map(Effect.provideService(standing, ConfigStore, config), (said) =>
-      described(setup, said, paintFor(colors))
+    const setupLines = Effect.provideService(standing, ConfigStore, config).pipe(
+      Effect.map((said) => described(setup, said, paintFor(colors))),
+      Effect.orElseSucceed((): ReadonlyArray<string> => [])
     )
+    const introducing = (builtIn: GlobalFlag.Action<boolean>, lines: Effect.Effect<ReadonlyArray<string>>) =>
+      GlobalFlag.Action({
+        flag: builtIn.flag,
+        run: (value, context) =>
+          Effect.flatMap(lines, (it) =>
+            Effect.provideService(builtIn.run(value, context), CliOutput.Formatter, formatter(colors, it))
+          )
+      })
     return CliConfig.layer({
       builtIns: CliConfig.defaults.builtIns.map((builtIn) =>
         builtIn === GlobalFlag.Help
-          ? GlobalFlag.Action({
-              flag: builtIn.flag,
-              run: (value, context) =>
-                Effect.flatMap(machine, (lines) =>
-                  Effect.provideService(builtIn.run(value, context), CliOutput.Formatter, formatter(colors, lines))
-                )
-            })
+          ? introducing(GlobalFlag.Help, setupLines)
           : builtIn === GlobalFlag.Version
-            ? GlobalFlag.Action({
-                flag: builtIn.flag,
-                run: (value, context) =>
-                  Effect.provideService(builtIn.run(value, context), CliOutput.Formatter, formatter(colors, []))
-              })
+            ? introducing(GlobalFlag.Version, Effect.succeed([]))
             : builtIn
       )
     })
