@@ -1,5 +1,15 @@
 # dw-mc
 
+## 0.8.0
+
+### Minor Changes
+
+- 568c164: `dw-mc status --json` prints the same pass as one JSON document, for `jq` or an agent session: every tracked PR with its bucket, reason, stamp, what moved and every fact, then the repositories the pass covered, how many it left out and what it could not read. It honours `--repo` and `--all`, and it leaves the mark of what you last looked at where it was. `dw-mc --help` names your configuration file, how many repositories it registers and the state directory under the logo.
+
+### Patch Changes
+
+- 454b8b0: Every command that reports, rather than draws a table, lays its page out the same way: a heading, its lines indented under it, and a blank line before the next one. In a terminal, SHAs, paths, worktrees and titles print dim. A finding's severity takes its colour: error red, warning yellow, info dim. A command meant for you to retype, such as `dw-mc resolve 28` or `git push`, prints cyan. Headings and prose are never coloured, so `dw-mc comments` no longer prints its headings bold. What each command says is unchanged. Through a pipe or under `NO_COLOR` the text is the same as before, apart from a few blank lines.
+
 ## 0.7.0
 
 ### Minor Changes
