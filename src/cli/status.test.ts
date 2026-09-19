@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Effect, Option } from "effect"
+import { DateTime, Effect, Option, Schema } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { write } from "#adapters/config.ts"
@@ -9,6 +9,7 @@ import { recording } from "#adapters/picker.ts"
 import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 import { allKeys, storeFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
+import { StatusJson } from "#cli/status.ts"
 import { acknowledge } from "#domain/acknowledgement.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Finding } from "#domain/findings.ts"
@@ -1279,5 +1280,164 @@ describe("what moved since I last looked", () => {
 
       assert.strictEqual(printed[1], `+ ◐ ${repo}#1 │ feat: swept │ no review run on this head`)
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+})
+
+describe("dw-mc status --json", () => {
+  const repo = "dominikwozniak/dw-mc"
+  const decoded = (printed: ReadonlyArray<string>) => {
+    assert.strictEqual(printed.length, 1, "the document is the one thing printed")
+    return Schema.decodeEffect(Schema.fromJsonString(StatusJson))(printed[0] ?? "")
+  }
+
+  it.effect("prints the pass as one document, in the order the table prints it", () => {
+    const printed: Array<string> = []
+    const spawner = github({
+      repos: {
+        [repo]: [
+          { number: 1, title: "feat: ready to merge", reviewDecision: "APPROVED" },
+          { number: 2, title: "feat: conflicted", mergeable: "CONFLICTING" }
+        ]
+      }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status", "--json")
+
+      const document = yield* decoded(printed)
+      assert.deepStrictEqual(document.repos, [repo])
+      assert.strictEqual(document.leftOut, 0)
+      assert.deepStrictEqual(document.troubles, [])
+      assert.deepStrictEqual(
+        document.prs.map((pr) => [pr.number, pr.bucket, pr.reason, pr.stamped, pr.since]),
+        [
+          [2, "needs-me", "merge conflict", false, { _tag: "new" }],
+          [1, "needs-review-run", "no review run on this head", false, { _tag: "new" }]
+        ]
+      )
+      // Every fact sits on the row itself, where jq reaches it without unwrapping.
+      assert.strictEqual(document.prs[0]?.mergeable, "conflicting")
+      assert.strictEqual(document.prs[0]?.url, `https://github.com/${repo}/pull/2`)
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("says what moved since I last looked, with the bucket a row left", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, title: "feat: went red" }]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      prs[0] = { number: 1, title: "feat: went red", rollup: [check("Check", "FAILURE")], log: "expected 3 to be 4" }
+      printed.length = 0
+      yield* run("status", "--json")
+
+      const document = yield* decoded(printed)
+      assert.deepStrictEqual(document.prs[0]?.since, {
+        _tag: "moved",
+        from: "needs-review-run",
+        what: ["CI green → red"]
+      })
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("leaves the watermark where it was, so the next table still marks what moved", () => {
+    const printed: Array<string> = []
+    const prs: Array<Fixture> = [{ number: 1, title: "feat: conflicted later" }]
+    const spawner = github({ repos: { [repo]: prs } })
+
+    return Effect.gen(function* () {
+      yield* registered(repo)
+      yield* run("status")
+
+      prs[0] = { number: 1, title: "feat: conflicted later", mergeable: "CONFLICTING" }
+      yield* run("status", "--json")
+      yield* run("status", "--json")
+      printed.length = 0
+      yield* run("status")
+
+      assert.deepStrictEqual(printed, [
+        "Needs me",
+        `  ↳ ${repo}#1 from Needs review run: mergeable → conflicting`,
+        `* ● ${repo}#1 │ feat: conflicted later │ merge conflict`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
+  })
+
+  it.effect("carries what the sweep could not read and what a narrowed pass left out, and nothing else", () => {
+    const printed: Array<string> = []
+    const drawn: Array<string> = []
+    const spawner = github({
+      here: repo,
+      repos: {
+        [repo]: [
+          { number: 1, title: "feat: fine" },
+          { number: 2, refuses: "GraphQL: Something went wrong" }
+        ],
+        "byarcadia-app/grateful-me-app-v2": [{ number: 105 }]
+      }
+    })
+
+    return Effect.gen(function* () {
+      yield* registered(repo, "byarcadia-app/grateful-me-app-v2")
+      yield* run("status", "--json")
+
+      const document = yield* decoded(printed)
+      assert.deepStrictEqual(document.repos, [repo])
+      assert.strictEqual(document.leftOut, 1)
+      assert.deepStrictEqual(document.troubles, [
+        { where: `${repo}#2`, detail: "gh pr view failed: GraphQL: Something went wrong" }
+      ])
+      // A terminal is watching, and still no heartbeat is drawn over the document.
+      assert.deepStrictEqual(drawn, [])
+    }).pipe(Effect.provide(machine(spawner, drawn)), recording(printed))
+  })
+
+  it.effect("narrows to the repository --repo names and widens to every one with --all", () => {
+    const printed: Array<string> = []
+    const two = {
+      [repo]: [{ number: 1, title: "feat: here" }],
+      "byarcadia-app/grateful-me-app-v2": [{ number: 105, title: "feat: elsewhere" }]
+    }
+    const spawner = github({ here: repo, repos: two })
+
+    return Effect.gen(function* () {
+      yield* registered(repo, "byarcadia-app/grateful-me-app-v2")
+
+      yield* run("status", "--json", "--repo", "byarcadia-app/grateful-me-app-v2")
+      const narrowed = yield* decoded(printed)
+      assert.deepStrictEqual(narrowed.repos, ["byarcadia-app/grateful-me-app-v2"])
+      assert.deepStrictEqual(
+        narrowed.prs.map((pr) => pr.number),
+        [105]
+      )
+
+      printed.length = 0
+      yield* run("status", "--json", "--all")
+      const widened = yield* decoded(printed)
+      assert.deepStrictEqual(widened.repos, ["byarcadia-app/grateful-me-app-v2", repo])
+      assert.strictEqual(widened.leftOut, 0)
+      assert.deepStrictEqual(
+        widened.prs.map((pr) => pr.number),
+        [105, 1]
+      )
+    }).pipe(Effect.provide(machine(spawner, undefined, 0)), recording(printed))
+  })
+
+  it.effect("prints the same shape, empty, before a repository is registered", () => {
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* run("status", "--json")
+
+      const document = yield* decoded(printed)
+      assert.deepStrictEqual(
+        { repos: document.repos, leftOut: document.leftOut, prs: document.prs, troubles: document.troubles },
+        { repos: [], leftOut: 0, prs: [], troubles: [] }
+      )
+    }).pipe(Effect.provide(machine(github({ repos: {} }))), recording(printed))
   })
 })
