@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">dw-mc mark</title>
+  <desc id="desc">Four pull request signals routed through a local command line.</desc>
+  <defs>
+    <linearGradient id="surface" x1="24" y1="16" x2="136" y2="144" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#102A3A"/>
+      <stop offset="1" stop-color="#06141E"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="44" y1="46" x2="118" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#2DD4BF"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="144" height="144" rx="36" fill="url(#surface)" stroke="#164E63" stroke-width="2"/>
+  <path d="M42 44H62M98 44H118M42 116H62M98 116H118M44 44V116M116 44V116" stroke="#155E75" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="42" cy="44" r="7" fill="#FB7185"/>
+  <path d="M116 37a7 7 0 0 1 0 14V37Z" fill="#2DD4BF"/>
+  <path d="M116 37a7 7 0 0 0 0 14" fill="none" stroke="#99F6E4" stroke-width="2"/>
+  <circle cx="42" cy="116" r="7" fill="none" stroke="#FBBF24" stroke-width="3"/>
+  <path d="m116 108 8 8-8 8-8-8 8-8Z" fill="#2DD4BF"/>
+  <rect x="48" y="48" width="64" height="64" rx="16" fill="#071923" stroke="#22D3EE" stroke-width="2" filter="url(#glow)"/>
+  <path d="m65 68 12 12-12 12M83 94h14" fill="none" stroke="url(#signal)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
