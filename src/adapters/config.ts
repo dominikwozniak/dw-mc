@@ -362,6 +362,17 @@ export const read = Effect.gen(function* () {
   )
 }).pipe(Effect.withSpan("config.read"))
 
+/**
+ * The configuration file, or an empty one when this machine has none yet.
+ *
+ * Only a missing file comes back empty: one that is there and is wrong fails
+ * exactly as `read` fails.
+ */
+export const readOrEmpty = read.pipe(Effect.map(Option.getOrElse((): ConfigFile => ({}))))
+
+/** The repositories `file` registers, sorted so every command lists them in one order. */
+export const registeredIn = (file: ConfigFile): ReadonlyArray<string> => Object.keys(file.repos ?? {}).toSorted()
+
 const mapping = (entries: ReadonlyArray<readonly [string, Value | undefined]>): { readonly [key: string]: Value } => {
   const out: Record<string, Value> = {}
   for (const [key, value] of entries) {

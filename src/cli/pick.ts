@@ -1,8 +1,7 @@
 import { Console, Effect, Option } from "effect"
 import type { Prompt } from "effect/unstable/cli"
 
-import type { ConfigFile } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import { readOrEmpty, settingsFor } from "#adapters/config.ts"
 import { Paint, ink, plain } from "#adapters/paint.ts"
 import { confirm, pick, width } from "#adapters/picker.ts"
 import { prKey } from "#adapters/store.ts"
@@ -122,7 +121,7 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
       }
 
       const stamped = yield* stampedAmong(report.facts)
-      const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
+      const file = yield* readOrEmpty
       const standings = yield* Effect.forEach(
         group(report.facts).flatMap((grouped) => grouped.placed),
         Effect.fnUntraced(function* (placed) {

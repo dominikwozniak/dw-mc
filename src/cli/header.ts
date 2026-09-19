@@ -3,7 +3,7 @@ import { Config, Effect, Layer, Option } from "effect"
 import type { HelpDoc } from "effect/unstable/cli"
 import { CliConfig, CliOutput, GlobalFlag } from "effect/unstable/cli"
 
-import { ConfigStore, read } from "#adapters/config.ts"
+import { ConfigStore, read, registeredIn } from "#adapters/config.ts"
 import type { Paint } from "#adapters/paint.ts"
 import { paintFor, screened } from "#adapters/paint.ts"
 import { stateDirectory } from "#adapters/store.ts"
@@ -59,7 +59,7 @@ const registration = read.pipe(
     Option.match({
       onNone: () => "not set up - run dw-mc init",
       onSome: (file) => {
-        const n = Object.keys(file.repos ?? {}).length
+        const n = registeredIn(file).length
         return n === 1 ? "1 repository registered" : `${n} repositories registered`
       }
     })

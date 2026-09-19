@@ -4,8 +4,8 @@ import { CliError, Command, Flag } from "effect/unstable/cli"
 import type { KeyValueStore } from "effect/unstable/persistence"
 
 import { rollupState } from "#adapters/ci.ts"
-import type { ConfigFile, Settings } from "#adapters/config.ts"
-import { read as readConfig, settingsFor } from "#adapters/config.ts"
+import type { Settings } from "#adapters/config.ts"
+import { readOrEmpty, registeredIn, settingsFor } from "#adapters/config.ts"
 import type { Comment, Found } from "#adapters/gh.ts"
 import {
   mergeabilityOf,
@@ -208,8 +208,8 @@ const saying =
  * not a sentence.
  */
 export const sweep = Effect.fn("sweep")(function* (asked: Asked, report: (swept: Swept) => Effect.Effect<void>) {
-  const file: ConfigFile = Option.getOrElse(yield* readConfig, (): ConfigFile => ({}))
-  const registered = Object.keys(file.repos ?? {}).toSorted()
+  const file = yield* readOrEmpty
+  const registered = registeredIn(file)
   const coverage = covered(asked, asksWhereIAm(asked, registered) ? yield* whereIAm : undefined, registered)
   if (coverage._tag === "refused") {
     return yield* new CliError.UserError({ cause: coverage.why })
