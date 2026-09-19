@@ -78,6 +78,20 @@ export class Keys extends Context.Service<
 >()("dw-mc/store/Keys") {}
 
 /**
+ * The key a file in the state directory was written under, and none for a
+ * file no key could have been written as: the file store names every file it
+ * writes by percent-encoding its key, so a name that does not decode is
+ * something else put there.
+ */
+const keyOf = (entry: string): ReadonlyArray<string> => {
+  try {
+    return [decodeURIComponent(entry)]
+  } catch {
+    return []
+  }
+}
+
+/**
  * The keys a file store over `directory` holds: one file each, named by the
  * percent-encoded key.
  *
@@ -92,9 +106,7 @@ const keysOnDisk = (directory: string) =>
       const directories = new Set<string>([clonesIn, ...cuts])
       return {
         all: fs.readDirectory(directory).pipe(
-          Effect.map((entries) =>
-            entries.filter((entry) => !directories.has(entry)).map((entry) => decodeURIComponent(entry))
-          ),
+          Effect.map((entries) => entries.filter((entry) => !directories.has(entry)).flatMap(keyOf)),
           Effect.mapError(
             (cause) =>
               new KeyValueStore.KeyValueStoreError({ method: "keys", message: "Unable to list the keys", cause })
@@ -103,6 +115,13 @@ const keysOnDisk = (directory: string) =>
       }
     })
   )
+
+/** Every key the state directory holds. */
+export const allKeys: Effect.Effect<ReadonlyArray<string>, KeyValueStore.KeyValueStoreError, Keys> = Effect.gen(
+  function* () {
+    return yield* (yield* Keys).all
+  }
+)
 
 /** The state directory on disk. */
 export const layer = Layer.unwrap(

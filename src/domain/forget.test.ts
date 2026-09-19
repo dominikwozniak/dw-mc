@@ -60,7 +60,7 @@ describe("forget", () => {
 
       assert.strictEqual(yield* forget(repo, 28), mine.length)
 
-      assert.deepStrictEqual((yield* (yield* Store.Keys).all).toSorted(), beside.toSorted())
+      assert.deepStrictEqual((yield* Store.allKeys).toSorted(), beside.toSorted())
     }).pipe(Effect.provide(Store.layerTest))
   )
 

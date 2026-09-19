@@ -71,7 +71,15 @@ export const merge = Command.make(
 
       // The one moment the tool knows a pull request is finished rather than
       // guessing it, so the records go here and nowhere else automatic.
-      yield* forgetting(repo, number, view.headRefName)
+      // The merge has happened by now, so a forget that fails says so beside it
+      // rather than turning a landed pull request into a failed command.
+      yield* forgetting(repo, number, { deleted: view.headRefName }).pipe(
+        Effect.catch((error) =>
+          Console.log(
+            `\nCould not forget ${repo}#${number}: ${error.message}. Run dw-mc forget ${number} to try again.`
+          )
+        )
+      )
     },
     Effect.catchTag(userFacing, asUserError)
   )

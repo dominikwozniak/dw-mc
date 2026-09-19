@@ -1,13 +1,14 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Effect, FileSystem, Layer, Path } from "effect"
+import { KeyValueStore } from "effect/unstable/persistence"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { write } from "#adapters/config.ts"
 import { prViewOf } from "#adapters/gh.ts"
 import { recording } from "#adapters/picker.ts"
 import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
-import { Keys, prKey, storeFor, textStoreFor } from "#adapters/store.ts"
+import { allKeys, Keys, prKey, storeFor, textStoreFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Finding } from "#domain/findings.ts"
@@ -36,9 +37,23 @@ const machine = (options: {
   readonly drawn?: Array<string> | undefined
   /** Where a test needs the real disk, the temporary home it stands in. */
   readonly home?: string | undefined
+  /** A state directory that cannot list its keys, where a test needs one. */
+  readonly unlisted?: boolean | undefined
 }) =>
   machineOf({
     drawn: options.drawn,
+    ...(options.unlisted === true
+      ? {
+          state: Layer.merge(
+            KeyValueStore.layerMemory,
+            Layer.succeed(Keys, {
+              all: Effect.fail(
+                new KeyValueStore.KeyValueStoreError({ method: "keys", message: "Unable to list the keys" })
+              )
+            })
+          )
+        }
+      : {}),
     ...(options.home === undefined
       ? {}
       : {
@@ -125,7 +140,7 @@ const swept = (over: Partial<Facts>) =>
 
 /** Every key the state directory holds. */
 const held = Effect.gen(function* () {
-  return (yield* (yield* Keys).all).toSorted()
+  return (yield* allKeys).toSorted()
 })
 
 const merges = (spawned: ReadonlyArray<string>) => spawned.filter((vector) => vector.startsWith("gh pr merge"))
@@ -184,6 +199,24 @@ describe("dw-mc merge", () => {
       assert.deepStrictEqual(yield* held, [`stamps/${prKey(repo, 29)}`])
       assert.include(printed.join("\n"), `Forgot ${repo}#28: 7 records.`)
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
+  })
+
+  it.effect("says the merge happened when forgetting it afterwards fails", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered
+      yield* reviewed(head)
+
+      yield* run("merge", "28")
+
+      assert.strictEqual(merges(spawned).length, 1)
+      const said = printed.join("\n")
+      assert.include(said, "squash-merged into main")
+      assert.include(said, "Unable to list the keys")
+      assert.include(said, "dw-mc forget 28")
+    }).pipe(Effect.provide(machine({ spawned, unlisted: true })), recording(printed))
   })
 
   it.effect("leaves a session standing on the branch it deleted, and says so", () => {

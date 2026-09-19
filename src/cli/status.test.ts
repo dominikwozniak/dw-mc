@@ -7,7 +7,7 @@ import { prViewOf, viewFields } from "#adapters/gh.ts"
 import { coloured, Paint } from "#adapters/paint.ts"
 import { recording } from "#adapters/picker.ts"
 import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
-import { Keys, storeFor } from "#adapters/store.ts"
+import { allKeys, storeFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
 import { acknowledge } from "#domain/acknowledgement.ts"
 import { Facts } from "#domain/bucket.ts"
@@ -685,7 +685,7 @@ describe("dw-mc sweep", () => {
 
 describe("a sweep that no longer finds a pull request", () => {
   const held = Effect.gen(function* () {
-    return (yield* (yield* Keys).all).toSorted()
+    return (yield* allKeys).toSorted()
   })
 
   for (const [what, prs] of [

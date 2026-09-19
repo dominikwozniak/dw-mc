@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
 import type { Inventory } from "#adapters/store.ts"
-import { Keys, prKey } from "#adapters/store.ts"
+import { allKeys, prKey } from "#adapters/store.ts"
 import type { Standing } from "#domain/cleanup.ts"
 import { standing } from "#domain/cleanup.ts"
 
@@ -33,7 +33,7 @@ export const isAbout = (key: string, repo: string, number: number): boolean => {
  */
 export const forget = Effect.fn("forget.forget")(function* (repo: string, number: number) {
   const store = yield* KeyValueStore.KeyValueStore
-  const about = (yield* (yield* Keys).all).filter((key) => isAbout(key, repo, number))
+  const about = (yield* allKeys).filter((key) => isAbout(key, repo, number))
   yield* Effect.forEach(about, (key) => store.remove(key), { discard: true })
   return about.length
 })

@@ -4,9 +4,9 @@ import { ByteSize, ConfigProvider, Effect, FileSystem, Layer, Option, Path, Sche
 import { KeyValueStore } from "effect/unstable/persistence"
 
 import {
+  allKeys,
   discard,
   inventory,
-  Keys,
   layer,
   layerTest,
   sessionOf,
@@ -98,10 +98,27 @@ describe("store", () => {
         yield* write(new ReviewRun({ pr: 7, head: "cafe1234", verdict: "clean" }))
         const reports = yield* textStoreFor("review-run")
         yield* reports.set("dw/one#7@cafe1234.md", "# Clean\n")
-        return yield* (yield* Keys).all
+        return yield* allKeys
       }).pipe(onDisk(home))
 
       assert.deepStrictEqual(listed.toSorted(), ["review-run/7", "review-run/dw/one#7@cafe1234.md"])
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
+
+  it.effect("a file no key could have been written as is not listed, rather than failing the list", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const home = yield* fs.makeTempDirectoryScoped()
+      yield* fs.makeDirectory(path.join(home, "dw-mc"), { recursive: true })
+      yield* fs.writeFileString(path.join(home, "dw-mc", "notes%zz"), "mine\n")
+
+      const listed = yield* Effect.gen(function* () {
+        yield* write(new ReviewRun({ pr: 7, head: "cafe1234", verdict: "clean" }))
+        return yield* allKeys
+      }).pipe(onDisk(home))
+
+      assert.deepStrictEqual(listed, ["review-run/7"])
     }).pipe(Effect.provide(NodeServices.layer))
   )
 
@@ -112,7 +129,7 @@ describe("store", () => {
       yield* raw.set("stamps/dw/one#7", "{}")
       yield* raw.remove("runs/dw/one#7")
 
-      assert.deepStrictEqual(yield* (yield* Keys).all, ["stamps/dw/one#7"])
+      assert.deepStrictEqual(yield* allKeys, ["stamps/dw/one#7"])
     }).pipe(Effect.provide(layerTest))
   )
 

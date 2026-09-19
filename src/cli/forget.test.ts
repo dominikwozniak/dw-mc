@@ -46,7 +46,7 @@ const keep = Effect.fnUntraced(function* (keys: ReadonlyArray<string>) {
 })
 
 const held = Effect.gen(function* () {
-  return (yield* (yield* Store.Keys).all).toSorted()
+  return (yield* Store.allKeys).toSorted()
 })
 
 describe("dw-mc forget", () => {

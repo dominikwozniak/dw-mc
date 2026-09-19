@@ -5,6 +5,7 @@ import { Paint } from "#adapters/paint.ts"
 import { inventory, sessionBranch } from "#adapters/store.ts"
 import { forPr, prArgument } from "#cli/pr.ts"
 import { count, table } from "#cli/table.ts"
+import { sessionName } from "#domain/cleanup.ts"
 import { forget, standingOn } from "#domain/forget.ts"
 
 /**
@@ -15,7 +16,12 @@ import { forget, standingOn } from "#domain/forget.ts"
  * deleted it. A session there tracks a branch that is gone, which is worth
  * saying, and what it holds is still mine, so saying it is all this does.
  */
-export const forgetting = Effect.fn("forgetting")(function* (repo: string, number: number, deleted?: string) {
+export const forgetting = Effect.fn("forgetting")(function* (
+  repo: string,
+  number: number,
+  options: { readonly deleted?: string | undefined } = {}
+) {
+  const deleted = options.deleted
   const path = yield* Path.Path
   const paint = yield* Paint
   const where = `${repo}#${number}`
@@ -32,7 +38,7 @@ export const forgetting = Effect.fn("forgetting")(function* (repo: string, numbe
   const rows = table(
     sessions.map((it) => [
       paint.dim(path.relative(found.directory, it.directory)),
-      `a ${it.session === "fix" ? "fix" : "resolve"} session's worktree, on ${sessionBranch(it.session, number)}` +
+      `a ${sessionName(it.session)} session's worktree, on ${sessionBranch(it.session, number)}` +
         (deleted === undefined ? "" : `, which tracked ${deleted} - deleted with the merge`)
     ])
   )
