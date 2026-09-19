@@ -5,7 +5,7 @@ import { Paint } from "#adapters/paint.ts"
 import { prKey } from "#adapters/store.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { cells, heading, reference, rule, titleWidth } from "#cli/row.ts"
-import { allFlag, askedOf, printLeftOut, printTroubles, repoFlag, sweep, sweeping } from "#cli/sweep.ts"
+import { allFlag, askedOf, noneRegistered, printLeftOut, printTroubles, repoFlag, sweep, sweeping } from "#cli/sweep.ts"
 import { table } from "#cli/table.ts"
 import type { Grouped, Placed } from "#domain/bucket.ts"
 import { Bucket, Facts, group } from "#domain/bucket.ts"
@@ -65,7 +65,7 @@ const sinceJson = (since: Since): typeof SinceJson.Type =>
  * is read and never written: a machine reading the pass is not me looking, so
  * the watermark stays where the last table left it.
  */
-const printJson = Effect.fn("status.json")(function* (asked: Asked) {
+const printJson = Effect.fn("status.printJson")(function* (asked: Asked) {
   const report = yield* sweep(asked, () => Effect.void)
   const sweptAt = yield* DateTime.now
   const placed = group(report.facts).flatMap((it) => it.placed)
@@ -161,7 +161,7 @@ export const status = Command.make(
       const report = yield* sweeping(askedOf(flags))
 
       if (report.repos.length === 0) {
-        yield* Console.log("No repositories registered. Run dw-mc init inside a repository to register it.")
+        yield* Console.log(noneRegistered)
         return
       }
 

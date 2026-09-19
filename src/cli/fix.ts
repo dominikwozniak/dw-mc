@@ -15,7 +15,7 @@ import type { Finding, Findings } from "#domain/findings.ts"
 import type { Chosen } from "#domain/fix.ts"
 import { promptFor, staleAt } from "#domain/fix.ts"
 
-const printFlag = Flag.Boolean("print").pipe(
+export const printFlag = Flag.Boolean("print").pipe(
   Flag.withDefault(false),
   Flag.withDescription("Print the prompt a session would open on, and open none")
 )

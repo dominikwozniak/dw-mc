@@ -76,7 +76,7 @@ const byHumansOtherThan = (comments: ReadonlyArray<Comment>, login: string): Rea
  * message in full, and on a PR that is where the last sweep left it that whole
  * read buys a timestamp the state directory already has.
  */
-const sweepPr = Effect.fn("sweep.pullRequest")(function* (store: Store, me: string, found: Found, settings: Settings) {
+const sweepPr = Effect.fn("sweep.sweepPr")(function* (store: Store, me: string, found: Found, settings: Settings) {
   const view = yield* prView(found.repo, found.number)
   const [onThePr, inReviews] = yield* Effect.all(
     [prComments(found.repo, found.number), prReviews(found.repo, found.number)],
@@ -297,6 +297,9 @@ export const askedOf = (flags: { readonly repo: Option.Option<string>; readonly 
   all: flags.all
 })
 
+/** What a command that sweeps says when there is no registered repository to cover. */
+export const noneRegistered = "No repositories registered. Run dw-mc init inside a repository to register it."
+
 /**
  * The word a narrowed report owes me about what it left out, so a table of one
  * repository is not read as the whole picture.
@@ -343,7 +346,7 @@ export const sweepCommand = Command.make(
       const report = yield* sweeping(askedOf(flags))
       yield* Console.log(
         report.repos.length === 0
-          ? "No repositories registered. Run dw-mc init inside a repository to register it."
+          ? noneRegistered
           : `Swept ${count(report.facts.length, "pull request")} across ${repositories(report.repos.length)}`
       )
       yield* printLeftOut(report)
