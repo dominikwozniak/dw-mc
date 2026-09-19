@@ -42,6 +42,8 @@ Ready
   ◆ dominikwozniak/dw-mc#62 ✓ │ feat(comments): read a pull request's threads       │ approved, green, mergeable
 ```
 
+`+` marks a new pull request, `*` one that moved, and `✓` one you stamped. The full legend is in [`docs/cli.md`](./docs/cli.md#dw-mc-status).
+
 ## Install
 
 ```sh
@@ -71,7 +73,7 @@ dw-mc review 62 # review a pull request directly
 
 `dw-mc init` is noninteractive. On its first run it creates the default configuration, then registers the repository you are in. Review behaviour is controlled by `review.command` and `review.prompt`.
 
-Commands accept a pull request as `62` inside its repository or as `owner/name#62` from anywhere.
+Commands accept a pull request as `owner/name#62`, or as `62` while only one repository is registered.
 
 ## Commands
 
@@ -79,7 +81,7 @@ Commands accept a pull request as `62` inside its repository or as `owner/name#6
 | --------------------- | -------------------------------------------------------------------------------------- |
 | `dw-mc`               | Opens the picker with every tracked PR and its available actions.                      |
 | `dw-mc init`          | Sets up this machine and registers the current repository.                             |
-| `dw-mc sweep`         | Reads GitHub and updates the local record for every tracked PR.                        |
+| `dw-mc sweep`         | Reads GitHub and updates the local record for the tracked PRs in the pass.             |
 | `dw-mc status`        | Shows each tracked PR's bucket, stamp and changes since it was last shown.             |
 | `dw-mc comments <pr>` | Prints the conversation or records your acknowledgement.                               |
 | `dw-mc review <pr>`   | Reviews a pull request with Claude Code in a throwaway worktree.                       |
@@ -94,7 +96,7 @@ Commands accept a pull request as `62` inside its repository or as `owner/name#6
 | `dw-mc cleanup`       | Removes clones and completed review worktrees while keeping configuration and records. |
 | `dw-mc uninstall`     | Removes the state written by `dw-mc` and explains how to remove the binary.            |
 
-Run `dw-mc <command> --help` for command options.
+A pass covers the registered repository you stand in, or every registered repository from anywhere else; `--repo` and `--all` change that. Every flag is in [`docs/cli.md`](./docs/cli.md), and `dw-mc <command> --help` prints the same list.
 
 ## How it works
 
@@ -118,7 +120,7 @@ Every other word this tool uses is defined in [`CONTEXT.md`](./CONTEXT.md), and 
 - Configuration: `$XDG_CONFIG_HOME/dw-mc/config.yaml`, or `~/.config/dw-mc/config.yaml`
 - State, including the worktrees: `$XDG_STATE_HOME/dw-mc`, or `~/.local/state/dw-mc`
 
-`dw-mc init` writes the configuration file. Every key is optional, and entries under `repos` override `defaults` using the same shape.
+`dw-mc init` writes the configuration file. Every key is optional, and entries under `repos` override `defaults` using the same shape. Every key, its values and what it changes are in [`docs/configuration.md`](./docs/configuration.md).
 
 ```yaml
 launcher:
