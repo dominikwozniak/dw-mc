@@ -79,7 +79,7 @@ Add a changeset when the change is worth releasing:
 pnpm changeset
 ```
 
-A patch for a fix, a minor for a new command or flag. Nothing gates a pull request on carrying one — a changeset is the decision that something is worth releasing, not a condition of merging. [ADR 0008](./docs/adr/0008-npm-publication.md) has the rest of the release path.
+A patch for a fix, a minor for a new command or flag. Nothing gates a pull request on carrying one — a changeset is the decision that something is worth releasing, not a condition of merging. [ADR 0011](./docs/adr/0011-npm-publication.md) has the rest of the release path.
 
 ## Decisions
 
