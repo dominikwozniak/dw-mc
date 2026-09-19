@@ -88,30 +88,29 @@ const machine = (options: { readonly spawned: Array<string>; readonly pullReques
 const registered = write({ repos: { [repo]: {} } } satisfies ConfigFile)
 
 /** What a sweep wrote down about the pull request: where my last activity got to. */
-const swept = (over: Partial<Facts>) =>
-  Effect.gen(function* () {
-    const store = yield* storeFor("prs", FactsSchema)
-    yield* store.set(prKey(repo, 28), {
-      repo,
-      number: 28,
-      title: "feat(comments): read a pull request's threads",
-      url: `https://github.com/${repo}/pull/28`,
-      draft: false,
-      head,
-      mergeable: "mergeable",
-      reviewDecision: "none",
-      checks: "green",
-      ciFlaky: null,
-      rebaseConflictAt: null,
-      newestHumanCommentAt: null,
-      myLastCommentAt: null,
-      myLastCommitAt: null,
-      acknowledgedAt: null,
-      reviewRunHead: head,
-      blockingFindings: 0,
-      ...over
-    })
+const swept = Effect.fnUntraced(function* (over: Partial<Facts>) {
+  const store = yield* storeFor("prs", FactsSchema)
+  yield* store.set(prKey(repo, 28), {
+    repo,
+    number: 28,
+    title: "feat(comments): read a pull request's threads",
+    url: `https://github.com/${repo}/pull/28`,
+    draft: false,
+    head,
+    mergeable: "mergeable",
+    reviewDecision: "none",
+    checks: "green",
+    ciFlaky: null,
+    rebaseConflictAt: null,
+    newestHumanCommentAt: null,
+    myLastCommentAt: null,
+    myLastCommitAt: null,
+    acknowledgedAt: null,
+    reviewRunHead: head,
+    blockingFindings: 0,
+    ...over
   })
+})
 
 describe("dw-mc comments", () => {
   it.effect("prints what was said after my last activity, and writes nothing", () => {

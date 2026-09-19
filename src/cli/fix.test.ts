@@ -86,22 +86,21 @@ const registered = (...repos: ReadonlyArray<string>) =>
 const committing = write({ repos: { [repo]: { fix: { commits: true } } } } satisfies ConfigFile)
 
 /** The review run `dw-mc review` would have left behind. */
-const ran = (outcome: Outcome) =>
-  Effect.gen(function* () {
-    const runs = yield* storeFor("runs", ReviewRun)
-    const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, head), {
-      repo,
-      number: 28,
-      head,
-      command: "/code-review",
-      effort: "low",
-      sessionId: session,
-      ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
-      outcome
-    })
-    yield* latest.set(latestKey(repo, 28), { head })
+const ran = Effect.fnUntraced(function* (outcome: Outcome) {
+  const runs = yield* storeFor("runs", ReviewRun)
+  const latest = yield* storeFor("runs", LastReviewed)
+  yield* runs.set(runKey(repo, 28, head), {
+    repo,
+    number: 28,
+    head,
+    command: "/code-review",
+    effort: "low",
+    sessionId: session,
+    ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
+    outcome
   })
+  yield* latest.set(latestKey(repo, 28), { head })
+})
 
 /** The prompt the session was opened on, or nothing where no session was opened. */
 const opened = (spawned: ReadonlyArray<ChildProcess.StandardCommand>) =>

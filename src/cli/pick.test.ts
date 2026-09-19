@@ -96,22 +96,21 @@ const machine = (options: {
 const registered = (settings: ConfigFile["repos"] = { [repo]: {} }) => write({ repos: settings } satisfies ConfigFile)
 
 /** What `dw-mc review` leaves behind: a review run against one head. */
-const reviewed = (number: number, findings: ReadonlyArray<Finding> = []) =>
-  Effect.gen(function* () {
-    const runs = yield* storeFor("runs", ReviewRun)
-    const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, number, head), {
-      repo,
-      number,
-      head,
-      command: "/code-review",
-      effort: "low",
-      sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
-      ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
-      outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings }
-    })
-    yield* latest.set(latestKey(repo, number), { head })
+const reviewed = Effect.fnUntraced(function* (number: number, findings: ReadonlyArray<Finding> = []) {
+  const runs = yield* storeFor("runs", ReviewRun)
+  const latest = yield* storeFor("runs", LastReviewed)
+  yield* runs.set(runKey(repo, number, head), {
+    repo,
+    number,
+    head,
+    command: "/code-review",
+    effort: "low",
+    sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
+    ranAt: DateTime.makeUnsafe("2026-09-16T14:21:00Z"),
+    outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings }
   })
+  yield* latest.set(latestKey(repo, number), { head })
+})
 
 /**
  * What the picker dispatched when I took the offer `at` places down the list,

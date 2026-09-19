@@ -93,50 +93,48 @@ const machine = (options: {
 const registered = write({ repos: { [repo]: {} } } satisfies ConfigFile)
 
 /** What `dw-mc review` leaves behind: a review run against one head. */
-const reviewed = (at: string, findings: ReadonlyArray<Finding> = []) =>
-  Effect.gen(function* () {
-    const runs = yield* storeFor("runs", ReviewRun)
-    const latest = yield* storeFor("runs", LastReviewed)
-    yield* runs.set(runKey(repo, 28, at), {
-      repo,
-      number: 28,
-      head: at,
-      command: "/code-review",
-      effort: "low",
-      sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
-      ranAt: DateTime.makeUnsafe("2026-09-17T14:21:00Z"),
-      outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings }
-    })
-    yield* latest.set(latestKey(repo, 28), { head: at })
-    const reports = yield* textStoreFor("runs")
-    yield* reports.set(reportKey(repo, 28, at), "# Clean\n")
+const reviewed = Effect.fnUntraced(function* (at: string, findings: ReadonlyArray<Finding> = []) {
+  const runs = yield* storeFor("runs", ReviewRun)
+  const latest = yield* storeFor("runs", LastReviewed)
+  yield* runs.set(runKey(repo, 28, at), {
+    repo,
+    number: 28,
+    head: at,
+    command: "/code-review",
+    effort: "low",
+    sessionId: "befb6186-5471-4b26-b680-e8ca49df25ac",
+    ranAt: DateTime.makeUnsafe("2026-09-17T14:21:00Z"),
+    outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings }
   })
+  yield* latest.set(latestKey(repo, 28), { head: at })
+  const reports = yield* textStoreFor("runs")
+  yield* reports.set(reportKey(repo, 28, at), "# Clean\n")
+})
 
 /** What a sweep wrote down about the pull request, which is not what the guards read. */
-const swept = (over: Partial<Facts>) =>
-  Effect.gen(function* () {
-    const store = yield* storeFor("prs", Facts)
-    yield* store.set(prKey(repo, 28), {
-      repo,
-      number: 28,
-      title: "feat(merge): merge my own pull request",
-      url: `https://github.com/${repo}/pull/28`,
-      draft: false,
-      head,
-      mergeable: "mergeable",
-      reviewDecision: "approved",
-      checks: "green",
-      ciFlaky: null,
-      rebaseConflictAt: null,
-      newestHumanCommentAt: null,
-      myLastCommentAt: null,
-      myLastCommitAt: null,
-      acknowledgedAt: null,
-      reviewRunHead: head,
-      blockingFindings: 0,
-      ...over
-    })
+const swept = Effect.fnUntraced(function* (over: Partial<Facts>) {
+  const store = yield* storeFor("prs", Facts)
+  yield* store.set(prKey(repo, 28), {
+    repo,
+    number: 28,
+    title: "feat(merge): merge my own pull request",
+    url: `https://github.com/${repo}/pull/28`,
+    draft: false,
+    head,
+    mergeable: "mergeable",
+    reviewDecision: "approved",
+    checks: "green",
+    ciFlaky: null,
+    rebaseConflictAt: null,
+    newestHumanCommentAt: null,
+    myLastCommentAt: null,
+    myLastCommitAt: null,
+    acknowledgedAt: null,
+    reviewRunHead: head,
+    blockingFindings: 0,
+    ...over
   })
+})
 
 /** Every key the state directory holds. */
 const held = Effect.gen(function* () {
