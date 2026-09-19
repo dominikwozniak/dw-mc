@@ -1,16 +1,17 @@
+import { NodeFileSystem } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Effect } from "effect"
+import { DateTime, Effect, FileSystem, Layer, Path } from "effect"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { write } from "#adapters/config.ts"
 import { prViewOf } from "#adapters/gh.ts"
 import { recording } from "#adapters/picker.ts"
 import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
-import { prKey, storeFor } from "#adapters/store.ts"
+import { Keys, prKey, storeFor, textStoreFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
 import { Facts } from "#domain/bucket.ts"
 import type { Finding } from "#domain/findings.ts"
-import { LastReviewed, latestKey, ReviewRun, runKey } from "#domain/review.ts"
+import { LastReviewed, latestKey, reportKey, ReviewRun, runKey } from "#domain/review.ts"
 import { withdraw } from "#domain/stamp.ts"
 
 const me = "dominikwozniak"
@@ -33,9 +34,17 @@ const machine = (options: {
   readonly refusal?: string | undefined
   /** Where a test is about the heartbeat, what it drew in place. */
   readonly drawn?: Array<string> | undefined
+  /** Where a test needs the real disk, the temporary home it stands in. */
+  readonly home?: string | undefined
 }) =>
   machineOf({
     drawn: options.drawn,
+    ...(options.home === undefined
+      ? {}
+      : {
+          env: { HOME: options.home, XDG_STATE_HOME: options.home, XDG_CONFIG_HOME: options.home },
+          fileSystem: NodeFileSystem.layer
+        }),
     spawner: layerStubbed({
       onSpawn: (command) => options.spawned.push(vectorOf(command)),
       stubs: [
@@ -84,6 +93,8 @@ const reviewed = (at: string, findings: ReadonlyArray<Finding> = []) =>
       outcome: { _tag: "reported", verdict: findings.length === 0 ? "clean" : "findings", findings }
     })
     yield* latest.set(latestKey(repo, 28), { head: at })
+    const reports = yield* textStoreFor("runs")
+    yield* reports.set(reportKey(repo, 28, at), "# Clean\n")
   })
 
 /** What a sweep wrote down about the pull request, which is not what the guards read. */
@@ -111,6 +122,11 @@ const swept = (over: Partial<Facts>) =>
       ...over
     })
   })
+
+/** Every key the state directory holds. */
+const held = Effect.gen(function* () {
+  return (yield* (yield* Keys).all).toSorted()
+})
 
 const merges = (spawned: ReadonlyArray<string>) => spawned.filter((vector) => vector.startsWith("gh pr merge"))
 
@@ -149,6 +165,55 @@ describe("dw-mc merge", () => {
       assert.include(said, "feat/57-merge-command deleted")
       assert.include(said, "feat(merge): merge my own pull request")
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
+  })
+
+  it.effect("forgets the pull request it merged, in every namespace, reports included", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered
+      yield* reviewed(gone)
+      yield* reviewed(head)
+      yield* swept({})
+      yield* withdraw(repo, 28, gone)
+      yield* withdraw(repo, 29, head)
+
+      yield* run("merge", "28")
+
+      assert.deepStrictEqual(yield* held, [`stamps/${prKey(repo, 29)}`])
+      assert.include(printed.join("\n"), `Forgot ${repo}#28: 7 records.`)
+    }).pipe(Effect.provide(machine({ spawned })), recording(printed))
+  })
+
+  it.effect("leaves a session standing on the branch it deleted, and says so", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const home = yield* fs.makeTempDirectoryScoped()
+      const resolve = path.join(home, "dw-mc", "rebases", repo, "28")
+      yield* fs.makeDirectory(resolve, { recursive: true })
+      yield* fs.writeFileString(path.join(resolve, "README.md"), "resolved by hand\n")
+
+      yield* Effect.gen(function* () {
+        yield* registered
+        yield* reviewed(head)
+        yield* run("merge", "28")
+      }).pipe(Effect.provide(machine({ spawned, home })), recording(printed))
+
+      assert.isTrue(yield* fs.exists(path.join(resolve, "README.md")))
+      assert.include(
+        printed.join("\n"),
+        "a resolve session's worktree, on dw-mc/rebase/28, which tracked feat/57-merge-command - deleted with the merge"
+      )
+      assert.deepStrictEqual(
+        spawned.filter((vector) => !vector.startsWith("gh ")),
+        []
+      )
+    }).pipe(Effect.provide(Layer.mergeAll(NodeFileSystem.layer, Path.layer)))
   })
 
   it.effect("merges one nobody was required to review", () => {
@@ -333,6 +398,7 @@ describe("dw-mc merge", () => {
 
       assert.include(String(error.cause), "Protected branch update failed")
       assert.notInclude(printed.join("\n"), "squash-merged")
+      assert.include(yield* held, `runs/${runKey(repo, 28, head)}`)
     }).pipe(
       Effect.provide(machine({ spawned, refusal: "Protected branch update failed for refs/heads/main" })),
       recording(printed)

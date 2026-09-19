@@ -42,7 +42,7 @@ My local mark that a tracked PR has passed my own bar. Computed from review runs
 _Avoid_: approval, label, status
 
 **Merge**:
-Landing a tracked PR of mine: squashed, with its branch deleted, on a PR that is both Ready and stamped at the head the command reads. The one write no reflog of mine undoes, so it is never taken by a sweep and never one keystroke in the picker.
+Landing a tracked PR of mine: squashed, with its branch deleted, on a PR that is both Ready and stamped at the head the command reads. The one write no reflog of mine undoes, so it is never taken by a sweep and never one keystroke in the picker. Its last step is forgetting the pull request.
 _Avoid_: ship, close, auto-merge
 
 ### Buckets
@@ -155,6 +155,10 @@ _Avoid_: cache, mirror, checkout
 **Cleanup**:
 Taking back the disk mission control spends on itself: the clones, and the worktrees a review run left behind. It keeps what I decided and what it recorded, and it leaves a clone a session stands on where it is, because that session's history lives inside it.
 _Avoid_: prune, gc, purge
+
+**Forgetting**:
+Removing everything the state directory keeps about one pull request that is done, in every namespace, the review reports included. `dw-mc merge` does it as its last step, the one moment the tool knows a pull request is finished; `dw-mc forget` does it by hand for one that closed another way. A sweep never does, because a pull request missing from one search is not one that is gone. A fix or resolve session's worktree stays, and is named.
+_Avoid_: prune, purge, delete
 
 **Uninstall**:
 Removing everything mission control wrote on this machine, which no package manager does. The state goes in full and the configuration file only when I ask; the binary is the one step it cannot take and prints instead.

@@ -61,7 +61,7 @@ const lines = (it: Plan, state: string, path: Path.Path, paint: Paint): Readonly
  * configuration file - and what I worked in - the worktree of a fix or resolve
  * session, which stands on a branch of the tool's own and holds what I
  * committed there. Forgetting a pull request's records is a different question
- * with a different answer (#58), and it is not asked here.
+ * with a different answer (`dw-mc forget`), and it is not asked here.
  *
  * A clone with a session standing on it stays with the session: a standing
  * worktree keeps its history inside the clone, so a clone taken from under one

@@ -6,6 +6,7 @@ import { KeyValueStore } from "effect/unstable/persistence"
 import {
   discard,
   inventory,
+  Keys,
   layer,
   layerTest,
   sessionOf,
@@ -85,6 +86,35 @@ describe("store", () => {
         Layer.mergeAll(NodeServices.layer, ConfigProvider.layer(ConfigProvider.fromEnvRecord({ XDG_STATE_HOME: home })))
       )
     )
+
+  it.effect("the keys the state directory holds are listed as they were written, and nothing else is", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const home = yield* fs.makeTempDirectoryScoped()
+      yield* fs.makeDirectory(path.join(home, "dw-mc", "rebases", "dw", "one", "28"), { recursive: true })
+
+      const listed = yield* Effect.gen(function* () {
+        yield* write(new ReviewRun({ pr: 7, head: "cafe1234", verdict: "clean" }))
+        const reports = yield* textStoreFor("review-run")
+        yield* reports.set("dw/one#7@cafe1234.md", "# Clean\n")
+        return yield* (yield* Keys).all
+      }).pipe(onDisk(home))
+
+      assert.deepStrictEqual(listed.toSorted(), ["review-run/7", "review-run/dw/one#7@cafe1234.md"])
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
+
+  it.effect("the store a test builds lists what it holds, and forgets what it removed", () =>
+    Effect.gen(function* () {
+      const raw = yield* KeyValueStore.KeyValueStore
+      yield* raw.set("runs/dw/one#7", "{}")
+      yield* raw.set("stamps/dw/one#7", "{}")
+      yield* raw.remove("runs/dw/one#7")
+
+      assert.deepStrictEqual(yield* (yield* Keys).all, ["stamps/dw/one#7"])
+    }).pipe(Effect.provide(layerTest))
+  )
 
   it.effect("the state directory sits under XDG_STATE_HOME when it is set", () =>
     Effect.gen(function* () {

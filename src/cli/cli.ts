@@ -11,6 +11,7 @@ import { cleanup } from "#cli/cleanup.ts"
 import { comments } from "#cli/comments.ts"
 import { findings } from "#cli/findings.ts"
 import { fix } from "#cli/fix.ts"
+import { forgetCommand } from "#cli/forget.ts"
 import { init } from "#cli/init.ts"
 import { merge } from "#cli/merge.ts"
 import { picker } from "#cli/pick.ts"
@@ -46,6 +47,7 @@ const subcommands = [
   rerun,
   resolve,
   merge,
+  forgetCommand,
   sweepCommand,
   status,
   stampCommand,
@@ -92,7 +94,7 @@ export interface Machine {
   /** The state directory, where a test needs the real one or one that refuses. */
   readonly state?:
     | Layer.Layer<
-        KeyValueStore.KeyValueStore,
+        KeyValueStore.KeyValueStore | Store.Keys,
         Config.ConfigError | PlatformError.PlatformError,
         FileSystem.FileSystem | Path.Path
       >

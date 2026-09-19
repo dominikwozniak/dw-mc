@@ -42,6 +42,7 @@ These change something, so run one only when I ask for it by name.
 | the branch rebased onto its base and pushed                 | `dw-mc rebase <pr>`               |
 | a flaky red CI run again, once                              | `dw-mc rerun <pr>`                |
 | a Ready, stamped pull request landed                        | `dw-mc merge <pr>`                |
+| what is kept about a pull request that closed another way   | `dw-mc forget <pr>`               |
 | this machine set up and the repository I am in tracked      | `dw-mc init`                      |
 | the disk the tool spent on clones and review worktrees back | `dw-mc cleanup`                   |
 

@@ -1,5 +1,5 @@
 import type { Config } from "effect"
-import { ByteSize, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
+import { ByteSize, Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
 import { xdgDirectory } from "#adapters/xdg.ts"
@@ -65,11 +65,73 @@ export const remembered = <A, E, R>(
   read: Effect.Effect<Option.Option<A>, E, R>
 ): Effect.Effect<Option.Option<A>, never, R> => Effect.orElseSucceed(read, () => Option.none<A>())
 
-/** The state directory on disk. */
-export const layer = Layer.unwrap(Effect.map(stateDirectory, (directory) => KeyValueStore.layerFileSystem(directory)))
+/**
+ * Every key the state directory holds, whichever namespace it sits in.
+ *
+ * A key/value store answers about a key it is given and never lists one, and
+ * forgetting a pull request needs the list: a review run is kept under the head
+ * it read, and nothing on hand names every head a pull request was reviewed at.
+ */
+export class Keys extends Context.Service<
+  Keys,
+  { readonly all: Effect.Effect<ReadonlyArray<string>, KeyValueStore.KeyValueStoreError> }
+>()("dw-mc/store/Keys") {}
 
-/** A store that lives only as long as the test that builds it. */
-export const layerTest: Layer.Layer<KeyValueStore.KeyValueStore> = KeyValueStore.layerMemory
+/**
+ * The keys a file store over `directory` holds: one file each, named by the
+ * percent-encoded key.
+ *
+ * The clones and the checkouts sit beside them as directories, and none of
+ * them is a key.
+ */
+const keysOnDisk = (directory: string) =>
+  Layer.effect(
+    Keys,
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const directories = new Set<string>([clonesIn, ...cuts])
+      return {
+        all: fs.readDirectory(directory).pipe(
+          Effect.map((entries) =>
+            entries.filter((entry) => !directories.has(entry)).map((entry) => decodeURIComponent(entry))
+          ),
+          Effect.mapError(
+            (cause) =>
+              new KeyValueStore.KeyValueStoreError({ method: "keys", message: "Unable to list the keys", cause })
+          )
+        )
+      }
+    })
+  )
+
+/** The state directory on disk. */
+export const layer = Layer.unwrap(
+  Effect.map(stateDirectory, (directory) =>
+    Layer.merge(KeyValueStore.layerFileSystem(directory), keysOnDisk(directory))
+  )
+)
+
+/**
+ * A store that lives only as long as the test that builds it.
+ *
+ * It is the in-memory store with a note of every key it was handed, because
+ * the store keeps its map to itself.
+ */
+export const layerTest: Layer.Layer<KeyValueStore.KeyValueStore | Keys> = Layer.effectContext(
+  Effect.gen(function* () {
+    const inner = yield* KeyValueStore.KeyValueStore
+    const held = new Set<string>()
+    const store = KeyValueStore.make({
+      ...inner,
+      set: (key, value) => Effect.tap(inner.set(key, value), () => Effect.sync(() => held.add(key))),
+      remove: (key) => Effect.tap(inner.remove(key), () => Effect.sync(() => held.delete(key))),
+      clear: Effect.tap(inner.clear, () => Effect.sync(() => held.clear()))
+    })
+    return Context.make(KeyValueStore.KeyValueStore, store).pipe(
+      Context.add(Keys, { all: Effect.sync(() => [...held]) })
+    )
+  })
+).pipe(Layer.provide(KeyValueStore.layerMemory))
 
 /** The three directories the tool cuts a checkout into, under the state directory. */
 export const cuts = ["worktrees", "fixes", "rebases"] as const
@@ -165,8 +227,8 @@ export interface Cutting extends Weighed {
  * keys of one namespace, and what a cleanup is about is the clones and the
  * checkouts, which no namespace ever sees. So this reads the directory itself,
  * and `records` is the one line it has to say about the keys - their number and
- * their weight together, because which pull request a key belongs to is #58's
- * question and not this one's.
+ * their weight together, because which pull request a key belongs to is the
+ * question `Keys` and forgetting answer, and not this one.
  */
 export interface Inventory {
   readonly directory: string
