@@ -1,9 +1,10 @@
-import { Console, Effect } from "effect"
+import { Effect } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 
+import { Paint } from "#adapters/paint.ts"
+import { opener, print } from "#cli/block.ts"
 import { asUserError } from "#cli/exit.ts"
 import { forPr, prArgument, swept } from "#cli/pr.ts"
-import { short } from "#domain/review.ts"
 import { stampOf, withdraw } from "#domain/stamp.ts"
 
 const withdrawFlag = Flag.Boolean("withdraw").pipe(
@@ -36,16 +37,18 @@ export const stampCommand = Command.make(
       const { number, repo } = yield* forPr(pr)
 
       const facts = yield* swept(repo, number)
-      const where = `${repo}#${number}  ${short(facts.head)}`
+      const paint = yield* Paint
 
       if (byHand) {
         yield* withdraw(repo, number, facts.head)
-        yield* Console.log(`${where}  stamp withdrawn, until the head changes`)
+        yield* print([opener(paint, repo, number, facts.head, "stamp withdrawn, until the head changes")])
         return
       }
 
       const stamp = yield* stampOf(facts)
-      yield* Console.log(`${where}  ${stamp.stamped ? "stamped" : `not stamped: ${stamp.reason}`}`)
+      yield* print([
+        opener(paint, repo, number, facts.head, stamp.stamped ? "stamped" : `not stamped: ${stamp.reason}`)
+      ])
     },
     Effect.catchTag(["ConfigMalformed"], asUserError)
   )

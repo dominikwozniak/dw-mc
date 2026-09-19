@@ -1,10 +1,14 @@
 import { Console, Effect, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
+import type { Paint } from "#adapters/paint.ts"
+import { Paint as PaintService } from "#adapters/paint.ts"
+import { block, opener, print } from "#cli/block.ts"
 import { asUserError } from "#cli/exit.ts"
 import { currentRun, forPr, prArgument } from "#cli/pr.ts"
-import { rule } from "#cli/row.ts"
+import { rule, tint } from "#cli/row.ts"
 import { count, table } from "#cli/table.ts"
+import type { Bucket } from "#domain/bucket.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Findings as FindingsSchema } from "#domain/findings.ts"
 import type { ReviewRun } from "#domain/review.ts"
@@ -29,16 +33,24 @@ export const summary = (found: Findings, blocksOn: Severity): string => {
 }
 
 /** Which run these findings are, and what they come to: the line above the list. */
-export const header = (run: ReviewRun, found: Findings, blocksOn: Severity): string =>
-  `${run.repo}#${run.number}  ${short(run.head)}  ${summary(found, blocksOn)}`
+export const header = (run: ReviewRun, found: Findings, blocksOn: Severity, paint: Paint): string =>
+  opener(paint, run.repo, run.number, run.head, summary(found, blocksOn))
+
+/** The bucket whose colour a severity is said in, so one colour means one thing everywhere (ADR 0007). */
+const colourOf: Record<Severity, Bucket> = { error: "needs-me", warning: "needs-review-run", info: "waiting-on-others" }
 
 /**
  * The findings one to a line, in the order the run reported them, ruled so the
- * three columns read apart.
+ * three columns read apart. The place is context and the severity is state;
+ * what the finding says is prose.
  */
-export const lines = (found: Findings): ReadonlyArray<string> =>
+export const lines = (found: Findings, paint: Paint): ReadonlyArray<string> =>
   table(
-    found.findings.map((finding) => [`${finding.file}:${finding.line}`, finding.severity, finding.summary]),
+    found.findings.map((finding) => [
+      paint.dim(`${finding.file}:${finding.line}`),
+      tint(paint, colourOf[finding.severity])(finding.severity),
+      finding.summary
+    ]),
     rule
   )
 
@@ -87,10 +99,8 @@ export const findings = Command.make(
         return
       }
 
-      yield* Console.log(header(run, found, settings.stamp.blocks_on))
-      for (const line of lines(found)) {
-        yield* Console.log(`  ${line}`)
-      }
+      const paint = yield* PaintService
+      yield* print(block(header(run, found, settings.stamp.blocks_on, paint), lines(found, paint)))
     },
     Effect.catchTag(["ConfigMalformed"], asUserError)
   )

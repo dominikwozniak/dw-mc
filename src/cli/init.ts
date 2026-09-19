@@ -1,10 +1,12 @@
-import { Console, Effect, Option } from "effect"
+import { Effect, Option } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 
 import type { ConfigFile, SettingsPatch } from "#adapters/config.ts"
 import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, write } from "#adapters/config.ts"
 import { currentRepo, requireAuth } from "#adapters/gh.ts"
+import { Paint } from "#adapters/paint.ts"
 import { stateDirectory } from "#adapters/store.ts"
+import { print } from "#cli/block.ts"
 import { asUserError } from "#cli/exit.ts"
 import type { Effort } from "#terms/review.ts"
 
@@ -83,17 +85,18 @@ export const init = Command.make(
         yield* write(written)
       }
 
-      yield* Console.log(row("review", opening(written.defaults ?? {})))
-      yield* Console.log(row("config", config.path))
-      yield* Console.log(row("state", state))
-      yield* Console.log(
+      const paint = yield* Paint
+      yield* print([
+        row("review", opening(written.defaults ?? {})),
+        row("config", paint.dim(config.path)),
+        row("state", paint.dim(state)),
         Option.isNone(repo)
           ? row("repository", "none here - run dw-mc init inside a repository to register it")
           : row(
               "repository",
               `${repo.value} (${file.repos?.[repo.value] === undefined ? "registered" : "already registered"})`
             )
-      )
+      ])
     },
     // The failures worth a sentence become one, so a machine or a file that
     // needs fixing says what to fix instead of printing a stack.

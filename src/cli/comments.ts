@@ -1,10 +1,11 @@
-import { Console, DateTime, Effect } from "effect"
+import { DateTime, Effect } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 
 import type { Thread } from "#adapters/conversation.ts"
 import { prConversation } from "#adapters/conversation.ts"
 import type { Paint } from "#adapters/paint.ts"
 import { Paint as PaintService } from "#adapters/paint.ts"
+import { block, following, indent, print, separated } from "#cli/block.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { forPr, prArgument, reading, swept } from "#cli/pr.ts"
 import { heading } from "#cli/row.ts"
@@ -47,16 +48,14 @@ const settled = (thread: Thread): string =>
  * exists to replace. No diff hunk with it: the code is on this machine, under
  * the path the heading already prints.
  */
-const block = (thread: Thread, paint: Paint): ReadonlyArray<string> => [
-  `${paint.bold(where(thread))}${settled(thread) === "" ? "" : paint.dim(`  (${settled(thread)})`)}`,
-  ...thread.comments.flatMap((comment) => [
-    `  ${paint.dim(`@${comment.login}  ${DateTime.formatIso(comment.at)}`)}`,
-    ...comment.body.split("\n").map((line) => `    ${line}`)
-  ])
-]
-
-const separated = (blocks: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<string> =>
-  blocks.flatMap((lines, index) => (index === 0 ? lines : ["", ...lines]))
+const threadBlock = (thread: Thread, paint: Paint): ReadonlyArray<string> =>
+  block(
+    `${where(thread)}${settled(thread) === "" ? "" : paint.dim(`  (${settled(thread)})`)}`,
+    thread.comments.flatMap((comment) => [
+      paint.dim(`@${comment.login}  ${DateTime.formatIso(comment.at)}`),
+      ...comment.body.split("\n").map(indent)
+    ])
+  )
 
 /**
  * The conversation on screen: people first, then a rule, then the bots.
@@ -70,10 +69,10 @@ const separated = (blocks: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<
  * verdict older than my last push is one I have already had the chance to read,
  * and `--all` is where it still is.
  */
-export const lines = (view: Shown, paint: Paint): ReadonlyArray<string> => {
-  const people = view.people.map((thread) => block(thread, paint))
-  const bots = view.bots.map((thread) => block(thread, paint))
-  return separated([...people, ...(bots.length === 0 ? [] : [[paint.dim("── bots ──")], ...bots])])
+const blocks = (view: Shown, paint: Paint): ReadonlyArray<ReadonlyArray<string>> => {
+  const people = view.people.map((thread) => threadBlock(thread, paint))
+  const bots = view.bots.map((thread) => threadBlock(thread, paint))
+  return [...people, ...(bots.length === 0 ? [] : [[paint.dim("── bots ──")], ...bots])]
 }
 
 /** What to say where there is nothing to print, which depends on why there is not. */
@@ -107,13 +106,14 @@ const acknowledged = Effect.fn("comments.acknowledged")(function* (facts: Facts,
   const pr = `${facts.repo}#${facts.number}`
   const at = acknowledging(threads)
   if (at === null) {
-    yield* Console.log(`Nothing to acknowledge: nobody has said anything on ${pr}.`)
-    return
+    return [`Nothing to acknowledge: nobody has said anything on ${pr}.`]
   }
   yield* acknowledge(facts.repo, facts.number, at)
   const placement = place({ ...facts, acknowledgedAt: at })
-  yield* Console.log(`Acknowledged everything said on ${pr} up to ${DateTime.formatIso(at)}.`)
-  yield* Console.log(`${pr} sits in ${heading[placement.bucket]}: ${placement.reason}.`)
+  return [
+    `Acknowledged everything said on ${pr} up to ${DateTime.formatIso(at)}.`,
+    `${pr} sits in ${heading[placement.bucket]}: ${placement.reason}.`
+  ]
 })
 
 /**
@@ -145,17 +145,14 @@ export const comments = Command.make(
       const threads = yield* reading(`${repo}#${number}`, prConversation(repo, number))
       const view = shown(threads, { since: answeredAt(facts), all })
 
-      if (view.people.length === 0 && view.bots.length === 0) {
-        yield* Effect.forEach(nothing(facts, all), (line) => Console.log(line))
-      } else {
-        yield* Console.log(paint.bold(`${repo}#${number}`) + `  ${paint.dim(facts.title)}`)
-        yield* Console.log("")
-        yield* Effect.forEach(lines(view, paint), (line) => Console.log(line))
-      }
+      yield* print(
+        view.people.length === 0 && view.bots.length === 0
+          ? nothing(facts, all)
+          : separated([[`${repo}#${number}  ${paint.dim(facts.title)}`], ...blocks(view, paint)])
+      )
 
       if (ack) {
-        yield* Console.log("")
-        yield* acknowledged(facts, threads)
+        yield* print(following([yield* acknowledged(facts, threads)]))
       }
     },
     Effect.catchTag(userFacing, asUserError)

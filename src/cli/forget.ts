@@ -1,16 +1,17 @@
-import { Console, Effect, Path } from "effect"
+import { Effect, Path } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { Paint } from "#adapters/paint.ts"
 import { inventory, sessionBranch } from "#adapters/store.ts"
+import { block, print, separated } from "#cli/block.ts"
 import { forPr, prArgument } from "#cli/pr.ts"
 import { count, table } from "#cli/table.ts"
 import { sessionName } from "#domain/cleanup.ts"
 import { forget, standingOn } from "#domain/forget.ts"
 
 /**
- * Forgets one pull request and says what stays: the records go, the session
- * worktrees standing on it do not.
+ * Forgets one pull request, and answers with the blocks that say what stays:
+ * the records go, the session worktrees standing on it do not.
  *
  * `deleted` is the branch the pull request stood on, where the caller has just
  * deleted it. A session there tracks a branch that is gone, which is worth
@@ -27,12 +28,12 @@ export const forgetting = Effect.fn("forgetting")(function* (
   const where = `${repo}#${number}`
 
   const forgot = yield* forget(repo, number)
-  yield* Console.log(forgot === 0 ? `Nothing is kept about ${where}.` : `Forgot ${where}: ${count(forgot, "record")}.`)
+  const forgotten = [forgot === 0 ? `Nothing is kept about ${where}.` : `Forgot ${where}: ${count(forgot, "record")}.`]
 
   const found = yield* inventory
   const sessions = standingOn(found, repo, number)
   if (sessions.length === 0) {
-    return
+    return [forgotten]
   }
 
   const rows = table(
@@ -42,11 +43,7 @@ export const forgetting = Effect.fn("forgetting")(function* (
         (deleted === undefined ? "" : `, which tracked ${deleted} - deleted with the merge`)
     ])
   )
-  yield* Console.log("")
-  yield* Console.log("Stays")
-  yield* Effect.forEach(rows, (row) => Console.log(`  ${row}`))
-  yield* Console.log("")
-  yield* Console.log("What you committed there is yours, so nothing here takes it down.")
+  return [forgotten, block("Stays", rows), ["What you committed there is yours, so nothing here takes it down."]]
 })
 
 /**
@@ -63,6 +60,6 @@ export const forgetCommand = Command.make(
   { pr: prArgument },
   Effect.fn("forget")(function* ({ pr }) {
     const { number, repo } = yield* forPr(pr)
-    yield* forgetting(repo, number)
+    yield* print(separated(yield* forgetting(repo, number)))
   })
 ).pipe(Command.withDescription("Forget everything kept about a pull request that is done"))

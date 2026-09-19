@@ -1,14 +1,15 @@
-import { Console, Effect } from "effect"
+import { Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { rollupState } from "#adapters/ci.ts"
 import { openPrs, prView, viewer } from "#adapters/gh.ts"
 import { rebaseOnto } from "#adapters/git.ts"
+import { Paint } from "#adapters/paint.ts"
+import { opener, print, retype, separated, stoppedOn } from "#cli/block.ts"
 import { asUserError, userFacingAndGit } from "#cli/exit.ts"
 import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
 import { decide, recordConflict, stackOf } from "#domain/rebase.ts"
-import { short } from "#domain/review.ts"
 
 /**
  * Brings one branch up to date with its base, with the guards that matter more
@@ -64,39 +65,49 @@ export const rebase = Command.make(
         })
       )
 
-      const where = `${repo}#${number}`
+      const paint = yield* Paint
       const done = yield* rebaseOnto(repo, number, view.baseRefName, view.headRefName)
 
       if (done._tag === "up-to-date") {
-        yield* Console.log(`${where}  ${short(view.headRefOid)}  already on ${view.baseRefName}`)
+        yield* print([opener(paint, repo, number, view.headRefOid, `already on ${view.baseRefName}`)])
         return
       }
       if (done._tag === "conflicted") {
         yield* recordConflict(repo, number, view.headRefOid, done.paths)
-        yield* Console.log(
-          `${where}  ${short(view.headRefOid)}  the rebase onto ${view.baseRefName} conflicted, ` +
-            `so it was aborted and nothing was pushed.`
-        )
-        if (done.paths.length > 0) {
-          yield* Console.log(`It stopped on ${count(done.paths.length, "file")}:`)
-          yield* Effect.forEach(done.paths, (path) => Console.log(`  ${path}`))
-        }
-
         // A conflict is where the next step stops being obvious, so the step is
         // on screen as itself. Nothing follows it on its own: the session is
         // opened when I ask for it and never because a rebase stopped.
-        yield* Effect.forEach([``, `  dw-mc resolve ${number}`, ``], (line) => Console.log(line))
-        yield* Console.log(
-          `That opens a session on the conflict, in a worktree of your own. ` +
-            `The next sweep puts it in Needs me, and it stays there until the branch moves.`
+        yield* print(
+          separated([
+            [
+              opener(
+                paint,
+                repo,
+                number,
+                view.headRefOid,
+                `the rebase onto ${view.baseRefName} conflicted, so it was aborted and nothing was pushed.`
+              )
+            ],
+            stoppedOn(paint, done.paths),
+            retype(paint, `dw-mc resolve ${number}`),
+            [
+              `That opens a session on the conflict, in a worktree of your own. ` +
+                `The next sweep puts it in Needs me, and it stays there until the branch moves.`
+            ]
+          ])
         )
         return
       }
 
-      yield* Console.log(
-        `${where}  ${short(done.before)} → ${short(done.after)}  ` +
+      yield* print([
+        opener(
+          paint,
+          repo,
+          number,
+          { before: done.before, after: done.after },
           `rebased ${count(done.behind, "commit")} of ${view.baseRefName} and pushed with a lease`
-      )
+        )
+      ])
     },
     Effect.catchTag(userFacingAndGit, asUserError)
   )

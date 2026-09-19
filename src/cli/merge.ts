@@ -1,13 +1,15 @@
-import { Console, Effect } from "effect"
+import { Effect } from "effect"
 import { Command } from "effect/unstable/cli"
 
 import { rollupState } from "#adapters/ci.ts"
 import { mergeabilityOf, mergePr, prView, reviewDecisionOf, viewer } from "#adapters/gh.ts"
+import { Paint } from "#adapters/paint.ts"
+import { following, opener, print, separated } from "#cli/block.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { forgetting } from "#cli/forget.ts"
 import { forPr, prArgument, reading, refuse } from "#cli/pr.ts"
 import { decide } from "#domain/merge.ts"
-import { reviewedAt, short } from "#domain/review.ts"
+import { reviewedAt } from "#domain/review.ts"
 import { withdrawnAt } from "#domain/stamp.ts"
 
 /**
@@ -63,23 +65,28 @@ export const merge = Command.make(
 
       yield* mergePr(repo, number)
 
-      yield* Console.log(
-        `${repo}#${number}  ${short(head)}  squash-merged into ${view.baseRefName}, ` +
-          `and ${view.headRefName} deleted`
+      const paint = yield* Paint
+      yield* print(
+        separated([
+          [
+            opener(paint, repo, number, head, `squash-merged into ${view.baseRefName}, and ${view.headRefName} deleted`)
+          ],
+          [`The squash subject is the pull request title: ${paint.dim(view.title)}`]
+        ])
       )
-      yield* Console.log(`The squash subject is the pull request title: ${view.title}`)
 
       // The one moment the tool knows a pull request is finished rather than
       // guessing it, so the records go here and nowhere else automatic.
       // The merge has happened by now, so a forget that fails says so beside it
       // rather than turning a landed pull request into a failed command.
-      yield* forgetting(repo, number, { deleted: view.headRefName }).pipe(
+      const forgot = yield* forgetting(repo, number, { deleted: view.headRefName }).pipe(
         Effect.catch((error) =>
-          Console.log(
-            `\nCould not forget ${repo}#${number}: ${error.message}. Run dw-mc forget ${number} to try again.`
-          )
+          Effect.succeed([
+            [`Could not forget ${repo}#${number}: ${error.message}. Run dw-mc forget ${number} to try again.`]
+          ])
         )
       )
+      yield* print(following(forgot))
     },
     Effect.catchTag(userFacing, asUserError)
   )

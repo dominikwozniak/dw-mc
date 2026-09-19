@@ -21,6 +21,7 @@ import {
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { prKey, remembered, storeFor } from "#adapters/store.ts"
+import { block, following, print } from "#cli/block.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { count } from "#cli/table.ts"
 import { acknowledgedAt } from "#domain/acknowledgement.ts"
@@ -304,9 +305,12 @@ export const printLeftOut = Effect.fn("sweep.printLeftOut")(function* (report: R
   if (report.leftOut === 0) {
     return
   }
-  yield* Console.log("")
-  yield* Console.log(
-    `Only ${report.repos.join(", ")}. --all covers all ${report.repos.length + report.leftOut} registered repositories.`
+  yield* print(
+    following([
+      [
+        `Only ${report.repos.join(", ")}. --all covers all ${report.repos.length + report.leftOut} registered repositories.`
+      ]
+    ])
   )
 })
 
@@ -315,11 +319,14 @@ export const printTroubles = Effect.fn("sweep.printTroubles")(function* (trouble
   if (troubles.length === 0) {
     return
   }
-  yield* Console.log("")
-  yield* Console.log("Could not load")
-  for (const trouble of troubles) {
-    yield* Console.log(`  ${trouble.where}  ${trouble.detail}`)
-  }
+  yield* print(
+    following([
+      block(
+        "Could not load",
+        troubles.map((trouble) => `${trouble.where}  ${trouble.detail}`)
+      )
+    ])
+  )
 })
 
 /**
