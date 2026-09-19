@@ -1,6 +1,6 @@
 # dw-mc
 
-A local CLI that keeps the state of my open pull requests on disk, reads GitHub through `gh`, runs code reviews through local agent CLIs, and shows what every PR waits on.
+A local CLI that keeps the state of my open pull requests on disk, reads GitHub through `gh`, runs code reviews through the local Claude Code, and shows what every PR waits on.
 
 `CONTEXT.md` is the glossary; use its terms verbatim, and every entry's _Avoid_ line names the synonyms
 this repo does not use, so a review reads them as a checklist against the diff. `docs/adr/` holds the

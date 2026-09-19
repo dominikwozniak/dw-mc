@@ -17,7 +17,7 @@ If either is missing, **proceed silently**. Don't flag the absence; don't sugges
 ├── docs/adr/
 │   ├── 0001-local-first.md
 │   ├── 0002-github-write-boundary.md
-│   └── 0003-own-public-repository.md
+│   └── …
 └── src/
 ```
 
