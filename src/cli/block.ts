@@ -63,12 +63,13 @@ export interface Moved {
  * The line a report on one pull request opens on: which one, at which head,
  * and what happened to it. The head is context, so it is dim.
  */
-export const opener = (paint: Paint, repo: string, number: number, head: string | Moved, what: string): string =>
-  `${repo}#${number}  ${
+export const opener = (paint: Paint, repo: string, number: number, head: string | Moved, what: string): string => {
+  const at =
     typeof head === "string"
       ? paint.dim(short(head))
       : `${paint.dim(short(head.before))} → ${paint.dim(short(head.after))}`
-  }  ${what}`
+  return `${repo}#${number}  ${at}  ${what}`
+}
 
 /** The files a rebase stopped on, under their count, or nothing where none is known. */
 export const stoppedOn = (paint: Paint, paths: ReadonlyArray<string>): ReadonlyArray<string> =>

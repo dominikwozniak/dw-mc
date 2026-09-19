@@ -117,10 +117,8 @@ const keysOnDisk = (directory: string) =>
   )
 
 /** Every key the state directory holds. */
-export const allKeys: Effect.Effect<ReadonlyArray<string>, KeyValueStore.KeyValueStoreError, Keys> = Effect.gen(
-  function* () {
-    return yield* (yield* Keys).all
-  }
+export const allKeys: Effect.Effect<ReadonlyArray<string>, KeyValueStore.KeyValueStoreError, Keys> = Keys.use(
+  (keys) => keys.all
 )
 
 /** The state directory on disk. */

@@ -72,6 +72,13 @@ const review: Record<ReviewDecision, string> = {
   none: "no review decision"
 }
 
+const draftMoved = (then: Said, now: Said): string | null => {
+  if (then.draft === now.draft) {
+    return null
+  }
+  return now.draft ? "back to draft" : "out of draft"
+}
+
 /**
  * The facts that moved between two sightings, said the way the row would say them.
  *
@@ -92,7 +99,7 @@ const moved = (then: Said, now: Said): ReadonlyArray<string> =>
       ? `${then.blockingFindings} → ${now.blockingFindings} blocking findings`
       : null,
     isAfter(now.newestHumanCommentAt, then.newestHumanCommentAt) ? "a new comment" : null,
-    then.draft !== now.draft ? (now.draft ? "back to draft" : "out of draft") : null
+    draftMoved(then, now)
   ].filter((it) => it !== null)
 
 /**

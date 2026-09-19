@@ -22,7 +22,6 @@ export const forgetting = Effect.fn("forgetting")(function* (
   number: number,
   options: { readonly deleted?: string | undefined } = {}
 ) {
-  const deleted = options.deleted
   const path = yield* Path.Path
   const paint = yield* Paint
   const where = `${repo}#${number}`
@@ -36,11 +35,11 @@ export const forgetting = Effect.fn("forgetting")(function* (
     return [forgotten]
   }
 
+  const tracked = options.deleted === undefined ? "" : `, which tracked ${options.deleted} - deleted with the merge`
   const rows = table(
     sessions.map((it) => [
       paint.dim(path.relative(found.directory, it.directory)),
-      `a ${sessionName(it.session)} session's worktree, on ${sessionBranch(it.session, number)}` +
-        (deleted === undefined ? "" : `, which tracked ${deleted} - deleted with the merge`)
+      `a ${sessionName(it.session)} session's worktree, on ${sessionBranch(it.session, number)}${tracked}`
     ])
   )
   return [forgotten, block("Stays", rows), ["What you committed there is yours, so nothing here takes it down."]]
