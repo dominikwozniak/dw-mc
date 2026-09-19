@@ -1,5 +1,11 @@
 # dw-mc
 
+## 0.8.1
+
+### Patch Changes
+
+- 6185da2: `dw-mc forget <pr>` answers a configuration file it cannot read the way every other command does: one sentence naming the file and the key that is wrong, instead of an error with a stack trace.
+
 ## 0.8.0
 
 ### Minor Changes
