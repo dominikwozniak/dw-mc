@@ -1,6 +1,6 @@
 {
   "*.ts": [
-    "oxlint --disable-nested-config --no-error-on-unmatched-pattern --fix",
+    "oxlint --disable-nested-config --deny-warnings --no-error-on-unmatched-pattern --fix",
     "oxfmt --disable-nested-config --no-error-on-unmatched-pattern"
   ],
   "*.{json,jsonc,md,yaml,yml}": "oxfmt --disable-nested-config --no-error-on-unmatched-pattern"
