@@ -4,11 +4,7 @@
 
 <h1 align="center">dw-mc</h1>
 
-<p align="center"><strong>A local CLI for tracking and reviewing your open pull requests.</strong></p>
-
-<p align="center">
-  See what each pull request is waiting on and what you can do next.
-</p>
+<p align="center"><strong>A local CLI for keeping track of your open pull requests.</strong></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/dw-mc"><img src="https://img.shields.io/npm/v/dw-mc.svg?color=0891b2" alt="npm version"></a>
@@ -19,12 +15,12 @@
 
 ![Pull requests flowing through the local dw-mc terminal into four action buckets](docs/assets/dw-mc-hero.png)
 
-`dw-mc` reads GitHub through your own `gh`, runs code reviews with the Claude Code already on your machine, and puts each pull request in one bucket based on what it waits on. It has no server, GitHub App or webhooks.
+`dw-mc` tracks open pull requests you authored. It reads GitHub through your authenticated `gh`, runs code reviews with Claude Code, and puts each pull request in exactly one bucket. It has no server, GitHub App or webhooks.
 
 - **One bucket per pull request** — _Needs me_, _Needs review run_, _Waiting on others_ or _Ready_.
-- **Local code reviews** — run `/code-review`, your own review brief or both in a throwaway worktree.
-- **State in plain files** — configuration, records and review reports use XDG paths.
-- **Picker or commands** — use the interactive picker or run every command directly.
+- **Local code reviews** — use `/code-review`, your own instructions or both.
+- **Plain-file state** — configuration, records and review reports live under XDG paths.
+- **Picker and commands** — the picker runs the same commands you can run directly.
 
 ## Example
 
@@ -52,53 +48,57 @@ Ready
 pnpm add -g dw-mc
 ```
 
-To look before installing, `pnpm dlx dw-mc --help` runs the same binary from a throwaway copy.
+To try it without installing:
+
+```sh
+pnpm dlx dw-mc --help
+```
 
 ### Requirements
 
 - Node 24 or newer
 - [`gh`](https://cli.github.com), authenticated: `gh auth login`
 - `git`
-- [Claude Code](https://claude.com/claude-code) as `claude`, for review runs and the sessions they open
+- [Claude Code](https://claude.com/claude-code) available as `claude`
 
 ## Quick start
 
 ```sh
-dw-mc init      # once on the machine, then once inside each repository you want followed
-dw-mc           # the picker: every tracked PR under its bucket, and the commands that move it
-dw-mc review 62 # or drive any command straight
+dw-mc init      # set up dw-mc and register the current repository
+dw-mc           # open the picker
+dw-mc review 62 # review a pull request directly
 ```
 
-`init` asks nothing: it writes the defaults to one file you can keep in your dotfiles, and what a review opens on is two keys in it — `review.command` and `review.prompt`.
+`dw-mc init` is noninteractive. On its first run it creates the default configuration, then registers the repository you are in. Review behaviour is controlled by `review.command` and `review.prompt`.
 
-Every command that takes a pull request takes it as `62` inside the repository, or as `owner/name#62` from anywhere.
+Commands accept a pull request as `62` inside its repository or as `owner/name#62` from anywhere.
 
 ## Commands
 
-| Command               | Flags                                                                                        | What it does                                                                                               |
-| --------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `dw-mc`               | —                                                                                            | Opens the picker: every tracked pull request under its bucket, and what moves the one you choose.          |
-| `dw-mc init`          | `--effort`, `--base`                                                                         | Sets this machine up and registers the repository you are in.                                              |
-| `dw-mc sweep`         | —                                                                                            | Refreshes what mission control knows about every tracked pull request. It only reads.                      |
-| `dw-mc status`        | `--json`                                                                                     | Shows which bucket every tracked pull request sits in, which ones you have stamped, and what moved.        |
-| `dw-mc comments <pr>` | `--all`, `--ack`                                                                             | Prints the conversation on a pull request, and with `--ack` records that nothing in it is yours to answer. |
-| `dw-mc review <pr>`   | `--command`, `--prompt`, `--effort`, `--model`, `--prompt-only`, `--command-only`, `--force` | Reviews one pull request on Claude Code, in a throwaway worktree.                                          |
-| `dw-mc findings <pr>` | `--json`                                                                                     | Prints what the current review run found.                                                                  |
-| `dw-mc fix <pr>`      | `--print`, `--commit`                                                                        | Opens a session on the findings you pick, in a worktree that outlives it.                                  |
-| `dw-mc stamp <pr>`    | `--withdraw`                                                                                 | Prints your stamp on a pull request, or withdraws it by hand.                                              |
-| `dw-mc rebase <pr>`   | —                                                                                            | Rebases a branch onto its base and pushes it with a lease.                                                 |
-| `dw-mc resolve <pr>`  | `--print`                                                                                    | Opens a session on the conflict that stopped a rebase.                                                     |
-| `dw-mc rerun <pr>`    | —                                                                                            | Runs a flaky red CI again, once per head.                                                                  |
-| `dw-mc merge <pr>`    | —                                                                                            | Squash-merges a Ready, stamped pull request of yours, deletes its branch and forgets it.                   |
-| `dw-mc forget <pr>`   | —                                                                                            | Forgets everything kept about a pull request that closed another way.                                      |
-| `dw-mc cleanup`       | `--yes`                                                                                      | Takes back the disk spent on clones and review worktrees, and keeps everything you decided.                |
-| `dw-mc uninstall`     | `--config`, `--force`, `--yes`                                                               | Removes everything the tool wrote on this machine, and says how to remove the binary.                      |
+| Command               | What it does                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `dw-mc`               | Opens the picker with every tracked PR and its available actions.                      |
+| `dw-mc init`          | Sets up this machine and registers the current repository.                             |
+| `dw-mc sweep`         | Reads GitHub and updates the local record for every tracked PR.                        |
+| `dw-mc status`        | Shows each tracked PR's bucket, stamp and changes since it was last shown.             |
+| `dw-mc comments <pr>` | Prints the conversation or records your acknowledgement.                               |
+| `dw-mc review <pr>`   | Reviews a pull request with Claude Code in a throwaway worktree.                       |
+| `dw-mc findings <pr>` | Prints the findings from the current review run.                                       |
+| `dw-mc fix <pr>`      | Opens a fix session for selected findings.                                             |
+| `dw-mc stamp <pr>`    | Prints or withdraws your local stamp.                                                  |
+| `dw-mc rebase <pr>`   | Rebases a branch onto its base and pushes it with a lease.                             |
+| `dw-mc resolve <pr>`  | Opens a resolve session for a conflicted rebase.                                       |
+| `dw-mc rerun <pr>`    | Runs a flaky failure again, once per head.                                             |
+| `dw-mc merge <pr>`    | Squash-merges a Ready, stamped pull request, deletes its branch and forgets it.        |
+| `dw-mc forget <pr>`   | Forgets a pull request that closed another way.                                        |
+| `dw-mc cleanup`       | Removes clones and completed review worktrees while keeping configuration and records. |
+| `dw-mc uninstall`     | Removes the state written by `dw-mc` and explains how to remove the binary.            |
 
-`dw-mc <command> --help` prints the flags and what each one is worth.
+Run `dw-mc <command> --help` for command options.
 
 ## How it works
 
-A **bucket** is the one place a pull request sits at a time, named for what it waits on. The rules are tried in order and the first that claims the pull request wins, so a pull request that both needs a review run and has changes requested is yours to move, not the review's.
+Each tracked PR is in exactly one **bucket**, named for what it waits on. Bucket rules run in order and the first match wins. For example, a pull request with changes requested goes to Needs me even if it also needs a review run.
 
 | Bucket            | Marker | It waits on                                                                             |
 | ----------------- | ------ | --------------------------------------------------------------------------------------- |
@@ -107,9 +107,9 @@ A **bucket** is the one place a pull request sits at a time, named for what it w
 | Waiting on others | `○`    | A reviewer who has not answered, or CI that is still running.                           |
 | Ready             | `◆`    | Nothing.                                                                                |
 
-A **stamp** is your own mark that a pull request has passed your bar. It lives on this machine and is never a GitHub approval — but `dw-mc merge` reads it, so a pull request you have not stamped does not merge.
+A **stamp** is your local mark that a pull request has passed your bar. It is not a GitHub approval, but `dw-mc merge` requires it.
 
-A review run works in a worktree that is thrown away when the run ends. The worktree a `fix` or `resolve` session opens is left standing, on a branch of the tool's own, because the work you commit in it is yours.
+A review run uses a throwaway worktree. A fix or resolve session leaves its worktree in place because the changes in it are yours.
 
 Every other word this tool uses is defined in [`CONTEXT.md`](./CONTEXT.md), and the decisions behind them in [`docs/adr/`](./docs/adr).
 
@@ -118,7 +118,7 @@ Every other word this tool uses is defined in [`CONTEXT.md`](./CONTEXT.md), and 
 - Configuration: `$XDG_CONFIG_HOME/dw-mc/config.yaml`, or `~/.config/dw-mc/config.yaml`
 - State, including the worktrees: `$XDG_STATE_HOME/dw-mc`, or `~/.local/state/dw-mc`
 
-`init` writes the file, and every key in it is optional: what it leaves out is inherited rather than reset, and `repos` overrides `defaults` in the same shape.
+`dw-mc init` writes the configuration file. Every key is optional, and entries under `repos` override `defaults` using the same shape.
 
 ```yaml
 launcher:
@@ -148,21 +148,21 @@ repos:
 
 ## Uninstall
 
-Removing the package removes the binary and nothing else — a package manager runs no uninstall script, so the two directories above would stay where they are. The tool takes them back itself.
+A package manager removes only the binary. Use the commands below to remove state created by `dw-mc`:
 
 ```sh
-dw-mc cleanup   # the bare clones and the worktrees a review run left: disk the tool spends on itself
-dw-mc uninstall # every record, report, clone and worktree
+dw-mc cleanup   # remove clones and completed review worktrees
+dw-mc uninstall # remove dw-mc state
 pnpm remove -g dw-mc
 ```
 
-Both print what they would take, with its weight, and ask before taking it; `--yes` answers for a machine with no terminal. `cleanup` keeps your configuration and every record, and keeps the clone of a repository a `fix` or `resolve` session still stands on, because that session's history lives inside it. `uninstall` keeps the configuration file too unless `--config` asks for it. A worktree a `fix` or `resolve` session left standing is yours: `cleanup` never touches one, and `uninstall` names what it still holds — uncommitted changes, or a commit your pull request's head does not have — and removes nothing until `--force`.
-
-Neither forgets a pull request's records; being done is what does that. `dw-mc merge` forgets the pull request it merged, and `dw-mc forget <pr>` forgets one that closed another way. A sweep never forgets anything, because a pull request missing from one search is not one that is gone. A `fix` or `resolve` session's worktree survives both, and is named.
+- `cleanup` keeps configuration and records. It never removes a fix or resolve worktree, or the clone that worktree uses.
+- `uninstall` keeps the configuration file unless you pass `--config`. It refuses to remove a fix or resolve worktree with uncommitted changes or commits missing from the pull request's head unless you also pass `--force`.
+- Both commands show what they will remove and ask for confirmation. Pass `--yes` when no terminal is available.
 
 ## Agent skill
 
-An agent session can reach mission control's state through the `/dw-mc` skill, which lives in this repository and calls the CLI and nothing else:
+Install the bundled `/dw-mc` skill to let an agent session read mission control through the CLI:
 
 ```sh
 pnpm dlx skills@latest add dominikwozniak/dw-mc
@@ -175,7 +175,7 @@ pnpm install
 pnpm check # lint, format, typecheck, test, build — the whole gate, and what CI runs
 ```
 
-Work lands on `main` through a pull request, on a branch named `type/<issue>-subject`, squash-merged under a [Conventional Commits](https://www.conventionalcommits.org) title. [`CONTRIBUTING.md`](./CONTRIBUTING.md) has the rest: what is worth an issue first, the layers a module belongs to, and when a change carries a changeset. Everyone taking part is held to the [Code of Conduct](./CODE_OF_CONDUCT.md).
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the development workflow, source layout and changeset policy. Contributions follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 Found a security issue? Do not open an issue — [`SECURITY.md`](./SECURITY.md) says how to report it privately.
 
