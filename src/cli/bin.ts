@@ -12,11 +12,15 @@ import * as Header from "#cli/header.ts"
 
 // Both stores are built here, for the whole CLI rather than for `init` alone:
 // the filesystem store makes its directory as its layer is built, so any run of
-// dw-mc leaves the state and configuration directories behind it.
+// dw-mc leaves the state and configuration directories behind it. The header
+// reads the configuration for the help screen, so it stands on the one store.
 dwMc.pipe(
   Command.run({ version }),
   Effect.provide(
-    Layer.provideMerge(Layer.mergeAll(ConfigStore.layer, Store.layer, Header.layer, Paint.layer), NodeServices.layer)
+    Layer.provideMerge(
+      Layer.mergeAll(Layer.provideMerge(Header.layer, ConfigStore.layer), Store.layer, Paint.layer),
+      NodeServices.layer
+    )
   ),
   NodeRuntime.runMain
 )

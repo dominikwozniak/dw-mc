@@ -23,5 +23,7 @@ would rewrite a file I keep in my dotfiles, without asking, to save me one edit.
   edit to make. Under `0.x` that is a minor, because `major` would publish `1.0.0`.
 - `legacyIn` has to be kept honest by hand: a key removed later and not added to it fails with the
   generic error, which is correct but says less.
+- `dw-mc --help` is the one screen that keeps going on such a file. It runs nothing under the settings,
+  so it says only that the file cannot be read and names its path; every other command prints why.
 - The same rule does not hold for the state directory. State is a cache of work that can be done again,
   so a record this version cannot read is forgotten rather than fatal, and the cost is one re-review.

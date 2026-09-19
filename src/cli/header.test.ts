@@ -2,16 +2,22 @@ import { assert, describe, it } from "@effect/vitest"
 import { ConfigProvider, Effect, FileSystem, Layer, Path, Stdio } from "effect"
 
 import { ConfigStore } from "#adapters/config.ts"
+import { coloured } from "#adapters/paint.ts"
 import { layerScripted, recording } from "#adapters/picker.ts"
 import { layerStubbed } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
 import { projectUrl, run, version } from "#cli/cli.ts"
 import * as Header from "#cli/header.ts"
 
-/** The machine a help screen is printed on: a terminal or a pipe, with or without `NO_COLOR`. */
+/**
+ * The machine a help screen is printed on: a terminal or a pipe, with or
+ * without `NO_COLOR`, and set up or not.
+ */
 interface Machine {
   readonly terminal?: boolean | undefined
   readonly env?: Record<string, string> | undefined
+  /** What `config.yaml` says, where this machine has one. */
+  readonly config?: string | undefined
 }
 
 /**
@@ -29,12 +35,16 @@ const screen = Effect.fnUntraced(function* (argv: ReadonlyArray<string>, machine
   // The stack is assembled here rather than taken from `machineOf`, because
   // this is not a command running: it is the help screen, which needs the
   // header's formatter and a stdout that says whether it is a terminal.
-  yield* run(...argv).pipe(
-    Effect.ignoreCause,
-    recording(printed),
+  yield* Effect.gen(function* () {
+    if (machine.config !== undefined) {
+      const config = yield* ConfigStore
+      yield* config.store.set("config.yaml", machine.config)
+    }
+    yield* run(...argv).pipe(Effect.ignoreCause, recording(printed))
+  }).pipe(
     Effect.provide(
       Layer.provideMerge(
-        Layer.mergeAll(ConfigStore.layerTest, Store.layerTest, Header.layer),
+        Layer.mergeAll(Layer.provideMerge(Header.layer, ConfigStore.layerTest), Store.layerTest),
         Layer.mergeAll(
           ConfigProvider.layer(ConfigProvider.fromEnvRecord({ HOME: "/home/dw", ...machine.env })),
           FileSystem.layerNoop({}),
@@ -152,6 +162,87 @@ describe("the header", () => {
       const lines = yield* screen(["--help"], { terminal: true, env: { NO_COLOR: "1" } })
 
       assert.notInclude(lines.join("\n"), "\u001b[", "NO_COLOR is honoured")
+    })
+  )
+})
+
+describe("what the root help screen says about this machine", () => {
+  const three = "repos:\n  a/one: {}\n  a/two: {}\n  a/three: {}\n"
+
+  /** The header's lines that name this machine's setup, by their label. */
+  const naming = /^(config|state) /
+  const setup = (lines: ReadonlyArray<string>) => above(lines).filter((line) => naming.test(line))
+
+  it.effect("names the configuration, what it registers, and the state directory under the logo", () =>
+    Effect.gen(function* () {
+      const lines = yield* screen(["--help"], { config: three })
+
+      assert.deepStrictEqual(setup(lines), [
+        "config  ~/.config/dw-mc/config.yaml   3 repositories registered",
+        "state   ~/.local/state/dw-mc"
+      ])
+    })
+  )
+
+  it.effect("names the directories XDG points at", () =>
+    Effect.gen(function* () {
+      const lines = yield* screen(["--help"], {
+        config: "repos:\n  a/one: {}\n",
+        env: { XDG_CONFIG_HOME: "/etc/xdg", XDG_STATE_HOME: "/var/state" }
+      })
+
+      assert.deepStrictEqual(setup(lines), [
+        "config  /etc/xdg/dw-mc/config.yaml   1 repository registered",
+        "state   /var/state/dw-mc"
+      ])
+    })
+  )
+
+  it.effect("dims the paths on a terminal and colours nothing by state", () =>
+    Effect.gen(function* () {
+      const lines = yield* screen(["--help"], { config: three, terminal: true })
+      const config = lines.find((line) => line.startsWith("config")) ?? ""
+
+      assert.include(config, coloured.dim("~/.config/dw-mc/config.yaml"))
+      assert.include(config, "   3 repositories registered")
+      assert.notInclude(config.replace(coloured.dim("~/.config/dw-mc/config.yaml"), ""), "\u001b[")
+    })
+  )
+
+  it.effect("says a machine with no configuration is not set up, and how to set it up", () =>
+    Effect.gen(function* () {
+      const lines = yield* screen(["--help"])
+
+      assert.deepStrictEqual(setup(lines), [
+        "config  ~/.config/dw-mc/config.yaml   not set up - run dw-mc init",
+        "state   ~/.local/state/dw-mc"
+      ])
+      assert.include(lines, "SUBCOMMANDS")
+    })
+  )
+
+  it.effect("keeps the help screen when the configuration cannot be read, and says so", () =>
+    Effect.gen(function* () {
+      const lines = yield* screen(["--help"], { config: "repos:\n  a/one:\n    review:\n      skill: gone\n" })
+
+      assert.deepStrictEqual(setup(lines), [
+        "config  ~/.config/dw-mc/config.yaml   cannot be read - any other command says why",
+        "state   ~/.local/state/dw-mc"
+      ])
+      assert.include(lines, "SUBCOMMANDS")
+    })
+  )
+
+  it.effect("stays off --version, a subcommand's help and a failed parse", () =>
+    Effect.gen(function* () {
+      for (const argv of [["--version"], ["status", "--help"], ["bogus"]]) {
+        const lines = yield* screen(argv, { config: three })
+
+        assert.isFalse(
+          lines.some((line) => naming.test(line)),
+          `dw-mc ${argv.join(" ")} names nothing of this machine`
+        )
+      }
     })
   )
 })
