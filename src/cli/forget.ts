@@ -4,6 +4,7 @@ import { Command } from "effect/unstable/cli"
 import { Paint } from "#adapters/paint.ts"
 import { inventory, sessionBranch } from "#adapters/store.ts"
 import { block, print, separated } from "#cli/block.ts"
+import { asUserError } from "#cli/exit.ts"
 import { forPr, prArgument } from "#cli/pr.ts"
 import { count, table } from "#cli/table.ts"
 import { sessionName } from "#domain/cleanup.ts"
@@ -57,8 +58,11 @@ export const forgetting = Effect.fn("forgetting")(function* (
 export const forgetCommand = Command.make(
   "forget",
   { pr: prArgument },
-  Effect.fn("forget")(function* ({ pr }) {
-    const { number, repo } = yield* forPr(pr)
-    yield* print(separated(yield* forgetting(repo, number)))
-  })
+  Effect.fn("forget")(
+    function* ({ pr }) {
+      const { number, repo } = yield* forPr(pr)
+      yield* print(separated(yield* forgetting(repo, number)))
+    },
+    Effect.catchTag(["ConfigMalformed"], asUserError)
+  )
 ).pipe(Command.withDescription("Forget everything kept about a pull request that is done"))

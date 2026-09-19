@@ -4,7 +4,7 @@ import { Effect, FileSystem, Layer, Path } from "effect"
 import { KeyValueStore } from "effect/unstable/persistence"
 
 import type { ConfigFile } from "#adapters/config.ts"
-import { write } from "#adapters/config.ts"
+import { ConfigStore, write } from "#adapters/config.ts"
 import { recording } from "#adapters/picker.ts"
 import { layerStubbed, vectorOf } from "#adapters/spawner.ts"
 import * as Store from "#adapters/store.ts"
@@ -77,6 +77,23 @@ describe("dw-mc forget", () => {
 
       assert.deepStrictEqual(printed, [`Nothing is kept about ${repo}#28.`])
     }).pipe(Effect.provide(machine({ spawned })), recording(printed))
+  })
+
+  it.effect("stops on a configuration file that is there and is wrong, with what to fix", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const config = yield* ConfigStore
+      yield* config.store.set("config.yaml", "defaults:\n  review:\n    commnad: /code-review\n")
+      yield* keep(kept(28))
+
+      const error = yield* Effect.flip(run("forget", "28"))
+
+      assert.strictEqual(error._tag, "UserError")
+      assert.include(error.message, "/home/dw/.config/dw-mc/config.yaml")
+      assert.include(error.message, "commnad")
+      assert.deepStrictEqual(yield* held, kept(28).toSorted())
+    }).pipe(Effect.provide(machine({ spawned })), recording([]))
   })
 
   it.effect("leaves a session's worktree standing, and says it is there", () => {
