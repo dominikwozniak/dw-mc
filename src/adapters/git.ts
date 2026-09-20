@@ -40,13 +40,13 @@ export interface Worktree {
   readonly head: string
 }
 
-/** A fix worktree that still holds work of mine, which nothing may cut away. */
+/** A session's worktree that still holds work of mine, which nothing may cut away. */
 export class WorktreeHeld extends Schema.TaggedError<WorktreeHeld>()("WorktreeHeld", {
   directory: Schema.String,
   detail: Schema.String
 }) {
   override get message(): string {
-    return `${this.detail}\nThe fix worktree's directory is ${this.directory}.`
+    return `${this.detail}\nThat session's worktree is at ${this.directory}.`
   }
 }
 
@@ -233,7 +233,7 @@ export const standingWorktree = Effect.fn("git.standingWorktree")(function* (
     return yield* new WorktreeHeld({
       directory,
       detail:
-        `The last fix session on ${repo}#${number} left ${commits(ahead)} ` +
+        `The last ${session} session on ${repo}#${number} left ${commits(ahead)} ` +
         `that the pull request's head does not have. Push them or drop them before opening another session.`
     })
   }
