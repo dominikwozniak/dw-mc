@@ -14,6 +14,9 @@ const head = "284d599022a55d4dcae74b31b9a49a0f50061014"
 const rebased = "9f2b0c1d4e5a6b7c8d9e0f1a2b3c4d5e6f708192"
 const fetched = `-C ${clone} fetch --no-tags --force origin +refs/pull/28/head:refs/dw-mc/pr/28 +refs/heads/*:refs/heads/*`
 
+/** The branch each session stands on, which is what is asked how far it has gone. */
+const sessionBranches = ["refs/heads/dw-mc/fix/28", "refs/heads/dw-mc/rebase/28"]
+
 /** What the real `git` says, captured from `git` itself. */
 const said = {
   noRepository: `fatal: cannot change to '${clone}': No such file or directory\n`,
@@ -33,8 +36,9 @@ const git = (options: {
   /** The worktrees the clone already knows about. */
   readonly worktrees?: ReadonlyArray<string> | undefined
   /**
-   * How far the fix branch has gone past the head, where the clone has that
-   * branch at all. Left out, the branch is not there.
+   * How far the session's branch has gone past the head, where the clone has
+   * that branch at all. Left out, the branch is not there. It answers for
+   * either session, because the question is asked of whichever one stands.
    */
   readonly ahead?: number | undefined
   /** How many commits the base has that the pull request's head does not. */
@@ -57,19 +61,16 @@ const git = (options: {
         if (argv === `-C ${clone} rev-parse refs/dw-mc/pr/28`) {
           return wrote(`${head}\n`)
         }
-        if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/rebase/28`) {
-          return refused("")
-        }
         if (argv.endsWith("diff --cached --quiet")) {
           return options.staged === true ? refused("") : wrote("")
         }
         if (argv === `-C ${standing} diff --name-only --diff-filter=U`) {
           return wrote((options.unmerged ?? []).map((path) => `${path}\n`).join(""))
         }
-        if (argv === `-C ${clone} rev-parse --verify --quiet refs/heads/dw-mc/fix/28`) {
+        if (sessionBranches.some((ref) => argv === `-C ${clone} rev-parse --verify --quiet ${ref}`)) {
           return options.ahead === undefined ? refused("") : wrote(`${head}\n`)
         }
-        if (argv === `-C ${clone} rev-list --count refs/heads/dw-mc/fix/28 ^${head}`) {
+        if (sessionBranches.some((ref) => argv === `-C ${clone} rev-list --count ${ref} ^${head}`)) {
           return wrote(`${options.ahead ?? 0}\n`)
         }
         if (argv === `-C ${worktree} rev-list --count HEAD..refs/heads/main`) {
@@ -471,6 +472,21 @@ describe("a standing worktree for a session on a conflict", () => {
       assert.include(spawned, `git -C ${clone} config rerere.enabled true`)
       assert.include(spawned, `git -C ${clone} config rerere.autoUpdate true`)
     }).pipe(Effect.provide(machine(git({ spawned, cloned: true }))))
+  })
+
+  it.effect("says it is the session on a conflict that left the commits, and where they are", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      const error = yield* Effect.flip(standingWorktree("dominikwozniak/dw-mc", 28, "feat/28-a-branch", "rebase"))
+
+      if (error._tag !== "WorktreeHeld") {
+        return assert.fail(`expected a WorktreeHeld, got ${error._tag}`)
+      }
+      assert.include(error.message, "rebase session")
+      assert.notInclude(error.message, "fix session")
+      assert.include(error.message, standing)
+    }).pipe(Effect.provide(machine(git({ spawned, cloned: true, worktrees: [standing], ahead: 2 }))))
   })
 
   it.effect("leaves rerere alone for a fix session, which is about no conflict at all", () => {
