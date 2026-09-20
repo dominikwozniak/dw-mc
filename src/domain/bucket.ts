@@ -1,5 +1,6 @@
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
+import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import type { Moment } from "#domain/moment.ts"
 import { isAfter, later } from "#domain/moment.ts"
 import { ChecksState, Mergeability, ReviewDecision } from "#terms/pr.ts"
@@ -39,6 +40,26 @@ export const Facts = Schema.Struct({
   blockingFindings: Schema.Int
 })
 export type Facts = typeof Facts.Type
+
+/**
+ * What the last sweep recorded about a tracked PR, or none where nothing has
+ * swept it yet.
+ *
+ * It is here beside `Facts` rather than in the command that sweeps, because the
+ * sweep reads it to decide whether the PR is quiet and every other command
+ * reads it to act without asking GitHub again: two readers of one namespace
+ * have to spell the key the same way.
+ */
+export const factsFor = Effect.fn("bucket.factsFor")(function* (repo: string, number: number) {
+  const store = yield* storeFor("prs", Facts)
+  return yield* remembered(store.get(prKey(repo, number)))
+})
+
+/** Writes down what a sweep found about one tracked PR. */
+export const recordFacts = Effect.fn("bucket.recordFacts")(function* (facts: Facts) {
+  const store = yield* storeFor("prs", Facts)
+  yield* store.set(prKey(facts.repo, facts.number), facts)
+})
 
 /** The one place a tracked PR sits at a time, named for what it waits on. */
 export const Bucket = Schema.Literals(["needs-me", "needs-review-run", "waiting-on-others", "ready"])

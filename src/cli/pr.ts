@@ -3,8 +3,7 @@ import { Argument, CliError } from "effect/unstable/cli"
 
 import { launcherOf, readOrEmpty, registeredIn, settingsFor } from "#adapters/config.ts"
 import { beating } from "#adapters/heartbeat.ts"
-import { prKey, remembered, storeFor } from "#adapters/store.ts"
-import { Facts } from "#domain/bucket.ts"
+import { factsFor } from "#domain/bucket.ts"
 import type { Reference } from "#domain/reference.ts"
 import { resolve } from "#domain/reference.ts"
 import { lastRun } from "#domain/review.ts"
@@ -78,8 +77,7 @@ export const refuse = (why: string | null): Effect.Effect<void, CliError.UserErr
  * sentence, because a sweep can write them again either way.
  */
 export const swept = Effect.fn("pr.swept")(function* (repo: string, number: number) {
-  const store = yield* storeFor("prs", Facts)
-  const facts = yield* remembered(store.get(prKey(repo, number)))
+  const facts = yield* factsFor(repo, number)
   if (Option.isNone(facts)) {
     return yield* new CliError.UserError({
       cause: `Nothing is known about ${repo}#${number} yet. Run dw-mc sweep first.`
