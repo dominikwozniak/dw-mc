@@ -6,7 +6,7 @@ import { matchesGlob } from "node:path"
 
 import { DateTime, Effect, Option, Schema } from "effect"
 
-import { prKey, remembered, storeFor } from "#adapters/store.ts"
+import { prKey, remembered, storeFor, textStoreFor } from "#adapters/store.ts"
 import type { Findings } from "#domain/findings.ts"
 import { blocking, Finding, Verdict } from "#domain/findings.ts"
 import type { Severity } from "#terms/review.ts"
@@ -102,6 +102,24 @@ export const lastRun = Effect.fn("review.lastRun")(function* (repo: string, numb
   const heads = yield* storeFor("runs", LastReviewed)
   const at = yield* remembered(heads.get(latestKey(repo, number)))
   return Option.isNone(at) ? Option.none<ReviewRun>() : yield* runAt(repo, number, at.value.head)
+})
+
+/**
+ * Writes one review run down: the run itself, the head it was at, and its
+ * report as the Markdown a later reader gets.
+ *
+ * The three are one act and not three. A run recorded without its head leaves
+ * `lastRun` reading an index that points at nothing, and one recorded without
+ * its report leaves `dw-mc findings` a run it can name and cannot show.
+ */
+export const recordRun = Effect.fn("review.recordRun")(function* (run: ReviewRun, title: string, prose: string) {
+  const runs = yield* storeFor("runs", ReviewRun)
+  const heads = yield* storeFor("runs", LastReviewed)
+  const reports = yield* textStoreFor("runs")
+
+  yield* runs.set(runKey(run.repo, run.number, run.head), run)
+  yield* heads.set(latestKey(run.repo, run.number), { head: run.head })
+  yield* reports.set(reportKey(run.repo, run.number, run.head), reportDocument(run, title, prose))
 })
 
 /**
