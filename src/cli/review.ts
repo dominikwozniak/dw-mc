@@ -10,7 +10,7 @@ import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { announce } from "#adapters/notify.ts"
 import { Paint } from "#adapters/paint.ts"
-import { stateDirectory, storeFor, textStoreFor } from "#adapters/store.ts"
+import { stateDirectory } from "#adapters/store.ts"
 import { block, following, indent, print } from "#cli/block.ts"
 import { asUserError, userFacingAndGit } from "#cli/exit.ts"
 import { lines, summary } from "#cli/findings.ts"
@@ -19,20 +19,8 @@ import { count } from "#cli/table.ts"
 import { asMarkdown, jsonSchema, Reported } from "#domain/findings.ts"
 import type { Reviewing } from "#domain/persona.ts"
 import { turnFor } from "#domain/persona.ts"
-import type { Asked, Outcome } from "#domain/review.ts"
-import {
-  LastReviewed,
-  lastRun,
-  latestKey,
-  detailOf,
-  reportDocument,
-  reportedBy,
-  reportKey,
-  ReviewRun,
-  runKey,
-  short,
-  skippedSince
-} from "#domain/review.ts"
+import type { Asked, Outcome, ReviewRun } from "#domain/review.ts"
+import { detailOf, lastRun, recordRun, reportedBy, short, skippedSince } from "#domain/review.ts"
 import type { ReviewTurn } from "#terms/review.ts"
 import { Effort } from "#terms/review.ts"
 
@@ -328,10 +316,6 @@ export const review = Command.make(
         )
 
         const ranAt = yield* DateTime.now
-        const runs = yield* storeFor("runs", ReviewRun)
-        const latest = yield* storeFor("runs", LastReviewed)
-        const reports = yield* textStoreFor("runs")
-
         const got = ran.ran
         const run: ReviewRun = {
           repo,
@@ -343,9 +327,7 @@ export const review = Command.make(
           ranAt,
           outcome: got.outcome
         }
-        yield* runs.set(runKey(repo, number, run.head), run)
-        yield* latest.set(latestKey(repo, number), { head: run.head })
-        yield* reports.set(reportKey(repo, number, run.head), reportDocument(run, view.title, got.prose ?? ""))
+        yield* recordRun(run, view.title, got.prose ?? "")
 
         const detail = detailOf(run)
         const found = detail === null ? reportedBy(run) : null
