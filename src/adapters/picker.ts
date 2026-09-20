@@ -174,13 +174,14 @@ export const layerScripted = (
  * overridden this way, so this sets a reference rather than standing in for a
  * fourth seam.
  *
- * Errors are swallowed rather than collected: the CLI prints its own failures,
- * and a test that reads them reads the failure instead.
+ * What the CLI renders as a failure is kept only where a caller asks for it in
+ * `failures`. A test about what went wrong reads the error itself; the lines
+ * are for the test that counts how many times one reached the screen.
  */
-export const recording = (printed: Array<string>) => {
+export const recording = (printed: Array<string>, failures?: Array<string>) => {
   const console_: Console.Console = Object.assign(Object.create(console), {
     log: (...args: ReadonlyArray<unknown>) => printed.push(args.join(" ")),
-    error: () => {}
+    error: (...args: ReadonlyArray<unknown>) => failures?.push(args.join(" "))
   })
   return Effect.provideService(Console.Console, console_)
 }
