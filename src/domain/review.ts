@@ -4,11 +4,11 @@
 // oxlint-disable-next-line effecttsgo/node-builtin-import
 import { matchesGlob } from "node:path"
 
-import { DateTime, Effect, Option, Schema } from "effect"
+import { DateTime, Effect, Option, Result, Schema } from "effect"
 
 import { prKey, remembered, storeFor, textStoreFor } from "#adapters/store.ts"
 import type { Findings } from "#domain/findings.ts"
-import { blocking, Finding, Verdict } from "#domain/findings.ts"
+import { asMarkdown, blocking, Finding, Reported, Verdict } from "#domain/findings.ts"
 import type { Severity } from "#terms/review.ts"
 import { Effort } from "#terms/review.ts"
 
@@ -141,6 +141,62 @@ export const reportedBy = (run: ReviewRun): Findings | null =>
  * caller.
  */
 export const detailOf = (run: ReviewRun): string | null => (run.outcome._tag === "failed" ? run.outcome.detail : null)
+
+/**
+ * Everything the recording rule is allowed to know about a run that reached the
+ * agent: the session it happened in, what it said, and what it reported.
+ *
+ * The two ways the reporting ends badly arrive as one, because to this rule they
+ * are one: a turn that could not report and a turn that answered in a shape that
+ * does not validate have both found nothing. Which of the two it was is the
+ * adapter's business, and all the rule reads of it is what to write down.
+ */
+export interface Answered {
+  /** The session the run happened in. */
+  readonly sessionId: string
+  /** What the run said in prose, or null where a schema left it none to say. */
+  readonly prose: string | null
+  /** The findings as they weighed, or whatever stopped them weighing. */
+  readonly reported: Result.Result<typeof Reported.Type, { readonly message: string }>
+}
+
+/** What is written down about the review. */
+export interface Ran {
+  readonly sessionId: string | null
+  /** The prose the report document is written from, or null where there is none. */
+  readonly prose: string | null
+  readonly outcome: Outcome
+}
+
+/**
+ * What the review comes to on disk: the findings it reported, or the failure it
+ * reached instead.
+ *
+ * A run that would not start is as much a failure as a turn that answered in a
+ * shape that does not validate, and both are recorded: the head has been tried
+ * and nothing was found, which is not the same as nothing being wrong.
+ *
+ * It reads a run that never started as the `detail` it failed with, because that
+ * is the whole of what an outcome keeps about one. A rule holding an adapter's
+ * error would be the layer direction paid for one string.
+ */
+export const ranBy = (got: Result.Result<Answered, { readonly detail: string }>): Ran => {
+  if (Result.isFailure(got)) {
+    return { sessionId: null, prose: null, outcome: { _tag: "failed", detail: got.failure.detail } }
+  }
+  const { prose, reported, sessionId } = got.success
+  if (Result.isFailure(reported)) {
+    return { sessionId, prose, outcome: { _tag: "failed", detail: reported.failure.message } }
+  }
+  const found = reported.success
+  return {
+    sessionId,
+    // A run held to a schema answers in findings and not in prose, so the report
+    // kept beside it is written from what it found.
+    prose: prose ?? asMarkdown(found),
+    outcome: { _tag: "reported", verdict: found.verdict, findings: found.findings }
+  }
+}
 
 /**
  * Whether the files changed since the last run are worth paying for another.
