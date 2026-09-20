@@ -1,11 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime } from "effect"
+import { DateTime, Result } from "effect"
 
 import { builtIn } from "#adapters/config.ts"
-import type { ReviewRun } from "#domain/review.ts"
+import type { Answered, ReviewRun } from "#domain/review.ts"
 import {
   blockingIn,
   latestKey,
+  ranBy,
   reportDocument,
   reportedBy,
   reportKey,
@@ -105,6 +106,56 @@ describe("what a run reported", () => {
 
   it("is nothing at all for a run that failed, which is not a clean verdict", () => {
     assert.strictEqual(reportedBy({ ...run, outcome: { _tag: "failed", detail: "it exited 1" } }), null)
+  })
+})
+
+describe("what the review comes to on disk", () => {
+  const session = "d111a7b1-a1ef-45e5-a160-68ca50a65260"
+  const found = {
+    verdict: "findings",
+    findings: [{ file: "src/cli/review.ts", line: 88, severity: "error", summary: "The run is never recorded." }]
+  } as const
+  const answered = (reported: Answered["reported"], prose: string | null): Answered => ({
+    sessionId: session,
+    prose,
+    reported
+  })
+
+  it("records a run that never started as the failure it is", () => {
+    assert.deepStrictEqual(ranBy(Result.fail({ detail: "claude exited 1" })), {
+      sessionId: null,
+      prose: null,
+      outcome: { _tag: "failed", detail: "claude exited 1" }
+    })
+  })
+
+  it("records a run that answered in a shape that does not validate as the same kind of failure", () => {
+    const ran = ranBy(Result.succeed(answered(Result.fail({ message: "severity: unknown word" }), "I read the diff.")))
+
+    assert.deepStrictEqual(ran.outcome, { _tag: "failed", detail: "severity: unknown word" })
+  })
+
+  it("keeps the session and the prose of a run whose reporting failed, which happened all the same", () => {
+    const ran = ranBy(Result.succeed(answered(Result.fail({ message: "it never answered" }), "I read the diff.")))
+
+    assert.strictEqual(ran.sessionId, session)
+    assert.strictEqual(ran.prose, "I read the diff.")
+  })
+
+  it("records the verdict and the findings of a run that reported", () => {
+    const ran = ranBy(Result.succeed(answered(Result.succeed(found), "I read the diff.")))
+
+    assert.deepStrictEqual(ran, {
+      sessionId: session,
+      prose: "I read the diff.",
+      outcome: { _tag: "reported", verdict: found.verdict, findings: found.findings }
+    })
+  })
+
+  it("writes the report from what a run found, where a schema left it no prose to say", () => {
+    const ran = ranBy(Result.succeed(answered(Result.succeed(found), null)))
+
+    assert.strictEqual(ran.prose, "- `src/cli/review.ts:88` error: The run is never recorded.")
   })
 })
 

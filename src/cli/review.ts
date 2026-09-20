@@ -1,7 +1,6 @@
 import { DateTime, Effect, Exit, Option, Result, Schema } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
 
-import type { AgentFailed } from "#adapters/agent.ts"
 import { reviewTurns } from "#adapters/claude.ts"
 import type { Launcher, Settings } from "#adapters/config.ts"
 import { comparedFiles, prView } from "#adapters/gh.ts"
@@ -16,11 +15,11 @@ import { asUserError, userFacingAndGit } from "#cli/exit.ts"
 import { lines, summary } from "#cli/findings.ts"
 import { forPr, prArgument } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
-import { asMarkdown, jsonSchema, Reported } from "#domain/findings.ts"
+import { jsonSchema, Reported } from "#domain/findings.ts"
 import type { Reviewing } from "#domain/persona.ts"
 import { turnFor } from "#domain/persona.ts"
-import type { Asked, Outcome, ReviewRun } from "#domain/review.ts"
-import { detailOf, lastRun, recordRun, reportedBy, short, skippedSince } from "#domain/review.ts"
+import type { Answered, Asked, ReviewRun } from "#domain/review.ts"
+import { detailOf, lastRun, ranBy, recordRun, reportedBy, short, skippedSince } from "#domain/review.ts"
 import type { ReviewTurn } from "#terms/review.ts"
 import { Effort } from "#terms/review.ts"
 
@@ -132,28 +131,6 @@ const spending = (turn: ReviewTurn, model: string | null): string =>
     .filter((part) => part !== null)
     .join(", ")
 
-/** What the review came back with, as far as the adapter itself gets. */
-interface Reviewed {
-  /** The session the run happened in. */
-  readonly sessionId: string
-  /** What the run said in prose, or null where a schema left it none to say. */
-  readonly prose: string | null
-  /**
-   * The findings as they weighed, or whatever stopped them weighing: a turn
-   * that could not report, and a turn that answered in a shape that does not
-   * validate, are the same kind of failure of the same run.
-   */
-  readonly reported: Result.Result<typeof Reported.Type, { readonly message: string }>
-}
-
-/** What is written down about the review. */
-interface Ran {
-  readonly sessionId: string | null
-  /** The prose the report document is written from, or null where there is none. */
-  readonly prose: string | null
-  readonly outcome: Outcome
-}
-
 /**
  * The review of the head in the worktree.
  *
@@ -185,43 +162,16 @@ const reviewOn = Effect.fn("review.reviewOn")(function* (options: {
       }
     })
   )
-  // Both halves answer `message`, which is all `ranBy` reads: a turn that could
-  // not report and a turn that answered in a shape that does not validate are
-  // the same kind of failure of the same run.
+  // Both halves answer `message`, which is the one shape `Answered` takes: what
+  // the rule makes of the two is its own, and is written down there.
   const answered: Effect.Effect<unknown, { readonly message: string }> = Result.isFailure(run.findings)
     ? Effect.fail(run.findings.failure)
     : Effect.succeed(run.findings.success)
   const reported = yield* Effect.result(
     Effect.flatMap(answered, (output) => Schema.decodeUnknownEffect(Reported)(output))
   )
-  return { sessionId: run.sessionId, prose: run.prose, reported } satisfies Reviewed
+  return { sessionId: run.sessionId, prose: run.prose, reported } satisfies Answered
 })
-
-/**
- * What the review comes to on disk: the findings it reported, or the failure it
- * reached instead.
- *
- * A run that would not start is as much a failure as a turn that answered in a
- * shape that does not validate, and both are recorded: the head has been tried
- * and nothing was found, which is not the same as nothing being wrong.
- */
-const ranBy = (got: Result.Result<Reviewed, AgentFailed>): Ran => {
-  if (Result.isFailure(got)) {
-    return { sessionId: null, prose: null, outcome: { _tag: "failed", detail: got.failure.detail } }
-  }
-  const { prose, reported, sessionId } = got.success
-  if (Result.isFailure(reported)) {
-    return { sessionId, prose, outcome: { _tag: "failed", detail: reported.failure.message } }
-  }
-  const found = reported.success
-  return {
-    sessionId,
-    // A run held to a schema answers in findings and not in prose, so the report
-    // kept beside it is written from what it found.
-    prose: prose ?? asMarkdown(found),
-    outcome: { _tag: "reported", verdict: found.verdict, findings: found.findings }
-  }
-}
 
 /**
  * The command's own failure where the review reported nothing.
