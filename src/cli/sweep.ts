@@ -1,7 +1,6 @@
 import type { DateTime } from "effect"
 import { Console, Effect, Option } from "effect"
 import { CliError, Command, Flag } from "effect/unstable/cli"
-import type { KeyValueStore } from "effect/unstable/persistence"
 
 import { rollupState } from "#adapters/ci.ts"
 import type { Settings } from "#adapters/config.ts"
@@ -20,13 +19,12 @@ import {
 } from "#adapters/gh.ts"
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
-import { prKey, remembered, storeFor } from "#adapters/store.ts"
 import { block, following, print } from "#cli/block.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { count } from "#cli/table.ts"
 import { acknowledgedAt } from "#domain/acknowledgement.ts"
 import type { Facts } from "#domain/bucket.ts"
-import { Facts as FactsSchema } from "#domain/bucket.ts"
+import { factsFor, recordFacts } from "#domain/bucket.ts"
 import type { Asked } from "#domain/coverage.ts"
 import { asksWhereIAm, covered } from "#domain/coverage.ts"
 import { flakyReason } from "#domain/flaky.ts"
@@ -60,8 +58,6 @@ const whereIAm = currentRepo.pipe(
   Effect.map(Option.getOrUndefined)
 )
 
-type Store = KeyValueStore.SchemaStore<typeof FactsSchema>
-
 const writtenBy = (comments: ReadonlyArray<Comment>, login: string): ReadonlyArray<DateTime.Utc> =>
   comments.filter((comment) => comment.login === login).map((comment) => comment.at)
 
@@ -76,7 +72,7 @@ const byHumansOtherThan = (comments: ReadonlyArray<Comment>, login: string): Rea
  * message in full, and on a PR that is where the last sweep left it that whole
  * read buys a timestamp the state directory already has.
  */
-const sweepPr = Effect.fn("sweep.sweepPr")(function* (store: Store, me: string, found: Found, settings: Settings) {
+const sweepPr = Effect.fn("sweep.sweepPr")(function* (me: string, found: Found, settings: Settings) {
   const view = yield* prView(found.repo, found.number)
   const [onThePr, inReviews] = yield* Effect.all(
     [prComments(found.repo, found.number), prReviews(found.repo, found.number)],
@@ -87,10 +83,9 @@ const sweepPr = Effect.fn("sweep.sweepPr")(function* (store: Store, me: string, 
   const checks = rollupState(view.statusCheckRollup, settings.ci.ignore)
   const newestHumanCommentAt = newest(byHumansOtherThan(comments, me))
 
-  const key = prKey(found.repo, found.number)
   // Forgetting these costs a sweep the calls to read them again, where failing
   // here would cost the PR its row for good.
-  const previous = Option.getOrUndefined(yield* remembered(store.get(key)))
+  const previous = Option.getOrUndefined(yield* factsFor(found.repo, found.number))
   const reviewed = yield* reviewedAt(found.repo, found.number, view.headRefOid, settings.stamp.blocks_on)
   const quiet =
     previous !== undefined && isQuiet(pulseOf(previous), { head: view.headRefOid, checks, newestHumanCommentAt })
@@ -144,7 +139,7 @@ const sweepPr = Effect.fn("sweep.sweepPr")(function* (store: Store, me: string, 
     ...reviewed
   }
 
-  yield* store.set(key, facts)
+  yield* recordFacts(facts)
   return facts
 })
 
@@ -219,7 +214,6 @@ export const sweep = Effect.fn("sweep")(function* (asked: Asked, report: (swept:
     return { repos, leftOut, facts: [], troubles: [] } satisfies Report
   }
 
-  const store = yield* storeFor("prs", FactsSchema)
   const me = yield* viewer
 
   let searched = 0
@@ -245,7 +239,7 @@ export const sweep = Effect.fn("sweep")(function* (asked: Asked, report: (swept:
         Effect.tap(
           attempt(
             `${pr.repo}#${pr.number}`,
-            Effect.map(sweepPr(store, me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
+            Effect.map(sweepPr(me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
           ),
           () => {
             read = read + 1
