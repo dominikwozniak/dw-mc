@@ -63,10 +63,18 @@ const subcommands = [
  * parsed by the parser that would have parsed it. Dispatching into `dwMc`
  * itself would be the command referring to its own definition, and a picker
  * that reached its own root with no arguments would open a second picker.
+ *
+ * It renders no failure of its own. A run prints a `UserError` and hands it on,
+ * so the run standing outside this one prints the same sentence again; the
+ * screen belongs to the outer run, which is the one a typed command reaches.
  */
 const dispatcher = Command.make("dw-mc").pipe(Command.withSubcommands(subcommands))
 
-export const dwMc = Command.make("dw-mc", {}, picker(Command.runWith(dispatcher, { version }))).pipe(
+export const dwMc = Command.make(
+  "dw-mc",
+  {},
+  picker(Command.runWith(dispatcher, { version, renderErrors: false }))
+).pipe(
   Command.withDescription("Keeps the state of my open pull requests on disk and shows what every PR waits on"),
   Command.withSubcommands(subcommands)
 )

@@ -6,7 +6,7 @@ import { write } from "#adapters/config.ts"
 import { prViewOf } from "#adapters/gh.ts"
 import { coloured, Paint } from "#adapters/paint.ts"
 import { key, recording, typed } from "#adapters/picker.ts"
-import { json, layerStubbed, refused, vectorOf } from "#adapters/spawner.ts"
+import { json, layerStubbed, refused, vectorOf, wrote } from "#adapters/spawner.ts"
 import { storeFor } from "#adapters/store.ts"
 import { machineOf, run } from "#cli/cli.ts"
 import { picker } from "#cli/pick.ts"
@@ -45,8 +45,14 @@ const view = (pr: Fixture) =>
     ]
   })
 
-/** A `gh` that answers the reads a sweep makes, and dies on anything else. */
-const github = (prs: ReadonlyArray<Fixture>, spawned: Array<string>) =>
+/**
+ * A `gh` that answers the reads a sweep makes, and dies on anything else.
+ *
+ * `git` refuses where the test is about an action that cannot run, and the
+ * notification a command sends on its way out is answered wherever one is sent:
+ * a machine has a notifier whether or not the test is about what it says.
+ */
+const github = (prs: ReadonlyArray<Fixture>, spawned: Array<string>, git?: "refuses") =>
   layerStubbed({
     onSpawn: (command) => spawned.push(vectorOf(command)),
     stubs: [
@@ -74,7 +80,10 @@ const github = (prs: ReadonlyArray<Fixture>, spawned: Array<string>) =>
         }
         return json(view(pr))
       },
-      (_, argv) => (/^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)/.test(argv) ? json([]) : undefined)
+      (_, argv) => (/^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)/.test(argv) ? json([]) : undefined),
+      (command) =>
+        git === "refuses" && command.command === "git" ? refused("could not resolve host: github.com") : undefined,
+      (command) => (command.command === "osascript" ? wrote("") : undefined)
     ]
   })
 
@@ -85,12 +94,13 @@ const machine = (options: {
   readonly spawned?: Array<string> | undefined
   readonly drawn?: Array<string> | undefined
   readonly columns?: number | undefined
+  readonly git?: "refuses" | undefined
 }) =>
   machineOf({
     keys: options.keys,
     drawn: options.drawn,
     columns: options.columns,
-    spawner: github(options.prs, options.spawned ?? [])
+    spawner: github(options.prs, options.spawned ?? [], options.git)
   })
 
 const registered = (settings: ConfigFile["repos"] = { [repo]: {} }) => write({ repos: settings } satisfies ConfigFile)
@@ -316,6 +326,26 @@ describe("dw-mc with no arguments", () => {
       assert.deepStrictEqual(yield* dispatched(4), [["stamp", "dominikwozniak/dw-mc#1", "--withdraw"]])
     })
   )
+
+  it.effect("says once what went wrong with the action it dispatched", () => {
+    const printed: Array<string> = []
+    const failures: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* registered()
+
+      // A review cuts its worktree from a clone, and this machine has no `git`
+      // that answers: the command fails the way a broken machine makes it fail,
+      // and what the picker owes me is the one sentence the command owes me.
+      yield* Effect.exit(run())
+
+      assert.lengthOf(failures, 1)
+      assert.include(failures[0] ?? "", "could not resolve host")
+    }).pipe(
+      Effect.provide(machine({ prs: [{ number: 1 }], keys: [key("enter"), key("enter")], git: "refuses" })),
+      recording(printed, failures)
+    )
+  })
 
   it.effect("dispatches nothing where I walk away from the pull request", () => {
     const printed: Array<string> = []
