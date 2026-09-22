@@ -3,12 +3,92 @@ import { DateTime, Effect, Schema } from "effect"
 import { readJson } from "#adapters/gh.ts"
 
 /**
- * A pull request's conversation, which is the one read that leaves REST.
- *
- * It sits beside `gh.ts` rather than in it because it is a boundary of its own:
- * one GraphQL document, decoded into the threads a command prints, where every
- * other read of GitHub here is a `gh` subcommand or a REST endpoint.
+ * A pull request's conversation, read two ways. A sweep reads who spoke and
+ * when from REST. A command that prints the conversation reads it in full
+ * through one GraphQL document, the one read here that leaves REST, because
+ * only GraphQL says which threads are settled.
  */
+
+const Comments = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      created_at: Schema.DateTimeUtcFromString,
+      user: Schema.NullOr(Schema.Struct({ login: Schema.String, type: Schema.String }))
+    })
+  )
+)
+
+/** Who wrote a comment and when. */
+export interface Comment {
+  readonly login: string
+  readonly bot: boolean
+  readonly at: DateTime.Utc
+}
+
+const comments = (label: string, path: string) =>
+  readJson(label, "gh", ["api", path], Comments).pipe(
+    Effect.map((all) =>
+      all.flatMap((comment): ReadonlyArray<Comment> =>
+        comment.user === null
+          ? []
+          : [{ login: comment.user.login, bot: comment.user.type === "Bot", at: comment.created_at }]
+      )
+    )
+  )
+
+/**
+ * Every comment on a pull request: the ones on the conversation and the ones
+ * left on the diff.
+ *
+ * REST is what says whether an author is a person or an app - `gh pr view`
+ * reports a bot's login with no sign that it is one - and the bucket rules turn
+ * on exactly that. Verified by running both: the endpoints ignore `direction`,
+ * so a page is asked for at its maximum and the newest comment is picked out of
+ * it rather than asked for first.
+ */
+export const prComments = Effect.fnUntraced(function* (repo: string, number: number) {
+  const page = "per_page=100"
+  const [conversation, onDiff] = yield* Effect.all(
+    [
+      comments("api issue comments", `repos/${repo}/issues/${number}/comments?${page}`),
+      comments("api review comments", `repos/${repo}/pulls/${number}/comments?${page}`)
+    ],
+    { concurrency: 2 }
+  )
+  return [...conversation, ...onDiff]
+})
+
+const Reviews = Schema.fromJsonString(
+  Schema.Array(
+    Schema.Struct({
+      submitted_at: Schema.DateTimeUtcFromString,
+      body: Schema.String,
+      user: Schema.NullOr(Schema.Struct({ login: Schema.String, type: Schema.String }))
+    })
+  )
+)
+
+/**
+ * The reviews on a pull request that said something, as comments.
+ *
+ * A review carries a body of its own, which is where a reviewer writes the
+ * sentence that is not attached to any line. An empty body is a verdict and
+ * nothing more, and the verdict arrives with the PR as `reviewDecision`.
+ */
+export const prReviews = Effect.fnUntraced(function* (repo: string, number: number) {
+  const all = yield* readJson(
+    "api reviews",
+    "gh",
+    ["api", `repos/${repo}/pulls/${number}/reviews?per_page=100`],
+    Reviews
+  )
+
+  return all.flatMap((review): ReadonlyArray<Comment> =>
+    review.user === null || review.body.trim() === ""
+      ? []
+      : [{ login: review.user.login, bot: review.user.type === "Bot", at: review.submitted_at }]
+  )
+})
 
 /** One thing somebody said on a pull request, in full. */
 export interface Remark {

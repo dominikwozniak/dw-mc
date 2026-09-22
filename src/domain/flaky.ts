@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 
 import { defaultBranch, failedChecks, jobLog, prFiles, reportedAt, workflowFailsOn } from "#adapters/ci.ts"
-import type { CheckEntry } from "#adapters/gh.ts"
+import type { CheckEntry } from "#adapters/ci.ts"
 
 /**
  * Everything the classifier is allowed to know about one red CI.
