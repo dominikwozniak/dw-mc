@@ -1,5 +1,15 @@
 # dw-mc
 
+## 0.9.0
+
+### Minor Changes
+
+- b057f08: `dw-mc` can label my own pull requests with what the review run at the current head found. Set `labels.enabled: true` for a repository and each PR gets `review: approved` or `review: changes`; the names are configurable under `labels.approved` and `labels.changes`. A sweep takes the label off when the head moves, and `dw-mc review` puts it on as soon as the run is recorded. A label the repository does not define is never created: the sweep prints the `gh label create` command instead.
+
+### Patch Changes
+
+- 06168c2: A session that refuses to open because its branch has gone past the pull request's head names the session it is. `dw-mc resolve` stopping on its own unpushed commits says so as the session on a conflict, and points at the worktree that holds them, rather than sending me to look for a fix session I never opened.
+
 ## 0.8.2
 
 ### Patch Changes
