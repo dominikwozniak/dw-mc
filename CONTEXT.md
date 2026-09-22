@@ -79,7 +79,7 @@ _Avoid_: conflict state, merge marker
 
 **Resolve session**:
 An interactive agent session mission control opens for me on a conflict record, in a worktree that stands on a branch of the tool's own and outlives the session. The rebase is redone there and left stopped on the conflict; finishing it, committing and pushing are mine. It is not a rebase: it writes nothing to GitHub.
-_Avoid_: conflict fix, auto-merge
+_Avoid_: conflict fix, auto-merge, rebase session
 
 **Stack**:
 Pull requests built on each other, where one's branch is another's base. Mission control recognises one, reports where a tracked PR sits in it, and never drives it.
