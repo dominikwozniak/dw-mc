@@ -204,7 +204,9 @@ const PrView = Schema.fromJsonString(
     isCrossRepository: Schema.Boolean,
     mergeable: Schema.String,
     reviewDecision: Schema.String,
-    statusCheckRollup: Schema.NullOr(Schema.Array(CheckEntry))
+    statusCheckRollup: Schema.NullOr(Schema.Array(CheckEntry)),
+    /** What the review label is reconciled against: the labels it carries now, whoever put them there. */
+    labels: Schema.Array(Schema.Struct({ name: Schema.String }))
   })
 )
 export type PrView = typeof PrView.Type
@@ -215,7 +217,7 @@ export type PrView = typeof PrView.Type
  */
 export const viewFields: string =
   "number,title,url,isDraft,headRefOid,headRefName,baseRefName,author,isCrossRepository,mergeable," +
-  "reviewDecision,statusCheckRollup"
+  "reviewDecision,statusCheckRollup,labels"
 
 /**
  * Everything about one pull request that arrives without paging through it:
@@ -471,6 +473,7 @@ export interface PrFixture {
   readonly mergeable?: string | undefined
   readonly reviewDecision?: string | undefined
   readonly statusCheckRollup?: ReadonlyArray<Record<string, unknown>> | null | undefined
+  readonly labels?: ReadonlyArray<string> | undefined
 }
 
 /**
@@ -494,5 +497,6 @@ export const prViewOf = (repo: string, pr: PrFixture): Record<string, unknown> =
   isCrossRepository: pr.isCrossRepository ?? false,
   mergeable: pr.mergeable ?? "MERGEABLE",
   reviewDecision: pr.reviewDecision ?? "",
-  statusCheckRollup: pr.statusCheckRollup ?? []
+  statusCheckRollup: pr.statusCheckRollup ?? [],
+  labels: (pr.labels ?? []).map((name) => ({ name }))
 })

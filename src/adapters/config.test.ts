@@ -92,7 +92,8 @@ describe("config file", () => {
         ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
         fix: { commits: true },
         rebase: { enabled: true },
-        stamp: { blocks_on: "warning" }
+        stamp: { blocks_on: "warning" },
+        labels: { enabled: true, approved: "lgtm", changes: "needs work" }
       }
       const file: ConfigFile = {
         launcher: { command: ["claude"], fix_args: ["--permission-mode", "acceptEdits"] },
@@ -301,6 +302,20 @@ describe("settingsFor", () => {
     assert.isTrue(settings.rebase.enabled)
   })
 
+  it("labels nothing until a repository turns it on, under the names the defaults give", () => {
+    const file: ConfigFile = {
+      defaults: { labels: { approved: "lgtm" } },
+      repos: { "dominikwozniak/dw-mc": { labels: { enabled: true } }, "dominikwozniak/other": {} }
+    }
+
+    assert.deepStrictEqual(settingsFor(file, "dominikwozniak/dw-mc").labels, {
+      enabled: true,
+      approved: "lgtm",
+      changes: "review: changes"
+    })
+    assert.isFalse(settingsFor(file, "dominikwozniak/other").labels.enabled)
+  })
+
   it("leaves one repository's settings out of another's", () => {
     const file: ConfigFile = {
       defaults: { review: { effort: "medium" } },
@@ -333,7 +348,8 @@ describe("settingsFor", () => {
       ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
       fix: { commits: true },
       rebase: { enabled: true },
-      stamp: { blocks_on: "info" }
+      stamp: { blocks_on: "info" },
+      labels: { enabled: true, approved: "lgtm", changes: "needs work" }
     }
 
     assert.deepStrictEqual(settingsFor({ defaults: settings }, "dominikwozniak/dw-mc"), settings)
@@ -352,14 +368,16 @@ describe("merge", () => {
       ci: { ignore: ["advisory"] },
       fix: { commits: false },
       rebase: { enabled: false },
-      stamp: { blocks_on: "error" }
+      stamp: { blocks_on: "error" },
+      labels: { approved: "lgtm" }
     }
     const delta: SettingsPatch = {
       review: { effort: "high" },
       ci: { flaky_patterns: ["ECONNRESET"] },
       fix: { commits: true },
       rebase: { enabled: true },
-      stamp: { blocks_on: "warning" }
+      stamp: { blocks_on: "warning" },
+      labels: { enabled: true }
     }
 
     assert.deepStrictEqual(merge(patch, delta), {
@@ -368,7 +386,8 @@ describe("merge", () => {
       ci: { ignore: ["advisory"], flaky_patterns: ["ECONNRESET"] },
       fix: { commits: true },
       rebase: { enabled: true },
-      stamp: { blocks_on: "warning" }
+      stamp: { blocks_on: "warning" },
+      labels: { approved: "lgtm", enabled: true }
     })
   })
 

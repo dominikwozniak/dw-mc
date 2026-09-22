@@ -26,7 +26,7 @@ const reads: ReadonlyArray<ReadonlyArray<string>> = [
  * Every `gh` write dw-mc is allowed to make, and the flags that keep each one
  * inside the boundary.
  *
- * There are two. ADR 0002 admits re-running the failed jobs of a workflow run
+ * There are two here, and the label writes in `apiWrites`. ADR 0002 admits re-running the failed jobs of a workflow run
  * on a pull request I author; ADR 0008 admits squash-merging a pull request I
  * author and deleting the branch it stood on.
  *
@@ -48,6 +48,21 @@ interface Write {
 const writes: ReadonlyArray<Write> = [
   { prefix: ["run", "rerun"], requires: ["--failed"] },
   { prefix: ["pr", "merge"], requires: ["--squash", "--delete-branch"], forbids: ["--auto"] }
+]
+
+/**
+ * Every `gh api` write dw-mc is allowed to make, spelled out whole.
+ *
+ * There are two, and they are one write: ADR 0012 admits putting the review
+ * label on a pull request I author and taking it off again. Each is the whole
+ * vector and not a prefix, because the endpoint and the field are what make it
+ * that write: a `-X POST` to any other path, or with a field beside the label,
+ * is a different call. `{}` stands for what a template literal substitutes, the
+ * repository, the number and the label's name.
+ */
+const apiWrites: ReadonlyArray<ReadonlyArray<string>> = [
+  ["api", "-X", "POST", "repos/{}/issues/{}/labels", "-f", "labels[]={}"],
+  ["api", "-X", "DELETE", "repos/{}/issues/{}/labels/{}"]
 ]
 
 /** What turns `gh api` from a read into a write, whatever endpoint it names. */
@@ -110,6 +125,25 @@ const leadingWords = (vector: ESTree.ArrayExpression): ReadonlyArray<string> => 
   return words
 }
 
+/**
+ * An element as `apiWrites` spells it: a string as it is, a template literal
+ * with `{}` where each expression goes, and anything else unreadable.
+ */
+const shapeOf = (node: ESTree.Node | null): string | undefined => {
+  if (node === null) {
+    return undefined
+  }
+  if (node.type === "TemplateLiteral") {
+    return node.quasis.map((quasi) => quasi.value.cooked ?? "").join("{}")
+  }
+  return stringValue(node)
+}
+
+const isAdmittedApiWrite = (vector: ESTree.ArrayExpression): boolean => {
+  const shape = vector.elements.map(shapeOf)
+  return apiWrites.some((write) => write.length === shape.length && write.every((word, index) => shape[index] === word))
+}
+
 const matches = (prefix: ReadonlyArray<string>, words: ReadonlyArray<string>): boolean =>
   prefix.every((word, index) => words[index] === word)
 
@@ -169,9 +203,9 @@ export const noGhWritesRule = defineRule({
     },
     messages: {
       notARead:
-        "{{invocation}} is not one of the calls dw-mc makes. Mission control never comments, replies, resolves a thread, labels, reviews, approves or changes a status (ADR 0002), and the only writes it sends through `gh` are re-running my own failed jobs and merging a pull request I author (ADR 0008). A call that belongs here is a line in `reads` or `writes` in this rule.",
+        "{{invocation}} is not one of the calls dw-mc makes. Mission control never comments, replies, resolves a thread, reviews, approves or changes a status (ADR 0002), and the only writes it sends through `gh` are re-running my own failed jobs, merging a pull request I author (ADR 0008) and moving the review label on one (ADR 0012). A call that belongs here is a line in `reads`, `writes` or `apiWrites` in this rule.",
       apiWrite:
-        "`gh api` carrying `{{flag}}` sends a write ADR 0002 does not admit. The REST endpoint is not a way around the boundary.",
+        "`gh api` carrying `{{flag}}` sends a write ADR 0002 does not admit. The REST endpoint is not a way around the boundary: the one REST write dw-mc makes is adding or removing the review label, spelled exactly as `apiWrites` in this rule has it (ADR 0012).",
       graphqlBody:
         "`gh api graphql` carrying a method or a body of its own sends something this rule has not read. The one GraphQL call dw-mc makes spells its query out and passes its variables as fields.",
       graphqlUnreadable:
@@ -259,7 +293,7 @@ export const noGhWritesRule = defineRule({
         return
       }
       const flag = writeFlag(vector)
-      if (flag !== undefined) {
+      if (flag !== undefined && !isAdmittedApiWrite(vector)) {
         context.report({ node: vector, messageId: "apiWrite", data: { flag } })
       }
     }

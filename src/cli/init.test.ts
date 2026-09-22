@@ -79,7 +79,8 @@ describe("dw-mc init", () => {
           ci: { ignore: [], flaky_patterns: [] },
           fix: { commits: false },
           rebase: { enabled: false },
-          stamp: { blocks_on: "error" }
+          stamp: { blocks_on: "error" },
+          labels: { enabled: false, approved: "review: approved", changes: "review: changes" }
         },
         repos: { "dominikwozniak/dw-mc": {} }
       })
@@ -113,6 +114,10 @@ describe("dw-mc init", () => {
           "    enabled: false\n" +
           "  stamp:\n" +
           "    blocks_on: error\n" +
+          "  labels:\n" +
+          "    enabled: false\n" +
+          `    approved: "review: approved"\n` +
+          `    changes: "review: changes"\n` +
           "repos:\n" +
           "  dominikwozniak/dw-mc: {}\n"
       )

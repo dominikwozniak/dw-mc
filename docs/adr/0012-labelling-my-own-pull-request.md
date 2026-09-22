@@ -1,0 +1,14 @@
+# The review label: the one mark mission control leaves on a pull request of mine
+
+A review run's verdict lives on this machine, so a teammate who opens one of my pull requests cannot tell whether its head was reviewed or what the review found. Mission control can show that as a label on the pull request. The review label is `labels.approved` when the review run at the current head has no finding at or above `stamp.blocks_on`, and `labels.changes` when it has one. With no run at the head, or only a failed one, the pull request carries neither. Labelling is opt-in per repository through `labels.enabled` and off by default, because the labels a team's pull requests carry are the team's decision, and ADR 0003 keeps what differs by repository in configuration on my machine.
+
+The label is written only on a pull request I author, and only as one of the two names the configuration gives. Every other label on the pull request belongs to somebody else and is left alone. The label is never created: when the repository does not define it, the tool skips it and prints the `gh label create` command that would define it. The label follows the stamp's review half and not the stamp, so red CI or a withdrawn stamp does not move it. It says what the review found, not that the PR passed my bar.
+
+The label is worth writing only while it is true, and a push makes it false. A sweep is the only thing that sees a head move, so a sweep reconciles the label. That makes the review label the one write a sweep makes. The other way was to let only a typed command move the label, which keeps a sweep read-only, but then an `approved` label stays on code nobody has read until I happen to run `dw-mc review` again. `dw-mc review` also reconciles the label as soon as it records a run, so the label does not wait for the next sweep.
+
+## Consequences
+
+- Nothing is stored for the label. The sweep compares what the review runs say about the current head with the labels `gh pr view` reports, and adds or removes to match. Forgetting a pull request needs no change, and a label that I or a teammate removed by hand is put back at the next sweep while the verdict still stands.
+- The label goes through REST: `gh api -X POST repos/R/issues/N/labels` and `-X DELETE …/labels/NAME`. It never goes through `gh pr edit --add-label`, because that command goes through GraphQL, and on `gh` older than 2.82.1 it asks for the retired Projects (classic) fields and aborts before the label lands. `dw-mc/no-gh-writes` admits exactly these two vectors (ADR 0005). A `-X` or `-f` in any other shape is still refused.
+- A label write that `gh` refuses costs the sweep nothing and the review run nothing. It is printed under "Could not label", and no pull request loses its row.
+- Turning `labels.enabled` off leaves any label already on a pull request where it is. The tool writes nothing to a repository that does not label.
