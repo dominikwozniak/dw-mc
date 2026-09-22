@@ -1,16 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, PlatformError } from "effect"
 
-import {
-  comparedFiles,
-  currentRepo,
-  mergeabilityOf,
-  prComments,
-  requireAuth,
-  reviewDecisionOf,
-  viewer
-} from "#adapters/gh.ts"
-import { fakeHandle, layerFake, layerStubbed, wrote } from "#adapters/spawner.ts"
+import { currentRepo, requireAuth, viewer } from "#adapters/gh.ts"
+import { fakeHandle, layerFake, layerStubbed } from "#adapters/spawner.ts"
 
 /** A spawner that answers every program the same way, and records the argv. */
 const answering = (spawned: Array<ReadonlyArray<string>>, handle: Parameters<typeof fakeHandle>[0]) =>
@@ -107,21 +99,6 @@ describe("currentRepo", () => {
   })
 })
 
-describe("gh's words in ours", () => {
-  it("reads what gh says about merging", () => {
-    assert.strictEqual(mergeabilityOf("MERGEABLE"), "mergeable")
-    assert.strictEqual(mergeabilityOf("CONFLICTING"), "conflicting")
-    assert.strictEqual(mergeabilityOf("UNKNOWN"), "unknown")
-  })
-
-  it("reads an empty review decision as nobody having been asked", () => {
-    assert.strictEqual(reviewDecisionOf(""), "none")
-    assert.strictEqual(reviewDecisionOf("APPROVED"), "approved")
-    assert.strictEqual(reviewDecisionOf("CHANGES_REQUESTED"), "changes-requested")
-    assert.strictEqual(reviewDecisionOf("REVIEW_REQUIRED"), "review-required")
-  })
-})
-
 describe("viewer", () => {
   it.effect("asks gh who it is logged in as", () => {
     const spawned: Array<ReadonlyArray<string>> = []
@@ -131,70 +108,5 @@ describe("viewer", () => {
       assert.strictEqual(yield* viewer, "dominikwozniak")
       assert.deepStrictEqual(spawned, [["gh", "api", "user"]])
     }).pipe(Effect.provide(loggedIn))
-  })
-})
-
-describe("prComments", () => {
-  it.effect("says which comments came from an app rather than a person", () => {
-    const answered = layerStubbed({
-      stubs: [
-        (command) =>
-          wrote(
-            (command.args[1]?.includes("/issues/") ?? false)
-              ? `[{"created_at":"2026-09-15T08:43:44Z","user":{"login":"coderabbitai[bot]","type":"Bot"}}]`
-              : `[{"created_at":"2026-09-15T09:00:00Z","user":{"login":"dominikwozniak","type":"User"}}]`
-          )
-      ]
-    })
-
-    return Effect.gen(function* () {
-      const comments = yield* prComments("AirHelp/ahplus-rails", 7884)
-
-      assert.deepStrictEqual(
-        comments.map((comment) => [comment.login, comment.bot]),
-        [
-          ["coderabbitai[bot]", true],
-          ["dominikwozniak", false]
-        ]
-      )
-    }).pipe(Effect.provide(answered))
-  })
-})
-
-describe("comparedFiles", () => {
-  const base = "284d599022a55d4dcae74b31b9a49a0f50061014"
-  const head = "9c1f0b7a1d1e4a2c8b3f5d6e7a8b9c0d1e2f3a4b"
-
-  it.effect("asks GitHub what changed between two commits", () => {
-    const spawned: Array<ReadonlyArray<string>> = []
-    const compared = answering(spawned, {
-      stdout: JSON.stringify({ files: [{ filename: "README.md" }, { filename: "src/cli/review.ts" }] })
-    })
-
-    return Effect.gen(function* () {
-      const files = yield* comparedFiles("dominikwozniak/dw-mc", base, head)
-
-      assert.deepStrictEqual(files, ["README.md", "src/cli/review.ts"])
-      assert.deepStrictEqual(spawned, [["gh", "api", `repos/dominikwozniak/dw-mc/compare/${base}...${head}`]])
-    }).pipe(Effect.provide(compared))
-  })
-
-  it.effect("reads a comparison with nothing between its two commits", () => {
-    const empty = answering([], { stdout: JSON.stringify({ status: "identical" }) })
-
-    return Effect.gen(function* () {
-      assert.deepStrictEqual(yield* comparedFiles("dominikwozniak/dw-mc", base, base), [])
-    }).pipe(Effect.provide(empty))
-  })
-
-  it.effect("says what it could not read rather than reporting no change", () => {
-    const gone = answering([], { exitCode: 1, stderr: "gh: No commit found for SHA\n" })
-
-    return Effect.gen(function* () {
-      const error = yield* Effect.flip(comparedFiles("dominikwozniak/dw-mc", base, head))
-
-      assert.strictEqual(error._tag, "GhReadFailed")
-      assert.include(error.message, "No commit found")
-    }).pipe(Effect.provide(gone))
   })
 })

@@ -1,6 +1,5 @@
 import { Effect, Schema } from "effect"
 
-import type { CheckEntry } from "#adapters/gh.ts"
 import { failedAs, readJson } from "#adapters/gh.ts"
 import { capture } from "#adapters/spawner.ts"
 import type { ChecksState } from "#terms/pr.ts"
@@ -10,6 +9,26 @@ import type { ChecksState } from "#terms/pr.ts"
  * is classified on. Every read here goes through the same `gh` the rest of the
  * tool does; what it owns is the checks, not the boundary.
  */
+
+/**
+ * One entry of a PR's status check rollup.
+ *
+ * A rollup mixes two shapes: a `CheckRun` reports a `status` and a `conclusion`,
+ * a `StatusContext` an overall `state`. Every field is optional because which
+ * ones arrive depends on which shape it is.
+ */
+export const CheckEntry = Schema.Struct({
+  name: Schema.optionalKey(Schema.String),
+  context: Schema.optionalKey(Schema.String),
+  status: Schema.optionalKey(Schema.String),
+  conclusion: Schema.optionalKey(Schema.String),
+  state: Schema.optionalKey(Schema.String),
+  /** The workflow the check runs in. A commit status belongs to no workflow. */
+  workflowName: Schema.optionalKey(Schema.String),
+  /** Where the check reports, which is the only place its job id appears. */
+  detailsUrl: Schema.optionalKey(Schema.String)
+})
+export type CheckEntry = typeof CheckEntry.Type
 
 const failing = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED", "ERROR"])
 const running = new Set(["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED", "EXPECTED"])

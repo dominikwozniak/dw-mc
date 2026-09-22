@@ -5,20 +5,13 @@ import { CliError, Command, Flag } from "effect/unstable/cli"
 import { rollupState } from "#adapters/ci.ts"
 import type { Settings } from "#adapters/config.ts"
 import { readOrEmpty, registeredIn, settingsFor } from "#adapters/config.ts"
-import type { Comment, Found } from "#adapters/gh.ts"
-import {
-  mergeabilityOf,
-  prComments,
-  prCommits,
-  prReviews,
-  prView,
-  reviewDecisionOf,
-  currentRepo,
-  searchPrs,
-  viewer
-} from "#adapters/gh.ts"
+import type { Comment } from "#adapters/conversation.ts"
+import { prComments, prReviews } from "#adapters/conversation.ts"
+import { currentRepo, viewer } from "#adapters/gh.ts"
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
+import type { Found } from "#adapters/pr.ts"
+import { mergeabilityOf, prCommits, prView, reviewDecisionOf, searchPrs } from "#adapters/pr.ts"
 import { block, following, print } from "#cli/block.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
 import { relabelPr } from "#cli/label.ts"
