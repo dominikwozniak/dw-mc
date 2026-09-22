@@ -34,6 +34,18 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
       code: 'readJson("api graphql", "gh", ["api", "graphql", "-f", `query=query($n:Int!){x}`, "-F", `n=${n}`], C)'
     },
     {
+      name: "the review label going on, which ADR 0012 admits",
+      code: 'capture("gh", ["api", "-X", "POST", `repos/${repo}/issues/${number}/labels`, "-f", `labels[]=${name}`])'
+    },
+    {
+      name: "the review label coming off, which ADR 0012 admits",
+      code: 'capture("gh", ["api", "-X", "DELETE", `repos/${repo}/issues/${number}/labels/${labelPath(name)}`])'
+    },
+    {
+      name: "the read that says whether a label exists",
+      code: 'readJson("api label", "gh", ["api", `repos/${repo}/labels/${labelPath(name)}`], Label)'
+    },
+    {
       name: "another program's vector is not this rule's business",
       code: `capture("git", ["push", "--force-with-lease"])`
     }
@@ -60,6 +72,36 @@ tester.run("dw-mc/no-gh-writes", noGhWritesRule, {
     { name: "a vector assembled elsewhere", code: `capture("gh", args)`, errors: [notARead] },
     { name: "no vector at all", code: `capture("gh")`, errors: [notARead] },
     { name: "an empty vector", code: `capture("gh", [])`, errors: [notARead] },
+    {
+      name: "a label write with a field beside the label",
+      code: 'capture("gh", ["api", "-X", "POST", `repos/${r}/issues/${n}/labels`, "-f", `labels[]=${x}`, "-f", "a=b"])',
+      errors: [apiWrite]
+    },
+    {
+      name: "a label write that replaces every label, not one",
+      code: 'capture("gh", ["api", "-X", "PUT", `repos/${r}/issues/${n}/labels`, "-f", `labels[]=${x}`])',
+      errors: [apiWrite]
+    },
+    {
+      name: "a POST to the comments beside the labels",
+      code: 'capture("gh", ["api", "-X", "POST", `repos/${r}/issues/${n}/comments`, "-f", `body=${x}`])',
+      errors: [apiWrite]
+    },
+    {
+      name: "creating a label on the repository",
+      code: 'capture("gh", ["api", "-X", "POST", `repos/${r}/labels`, "-f", `name=${x}`])',
+      errors: [apiWrite]
+    },
+    {
+      name: "a label write whose endpoint is built elsewhere",
+      code: 'capture("gh", ["api", "-X", "DELETE", endpoint])',
+      errors: [apiWrite]
+    },
+    {
+      name: "the GraphQL route to a label",
+      code: `capture("gh", ["pr", "edit", "27", "--add-label", "x"])`,
+      errors: [notARead]
+    },
     { name: "-X", code: `capture("gh", ["api", "repos/o/r/issues/1/comments", "-X", "POST"])`, errors: [apiWrite] },
     { name: "-X with its value attached", code: `capture("gh", ["api", "repos/o/r", "-XPATCH"])`, errors: [apiWrite] },
     {

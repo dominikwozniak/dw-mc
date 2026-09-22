@@ -13,6 +13,9 @@ import { Effort, Severity } from "#terms/review.ts"
  * leaves out is inherited rather than reset, so `defaults` and a repository's
  * overrides are the same shape.
  */
+/** A label as GitHub names it: anything but empty. */
+const LabelName = Schema.String.pipe(Schema.check(Schema.isMinLength(1, { message: "Expected a label name" })))
+
 const SettingsPatch = Schema.Struct({
   base: Schema.optionalKey(Schema.NullOr(Schema.String)),
   review: Schema.optionalKey(
@@ -43,6 +46,13 @@ const SettingsPatch = Schema.Struct({
   stamp: Schema.optionalKey(
     Schema.Struct({
       blocks_on: Schema.optionalKey(Severity)
+    })
+  ),
+  labels: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      approved: Schema.optionalKey(LabelName),
+      changes: Schema.optionalKey(LabelName)
     })
   )
 })
@@ -85,6 +95,7 @@ export interface Settings {
   readonly fix: Section<"fix">
   readonly rebase: Section<"rebase">
   readonly stamp: Section<"stamp">
+  readonly labels: Section<"labels">
 }
 
 /** What every setting is worth before the file says anything. */
@@ -100,7 +111,8 @@ export const builtIn: Settings = {
   ci: { ignore: [], flaky_patterns: [] },
   fix: { commits: false },
   rebase: { enabled: false },
-  stamp: { blocks_on: "error" }
+  stamp: { blocks_on: "error" },
+  labels: { enabled: false, approved: "review: approved", changes: "review: changes" }
 }
 
 /** What this machine spawns Claude Code with, once the file has been read. */
@@ -139,7 +151,12 @@ const apply = (settings: Settings, patch: SettingsPatch | undefined): Settings =
         },
         fix: { commits: over(patch.fix?.commits, settings.fix.commits) },
         rebase: { enabled: over(patch.rebase?.enabled, settings.rebase.enabled) },
-        stamp: { blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on) }
+        stamp: { blocks_on: over(patch.stamp?.blocks_on, settings.stamp.blocks_on) },
+        labels: {
+          enabled: over(patch.labels?.enabled, settings.labels.enabled),
+          approved: over(patch.labels?.approved, settings.labels.approved),
+          changes: over(patch.labels?.changes, settings.labels.changes)
+        }
       }
 
 /**
@@ -164,6 +181,9 @@ export const merge = (patch: SettingsPatch, delta: SettingsPatch): SettingsPatch
   }
   if (patch.stamp !== undefined && delta.stamp !== undefined) {
     merged.stamp = { ...patch.stamp, ...delta.stamp }
+  }
+  if (patch.labels !== undefined && delta.labels !== undefined) {
+    merged.labels = { ...patch.labels, ...delta.labels }
   }
   return merged
 }
@@ -409,7 +429,17 @@ const settingsDocument = (patch: SettingsPatch): Value =>
     ],
     ["fix", patch.fix === undefined ? undefined : mapping([["commits", patch.fix.commits]])],
     ["rebase", patch.rebase === undefined ? undefined : mapping([["enabled", patch.rebase.enabled]])],
-    ["stamp", patch.stamp === undefined ? undefined : mapping([["blocks_on", patch.stamp.blocks_on]])]
+    ["stamp", patch.stamp === undefined ? undefined : mapping([["blocks_on", patch.stamp.blocks_on]])],
+    [
+      "labels",
+      patch.labels === undefined
+        ? undefined
+        : mapping([
+            ["enabled", patch.labels.enabled],
+            ["approved", patch.labels.approved],
+            ["changes", patch.labels.changes]
+          ])
+    ]
   ])
 
 /**

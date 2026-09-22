@@ -26,6 +26,6 @@ The picker offers it on a Ready, stamped pull request behind a confirmation of i
 
 ## Consequences
 
-- The boundary sentence changes shape: the tool does not merge _other people's_ pull requests, rather than not merging at all. Everything else 0002 bars - comment, reply, thread resolve, label, review, approval, status - still holds everywhere.
+- The boundary sentence changes shape: the tool does not merge _other people's_ pull requests, rather than not merging at all. Everything else 0002 bars - comment, reply, thread resolve, review, approval, status - still holds everywhere. The review label is ADR 0012's.
 - A pull request in a stack is not refused here. Its base is another branch, so a squash merge lands it there and `--delete-branch` takes a branch the stack is built on. Driving stacks is out of scope for v1 and this is one of the edges of that.
 - A merge nothing stamped is unreachable through this tool. Where I want one anyway, the merge button is still on the pull request.

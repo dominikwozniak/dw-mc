@@ -134,7 +134,7 @@ export const picker = <E, R>(dispatch: (argv: ReadonlyArray<string>) => Effect.E
         })
       )
 
-      yield* printTroubles(report.troubles)
+      yield* printTroubles(report)
       if (standings.length === 0) {
         yield* Console.log("No open pull requests.")
         return

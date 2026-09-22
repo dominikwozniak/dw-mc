@@ -174,7 +174,7 @@ export const status = Command.make(
         yield* Console.log(line)
       }
       yield* printLeftOut(report)
-      yield* printTroubles(report.troubles)
+      yield* printTroubles(report)
       yield* markShown(shown)
     },
     Effect.catchTag(userFacing, asUserError)

@@ -30,7 +30,7 @@ The moment a tracked PR's row was last shown to me, and what the row said then. 
 _Avoid_: last seen, unread, diff
 
 **Sweep**:
-One pass over the tracked PRs of the repositories it covers that refreshes what mission control knows about them. It covers the registered repository I stand in, the one `--repo` names, or every registered one: with `--all`, from the picker, or from anywhere else. A sweep only reads.
+One pass over the tracked PRs of the repositories it covers that refreshes what mission control knows about them. It covers the registered repository I stand in, the one `--repo` names, or every registered one: with `--all`, from the picker, or from anywhere else. A sweep reads, and the one thing it writes is the review label.
 _Avoid_: poll, refresh, sync
 
 **Picker**:
@@ -40,6 +40,10 @@ _Avoid_: menu, dashboard, TUI
 **Stamp**:
 My local mark that a tracked PR has passed my own bar. Computed from review runs and CI, and I can withdraw it by hand, at the head I read, until that head changes. It lives only on this machine and is never a GitHub approval, label, comment or status.
 _Avoid_: approval, label, status
+
+**Review label**:
+The GitHub label on a tracked PR of mine that says what the review run at its current head found: approved, or changes. A head with no review run carries none. It is written only where the repository turned it on, and never created.
+_Avoid_: tag, badge, status, verdict label
 
 **Merge**:
 Landing a tracked PR of mine: squashed, with its branch deleted, on a PR that is both Ready and stamped at the head the command reads. The one write no reflog of mine undoes, so it is never taken by a sweep and never one keystroke in the picker. Its last step is forgetting the pull request.

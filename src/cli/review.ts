@@ -3,7 +3,7 @@ import { CliError, Command, Flag } from "effect/unstable/cli"
 
 import { reviewTurns } from "#adapters/claude.ts"
 import type { Launcher, Settings } from "#adapters/config.ts"
-import { comparedFiles, prView } from "#adapters/gh.ts"
+import { comparedFiles, prView, viewer } from "#adapters/gh.ts"
 import { withWorktree } from "#adapters/git.ts"
 import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
@@ -13,13 +13,14 @@ import { stateDirectory } from "#adapters/store.ts"
 import { block, following, indent, print } from "#cli/block.ts"
 import { asUserError, userFacingAndGit } from "#cli/exit.ts"
 import { lines, summary } from "#cli/findings.ts"
+import { relabelPr } from "#cli/label.ts"
 import { forPr, prArgument } from "#cli/pr.ts"
 import { count } from "#cli/table.ts"
 import { jsonSchema, Reported } from "#domain/findings.ts"
 import type { Reviewing } from "#domain/persona.ts"
 import { turnFor } from "#domain/persona.ts"
 import type { Answered, Asked, ReviewRun } from "#domain/review.ts"
-import { detailOf, lastRun, ranBy, recordRun, reportedBy, short, skippedSince } from "#domain/review.ts"
+import { detailOf, lastRun, ranBy, recordRun, reportedBy, reviewedAt, short, skippedSince } from "#domain/review.ts"
 import type { ReviewTurn } from "#terms/review.ts"
 import { Effort } from "#terms/review.ts"
 
@@ -289,6 +290,19 @@ export const review = Command.make(
             [`Recorded against ${paint.dim(short(ran.head))} in ${paint.dim(yield* stateDirectory)}`]
           ])
         )
+        if (settings.labels.enabled && view.author?.login === (yield* viewer)) {
+          const unlabelled = yield* relabelPr({
+            repo,
+            number,
+            pr: {
+              head: view.headRefOid,
+              ...(yield* reviewedAt(repo, number, view.headRefOid, settings.stamp.blocks_on))
+            },
+            labels: settings.labels,
+            onPr: view.labels.map((label) => label.name)
+          })
+          yield* print(following([unlabelled.length === 0 ? [] : block("Could not label", unlabelled)]))
+        }
         yield* unreported(run, number)
       }).pipe(
         Effect.onExit((exit) =>

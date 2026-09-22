@@ -71,6 +71,8 @@ interface Fixture {
   readonly log?: string
   /** What `gh` says on stderr instead of answering about this PR. */
   readonly refuses?: string
+  /** The labels it carries. */
+  readonly labels?: ReadonlyArray<string>
 }
 
 const view = (repo: string, pr: Fixture) =>
@@ -81,6 +83,7 @@ const view = (repo: string, pr: Fixture) =>
     headRefOid: pr.headRefOid,
     mergeable: pr.mergeable,
     reviewDecision: pr.reviewDecision,
+    labels: pr.labels,
     // Every check of a PR reports at the same job, whose id is the PR's number,
     // so a stubbed log is found from the URL the classifier follows.
     statusCheckRollup: (pr.rollup ?? [check("Check", "SUCCESS")]).map((entry) => ({
@@ -100,6 +103,8 @@ const github = (options: {
   readonly redOnDefaultBranch?: ReadonlyArray<string> | undefined
   /** The repository the working directory is in; outside any, where it says nothing. */
   readonly here?: string | undefined
+  /** The labels every repository defines. */
+  readonly defined?: ReadonlyArray<string> | undefined
 }) => {
   const found = (repo: string, number: string): Fixture | undefined => {
     const prs = options.repos[repo]
@@ -174,6 +179,16 @@ const github = (options: {
         const pr = found(repo, number)
         return pr === undefined ? refused(`no pull request ${repo}#${number}`) : json(pr.reviews ?? [])
       },
+      (_, argv) => {
+        const label = /^api repos\/\S+?\/\S+?\/labels\/(\S+)$/.exec(argv)
+        if (label === null) {
+          return undefined
+        }
+        const name = decodeURIComponent(label[1] ?? "")
+        return options.defined?.includes(name) === true ? json({ name }) : refused("gh: Not Found (HTTP 404)")
+      },
+      (_, argv) => (/^api -X POST repos\/\S+\/issues\/\d+\/labels -f labels\[\]=/.test(argv) ? json([]) : undefined),
+      (_, argv) => (/^api -X DELETE repos\/\S+\/issues\/\d+\/labels\/\S+$/.test(argv) ? wrote("") : undefined),
       (_, argv) => {
         const rest = /^api repos\/(\S+?)\/(issues|pulls)\/(\d+)\/comments\?per_page=100$/.exec(argv)
         if (rest === null) {
@@ -562,7 +577,7 @@ describe("dw-mc sweep", () => {
     }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 
-  it.effect("only ever reads GitHub", () => {
+  it.effect("only ever reads GitHub where no repository labels", () => {
     const spawned: Array<string> = []
     const spawner = github({ spawned, repos: { "dominikwozniak/dw-mc": [{ number: 1 }] } })
 
@@ -1439,5 +1454,97 @@ describe("dw-mc status --json", () => {
         { repos: [], leftOut: 0, prs: [], troubles: [] }
       )
     }).pipe(Effect.provide(machine(github({ repos: {} }))), recording(printed))
+  })
+})
+
+describe("the review label", () => {
+  const repo = "dominikwozniak/dw-mc"
+  const head = "31268022360852f71815404b6bbdd6bd797cfb4c"
+  const approved = "review: approved"
+  const changes = "review: changes"
+  const blocker: Finding = { file: "src/cli/sweep.ts", line: 7, severity: "error", summary: "A write." }
+  const labelling = write({ repos: { [repo]: { labels: { enabled: true } } } })
+  const writes = (spawned: ReadonlyArray<string>) => spawned.filter((argv) => argv.startsWith("gh api -X"))
+
+  it.effect("goes on a pull request whose head a clean run covered", () => {
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, defined: [approved, changes], repos: { [repo]: [{ number: 1 }] } })
+
+    return Effect.gen(function* () {
+      yield* labelling
+      yield* reviewed(repo, 1, head)
+      yield* run("sweep")
+
+      assert.deepStrictEqual(writes(spawned), [`gh api -X POST repos/${repo}/issues/1/labels -f labels[]=${approved}`])
+    }).pipe(Effect.provide(machine(spawner)), recording([]))
+  })
+
+  it.effect("comes off once the head moves past the run", () => {
+    const spawned: Array<string> = []
+    const spawner = github({
+      spawned,
+      defined: [approved, changes],
+      repos: { [repo]: [{ number: 1, headRefOid: "bbbb", labels: ["bug", approved] }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* labelling
+      yield* reviewed(repo, 1, head)
+      yield* run("sweep")
+
+      assert.deepStrictEqual(writes(spawned), [`gh api -X DELETE repos/${repo}/issues/1/labels/review%3A%20approved`])
+    }).pipe(Effect.provide(machine(spawner)), recording([]))
+  })
+
+  it.effect("swaps for the other verdict where the run found a blocker", () => {
+    const spawned: Array<string> = []
+    const spawner = github({
+      spawned,
+      defined: [approved, changes],
+      repos: { [repo]: [{ number: 1, labels: [approved] }] }
+    })
+
+    return Effect.gen(function* () {
+      yield* labelling
+      yield* reviewed(repo, 1, head, [blocker])
+      yield* run("sweep")
+
+      assert.deepStrictEqual(writes(spawned), [
+        `gh api -X DELETE repos/${repo}/issues/1/labels/review%3A%20approved`,
+        `gh api -X POST repos/${repo}/issues/1/labels -f labels[]=${changes}`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording([]))
+  })
+
+  it.effect("writes nothing where the pull request already carries it", () => {
+    const spawned: Array<string> = []
+    const spawner = github({ spawned, defined: [approved], repos: { [repo]: [{ number: 1, labels: [approved] }] } })
+
+    return Effect.gen(function* () {
+      yield* labelling
+      yield* reviewed(repo, 1, head)
+      yield* run("sweep")
+
+      assert.deepStrictEqual(writes(spawned), [])
+    }).pipe(Effect.provide(machine(spawner)), recording([]))
+  })
+
+  it.effect("is never created, and says once how to define it", () => {
+    const spawned: Array<string> = []
+    const printed: Array<string> = []
+    const spawner = github({ spawned, defined: [], repos: { [repo]: [{ number: 1 }, { number: 2 }] } })
+
+    return Effect.gen(function* () {
+      yield* labelling
+      yield* reviewed(repo, 1, head)
+      yield* reviewed(repo, 2, head)
+      yield* run("sweep")
+
+      assert.deepStrictEqual(writes(spawned), [])
+      assert.deepStrictEqual(printed.slice(-2), [
+        "Could not label",
+        `  ${repo}  "${approved}" is not a label on ${repo}. Run gh label create "${approved}" --repo ${repo}`
+      ])
+    }).pipe(Effect.provide(machine(spawner)), recording(printed))
   })
 })

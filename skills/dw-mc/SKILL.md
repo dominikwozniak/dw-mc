@@ -56,7 +56,7 @@ These change something, so run one only when I ask for it by name.
 
 `dw-mc cleanup` removes only what the tool rebuilds by itself, and never a worktree a session stands in. It asks before it removes anything, and a session has no terminal to answer, so run it with `--yes`. `dw-mc uninstall` removes everything the tool wrote and is mine to run, never yours: ask me for it rather than running it.
 
-`dw-mc rebase`, `dw-mc rerun` and `dw-mc merge` are the three commands that write to GitHub, and the CLI owns all three: run them as they are, and leave every write of my own - comment, review, label, approval, status - unmade (ADR 0002).
+`dw-mc rebase`, `dw-mc rerun` and `dw-mc merge` are the three commands that write to GitHub. A sweep and `dw-mc review` also move the review label, on a repository that turned it on (ADR 0012). The CLI owns every one of these writes: run the commands as they are, and leave every write of my own - comment, review, label, approval, status - unmade (ADR 0002).
 
 `dw-mc rebase` and `dw-mc rerun` stay inside that boundary: a `--force-with-lease` push to a branch I author, and the failed jobs of a workflow run on a pull request I author. `dw-mc rerun` refuses a failure the classifier calls legitimate, and refuses a head it has already re-run, so running it on a red CI is never a way to hide one.
 

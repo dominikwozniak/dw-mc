@@ -120,6 +120,8 @@ const machine = (options: {
   readonly repos?: Record<string, ReadonlyArray<number>> | undefined
   /** What GitHub says changed since the head a previous run was recorded against. */
   readonly changed?: ReadonlyArray<string> | undefined
+  /** Who opened the pull request, where it is not me. */
+  readonly author?: string | undefined
 }) => {
   const turn = (fixture: Turn | undefined, stdout: string) =>
     Effect.succeed(
@@ -181,6 +183,7 @@ const machine = (options: {
                 prViewOf(named, {
                   number: Number(number),
                   title,
+                  author: options.author,
                   headRefOid: head,
                   headRefName: "feat/28-a-branch",
                   reviewDecision: "APPROVED",
@@ -195,7 +198,9 @@ const machine = (options: {
               : json({ files: options.changed.map((filename) => ({ filename })) })
             : undefined,
         (_, argv) =>
-          /^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)\?per_page=100$/.test(argv) ? json([]) : undefined
+          /^api repos\/\S+\/(issues|pulls)\/\d+\/(comments|reviews)\?per_page=100$/.test(argv) ? json([]) : undefined,
+        (_, argv) => (/^api repos\/\S+?\/\S+?\/labels\/\S+$/.test(argv) ? json({ name: "defined" }) : undefined),
+        (_, argv) => (/^api -X POST repos\/\S+\/issues\/\d+\/labels -f /.test(argv) ? json([]) : undefined)
       ]
     })
   })
@@ -757,5 +762,38 @@ describe("dw-mc review, with no slash command", () => {
       assert.strictEqual(recorded.outcome._tag, "failed")
       assert.include(recorded.outcome._tag === "failed" ? recorded.outcome.detail : "", "severity")
     }).pipe(Effect.provide(machine({ spawned, prompt: { stdout: wrong } })), recording([]))
+  })
+})
+
+describe("dw-mc review, on a repository that labels", () => {
+  const labelling = write({ repos: { [repo]: { labels: { enabled: true } } } })
+
+  it.effect("puts the verdict it just recorded on my own pull request", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* labelling
+      yield* run("review", "28")
+
+      assert.deepStrictEqual(
+        spawned.filter((argv) => argv.startsWith("gh api -X")),
+        [`gh api -X POST repos/${repo}/issues/28/labels -f labels[]=review: changes`]
+      )
+    }).pipe(Effect.provide(machine({ spawned })), recording([]))
+  })
+
+  it.effect("leaves somebody else's pull request alone", () => {
+    const spawned: Array<string> = []
+
+    return Effect.gen(function* () {
+      yield* labelling
+      yield* run("review", "28")
+
+      assert.isTrue(reviewed(spawned))
+      assert.deepStrictEqual(
+        spawned.filter((argv) => argv.startsWith("gh api -X")),
+        []
+      )
+    }).pipe(Effect.provide(machine({ spawned, author: "someone" })), recording([]))
   })
 })

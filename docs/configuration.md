@@ -37,6 +37,10 @@ defaults:
     enabled: false
   stamp:
     blocks_on: error
+  labels:
+    enabled: false
+    approved: "review: approved"
+    changes: "review: changes"
 repos:
   owner/name:
     review:
@@ -96,3 +100,13 @@ The built-in patterns cover timeouts, dropped connections, lock timeouts, lost r
 | Key         | Values                     | Default | What it does                                                                                          |
 | ----------- | -------------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
 | `blocks_on` | `error`, `warning`, `info` | `error` | The lowest severity that blocks. A finding at or above it withholds the stamp and counts as blocking. |
+
+## `labels`
+
+The review label on my own pull requests ([ADR 0012](adr/0012-labelling-my-own-pull-request.md)). A sweep and `dw-mc review` put on the label that matches the review run at the current head and take the other one off. When the head has no run, both come off. A label the repository does not define is skipped, and the tool prints the `gh label create` command that would define it.
+
+| Key        | Values          | Default              | What it does                                                                                     |
+| ---------- | --------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
+| `enabled`  | `true`, `false` | `false`              | Whether this repository's pull requests of mine carry the review label. Off, nothing is written. |
+| `approved` | a label name    | `"review: approved"` | The label for a head whose review run has no finding at or above `stamp.blocks_on`.              |
+| `changes`  | a label name    | `"review: changes"`  | The label for a head whose review run has a finding at or above `stamp.blocks_on`.               |

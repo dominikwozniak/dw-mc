@@ -21,6 +21,7 @@ import type { Reads } from "#adapters/heartbeat.ts"
 import { beating } from "#adapters/heartbeat.ts"
 import { block, following, print } from "#cli/block.ts"
 import { asUserError, userFacing } from "#cli/exit.ts"
+import { relabelPr } from "#cli/label.ts"
 import { count } from "#cli/table.ts"
 import { acknowledgedAt } from "#domain/acknowledgement.ts"
 import type { Facts } from "#domain/bucket.ts"
@@ -46,6 +47,8 @@ export interface Report {
   readonly leftOut: number
   readonly facts: ReadonlyArray<Facts>
   readonly troubles: ReadonlyArray<Trouble>
+  /** What the pass could not do to a review label, which costs no pull request its row. */
+  readonly unlabelled: ReadonlyArray<Trouble>
 }
 
 /** What the picker asks a sweep for: every registered repository, wherever I stand. */
@@ -140,7 +143,14 @@ const sweepPr = Effect.fn("sweep.sweepPr")(function* (me: string, found: Found, 
   }
 
   yield* recordFacts(facts)
-  return facts
+  const unlabelled = yield* relabelPr({
+    repo: found.repo,
+    number: found.number,
+    pr: facts,
+    labels: settings.labels,
+    onPr: view.labels.map((label) => label.name)
+  })
+  return { facts, unlabelled: unlabelled.map((detail): Trouble => ({ where: found.repo, detail })) }
 })
 
 type Attempt<A> = { readonly got: ReadonlyArray<A>; readonly troubles: ReadonlyArray<Trouble> }
@@ -190,9 +200,16 @@ const saying =
       since
     ].join(" · ")
 
+/** Each trouble once, where several pull requests on one repository ran into the same one. */
+const once = (troubles: ReadonlyArray<Trouble>): ReadonlyArray<Trouble> =>
+  troubles.filter(
+    (trouble, index) => troubles.findIndex((it) => it.where === trouble.where && it.detail === trouble.detail) === index
+  )
+
 /**
- * One pass over the tracked PRs of the repositories `asked` covers, and nothing
- * else: a sweep only ever reads.
+ * One pass over the tracked PRs of the repositories `asked` covers. It reads,
+ * and the one thing it writes is the review label of a repository that asked
+ * for one (ADR 0012).
  *
  * Every repository and every pull request is read on its own, so one of them
  * failing costs me its rows and leaves the rest of the table standing. What
@@ -211,7 +228,7 @@ export const sweep = Effect.fn("sweep")(function* (asked: Asked, report: (swept:
   }
   const { repos, leftOut } = coverage
   if (repos.length === 0) {
-    return { repos, leftOut, facts: [], troubles: [] } satisfies Report
+    return { repos, leftOut, facts: [], troubles: [], unlabelled: [] } satisfies Report
   }
 
   const me = yield* viewer
@@ -239,7 +256,7 @@ export const sweep = Effect.fn("sweep")(function* (asked: Asked, report: (swept:
         Effect.tap(
           attempt(
             `${pr.repo}#${pr.number}`,
-            Effect.map(sweepPr(me, pr, settingsFor(file, pr.repo)), (facts) => [facts])
+            Effect.map(sweepPr(me, pr, settingsFor(file, pr.repo)), (got) => [got])
           ),
           () => {
             read = read + 1
@@ -253,8 +270,9 @@ export const sweep = Effect.fn("sweep")(function* (asked: Asked, report: (swept:
   return {
     repos,
     leftOut,
-    facts: swept.got,
-    troubles: [...found.troubles, ...swept.troubles]
+    facts: swept.got.map((it) => it.facts),
+    troubles: [...found.troubles, ...swept.troubles],
+    unlabelled: once(swept.got.flatMap((it) => it.unlabelled))
   } satisfies Report
 })
 
@@ -311,18 +329,25 @@ export const printLeftOut = Effect.fn("sweep.printLeftOut")(function* (report: R
   )
 })
 
-/** What a sweep could not read, under a heading, so the table above it stands alone. */
-export const printTroubles = Effect.fn("sweep.printTroubles")(function* (troubles: ReadonlyArray<Trouble>) {
-  if (troubles.length === 0) {
-    return
-  }
+/** What a sweep could not read or label, each under its heading, so the table above it stands alone. */
+export const printTroubles = Effect.fn("sweep.printTroubles")(function* (
+  report: Pick<Report, "troubles" | "unlabelled">
+) {
+  const blocks = [
+    ["Could not load", report.troubles],
+    ["Could not label", report.unlabelled]
+  ] as const
   yield* print(
-    following([
-      block(
-        "Could not load",
-        troubles.map((trouble) => `${trouble.where}  ${trouble.detail}`)
+    following(
+      blocks.map(([heading, troubles]) =>
+        troubles.length === 0
+          ? []
+          : block(
+              heading,
+              troubles.map((trouble) => `${trouble.where}  ${trouble.detail}`)
+            )
       )
-    ])
+    )
   )
 })
 
@@ -344,7 +369,7 @@ export const sweepCommand = Command.make(
           : `Swept ${count(report.facts.length, "pull request")} across ${repositories(report.repos.length)}`
       )
       yield* printLeftOut(report)
-      yield* printTroubles(report.troubles)
+      yield* printTroubles(report)
     },
     Effect.catchTag(userFacing, asUserError)
   )
