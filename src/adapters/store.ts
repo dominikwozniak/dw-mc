@@ -1,6 +1,6 @@
 import type { Config } from "effect"
 import { ByteSize, Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 
 import { xdgDirectory } from "#adapters/xdg.ts"
 

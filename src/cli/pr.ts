@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import { Argument, CliError } from "effect/unstable/cli"
+import { Argument, CliError } from "effect/cli"
 
 import { launcherOf, readOrEmpty, registeredIn, settingsFor } from "#adapters/config.ts"
 import { beating } from "#adapters/heartbeat.ts"

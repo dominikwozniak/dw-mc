@@ -1,5 +1,5 @@
 import { Console, Effect, Path } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 
 import { prune } from "#adapters/git.ts"
 import { beating } from "#adapters/heartbeat.ts"

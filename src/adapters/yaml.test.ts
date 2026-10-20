@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Yaml } from "effect/unstable/encoding"
+import { Yaml } from "effect/encoding"
 
 import type { Value } from "#adapters/yaml.ts"
 import { encodeYaml } from "#adapters/yaml.ts"

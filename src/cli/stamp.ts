@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 
 import { Paint } from "#adapters/paint.ts"
 import { opener, print } from "#cli/block.ts"

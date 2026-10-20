@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Duration, Effect, Fiber, PlatformError, Result } from "effect"
+import type { ChildProcess } from "effect/process"
 import { TestClock } from "effect/testing"
-import type { ChildProcess } from "effect/unstable/process"
 
 import { commandReview, findingsTurn, promptReview, reviewTurns, steeredSession } from "#adapters/claude.ts"
 import type { Launcher } from "#adapters/config.ts"

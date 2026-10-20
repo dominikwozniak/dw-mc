@@ -100,7 +100,11 @@ describe("the findings a review run reports", () => {
             type: "object",
             properties: {
               file: { type: "string" },
-              line: { type: "integer" },
+              line: {
+                type: "integer",
+                minimum: Number.MIN_SAFE_INTEGER,
+                maximum: Number.MAX_SAFE_INTEGER
+              },
               summary: { type: "string" },
               severity: { type: "string", enum: ["error", "warning", "info"] }
             },

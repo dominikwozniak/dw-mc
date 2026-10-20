@@ -1,5 +1,5 @@
 import { Effect, PlatformError, Schema } from "effect"
-import type { ChildProcessSpawner } from "effect/unstable/process"
+import type { ChildProcessSpawner } from "effect/process"
 
 import { capture } from "#adapters/spawner.ts"
 import type { CommandFailed } from "#adapters/spawner.ts"

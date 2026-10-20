@@ -2,7 +2,7 @@
 // oxlint-disable effecttsgo/strict-effect-provide -- the rule exempts entry points, and this file is the one
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Command } from "effect/cli"
 
 import { ConfigStore } from "#adapters/config.ts"
 import * as Paint from "#adapters/paint.ts"

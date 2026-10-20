@@ -1,5 +1,5 @@
 import { Effect, Path } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Command } from "effect/cli"
 
 import { Paint } from "#adapters/paint.ts"
 import { inventory, sessionBranch } from "#adapters/store.ts"

@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Command } from "effect/cli"
 
 import { failedRuns, rerunFailed, rollupState } from "#adapters/ci.ts"
 import { viewer } from "#adapters/gh.ts"

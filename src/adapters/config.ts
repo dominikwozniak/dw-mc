@@ -1,7 +1,7 @@
 import type { Config, Types } from "effect"
 import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Predicate, Schema } from "effect"
-import { Yaml } from "effect/unstable/encoding"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { Yaml } from "effect/encoding"
+import { KeyValueStore } from "effect/persistence"
 
 import { xdgDirectory } from "#adapters/xdg.ts"
 import type { Value } from "#adapters/yaml.ts"

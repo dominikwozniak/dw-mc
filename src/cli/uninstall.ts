@@ -1,5 +1,5 @@
 import { Console, Effect, FileSystem, Path } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 
 import { configDirectory, configPath } from "#adapters/config.ts"
 import { holding } from "#adapters/git.ts"

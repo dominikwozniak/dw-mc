@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, FileSystem, Layer, Path } from "effect"
-import type { ChildProcess } from "effect/unstable/process"
+import type { ChildProcess } from "effect/process"
 
 import { recording } from "#adapters/picker.ts"
 import { layerStubbed, refused, wrote } from "#adapters/spawner.ts"

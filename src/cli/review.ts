@@ -1,5 +1,5 @@
 import { DateTime, Effect, Exit, Option, Result, Schema } from "effect"
-import { CliError, Command, Flag } from "effect/unstable/cli"
+import { CliError, Command, Flag } from "effect/cli"
 
 import { reviewTurns } from "#adapters/claude.ts"
 import type { Launcher, Settings } from "#adapters/config.ts"

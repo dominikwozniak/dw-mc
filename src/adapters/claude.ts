@@ -3,7 +3,7 @@
  * and the sessions I steer.
  */
 import { Effect, Option, PlatformError, Result, Schema, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 import type { Reported, AgentFailed } from "#adapters/agent.ts"
 import { failedBy, patience, turn } from "#adapters/agent.ts"
