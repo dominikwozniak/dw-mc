@@ -1,6 +1,6 @@
 import type { DateTime } from "effect"
 import { Console, Effect, Option } from "effect"
-import { CliError, Command, Flag } from "effect/unstable/cli"
+import { CliError, Command, Flag } from "effect/cli"
 
 import { rollupState } from "#adapters/ci.ts"
 import type { Settings } from "#adapters/config.ts"

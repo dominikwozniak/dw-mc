@@ -85,15 +85,15 @@ Each line says whether it was run or read.
 
 Read `node_modules/effect/AGENTS.md` first, then `repos/effect/LLMS.md` for the module map ([ADR 0004](./adr/0004-effect-reference-material.md)). Everything below is under `node_modules/effect/src` unless noted.
 
-| need                             | module                                                                                                                                           |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| CLI commands, flags, subcommands | `unstable/cli` `Command`, example `ai-docs/src/70_cli/10_basics.ts`                                                                              |
-| interactive picker               | `unstable/cli` `Prompt`: `Select`, `MultiSelect`, `Confirm`, `AutoComplete`; needs `Terminal` from `@effect/platform-node` `NodeTerminal`        |
-| spawning `gh` and `claude`       | `unstable/process` `ChildProcess.make` + `ChildProcessSpawner` (`string`, `lines`, `spawn`, `exitCode`), example `ai-docs/src/60_child-process/` |
-| typed JSON state files           | `unstable/persistence` `KeyValueStore.layerFileSystem(dir)` + `toSchemaStore(store, schema)`                                                     |
-| filesystem, paths, services      | core `FileSystem`, `Path`; `NodeServices.layer` from the `@effect/platform-node` package                                                         |
-| retries and polling              | `Schedule`                                                                                                                                       |
-| tables                           | none in Effect; a small formatter of our own on `Terminal`                                                                                       |
+| need                             | module                                                                                                                                         |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI commands, flags, subcommands | `effect/cli` `Command`, example `ai-docs/src/70_cli/10_basics.ts`                                                                              |
+| interactive picker               | `effect/cli` `Prompt`: `Select`, `MultiSelect`, `Confirm`, `AutoComplete`; needs `Terminal` from `@effect/platform-node` `NodeTerminal`        |
+| spawning `gh` and `claude`       | `effect/process` `ChildProcess.make` + `ChildProcessSpawner` (`string`, `lines`, `spawn`, `exitCode`), example `ai-docs/src/60_child-process/` |
+| typed JSON state files           | `effect/persistence` `KeyValueStore.layerFileSystem(dir)` + `toSchemaStore(store, schema)`                                                     |
+| filesystem, paths, services      | core `FileSystem`, `Path`; `NodeServices.layer` from the `@effect/platform-node` package                                                       |
+| retries and polling              | `Schedule`                                                                                                                                     |
+| tables                           | none in Effect; a small formatter of our own on `Terminal`                                                                                     |
 
 ## Patterns lifted from the references
 

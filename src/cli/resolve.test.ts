@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
-import type { ChildProcess } from "effect/unstable/process"
+import type { ChildProcess } from "effect/process"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { builtInLauncher, write } from "#adapters/config.ts"

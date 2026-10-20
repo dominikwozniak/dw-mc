@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 
 import type { Inventory } from "#adapters/store.ts"
 import { allKeys, prKey } from "#adapters/store.ts"

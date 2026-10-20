@@ -1,5 +1,5 @@
 import { DateTime, Effect } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 
 import type { Thread } from "#adapters/conversation.ts"
 import { prConversation } from "#adapters/conversation.ts"

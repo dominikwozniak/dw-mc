@@ -84,7 +84,7 @@
       // line, so the direction is held here. The patterns match both spellings a module
       // has: the `#layer/` subpath name, and a relative specifier landing anywhere in the
       // layer, so a detour through `../../src/cli/` is caught too. A package path is not -
-      // `effect/unstable/cli` is an adapter's import.
+      // `effect/cli` is an adapter's import.
       "files": ["src/adapters/**"],
       "excludeFiles": ["src/**/*.test.ts"],
       "rules": {

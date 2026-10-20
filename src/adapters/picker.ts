@@ -1,6 +1,6 @@
 import type { Cause } from "effect"
 import { Console, Effect, Layer, Option, Queue, Terminal } from "effect"
-import { Prompt } from "effect/unstable/cli"
+import { Prompt } from "effect/cli"
 
 import { Paint, plain } from "#adapters/paint.ts"
 

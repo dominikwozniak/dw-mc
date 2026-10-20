@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 
 import type { ConfigFile, SettingsPatch } from "#adapters/config.ts"
 import { builtIn, ConfigStore, encode, merge, read, withDefaults, withRepo, write } from "#adapters/config.ts"

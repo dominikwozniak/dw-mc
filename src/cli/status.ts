@@ -1,5 +1,5 @@
 import { Console, DateTime, Effect, Schema } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Command, Flag } from "effect/cli"
 
 import { Paint } from "#adapters/paint.ts"
 import { prKey } from "#adapters/store.ts"

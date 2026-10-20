@@ -6,7 +6,7 @@
  * they can end in live here rather than once per turn.
  */
 import { Duration, Effect, Schema, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 /** A review run that would not start, would not finish, or finished badly. */
 export class AgentFailed extends Schema.TaggedError<AgentFailed>()("AgentFailed", {

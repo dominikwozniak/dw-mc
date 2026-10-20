@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { CliError } from "effect/unstable/cli"
+import { CliError } from "effect/cli"
 
 /**
  * The failures a command owes me a sentence for rather than a stack.

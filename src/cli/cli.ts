@@ -1,8 +1,8 @@
 import type { Config, PlatformError } from "effect"
 import { ConfigProvider, FileSystem, Layer, Path, Stdio, Terminal } from "effect"
-import { Command } from "effect/unstable/cli"
-import type { KeyValueStore } from "effect/unstable/persistence"
-import type { ChildProcessSpawner } from "effect/unstable/process"
+import { Command } from "effect/cli"
+import type { KeyValueStore } from "effect/persistence"
+import type { ChildProcessSpawner } from "effect/process"
 
 import { ConfigStore } from "#adapters/config.ts"
 import { layerScripted } from "#adapters/picker.ts"

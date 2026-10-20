@@ -1,5 +1,5 @@
 import { Console, Effect, Option } from "effect"
-import type { Prompt } from "effect/unstable/cli"
+import type { Prompt } from "effect/cli"
 
 import { readOrEmpty, settingsFor } from "#adapters/config.ts"
 import { Paint, ink, plain } from "#adapters/paint.ts"

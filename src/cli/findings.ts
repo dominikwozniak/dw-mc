@@ -1,5 +1,5 @@
 import { Console, Effect, Schema } from "effect"
-import { CliError, Command, Flag } from "effect/unstable/cli"
+import { CliError, Command, Flag } from "effect/cli"
 
 import type { Paint } from "#adapters/paint.ts"
 import { Paint as PaintService } from "#adapters/paint.ts"

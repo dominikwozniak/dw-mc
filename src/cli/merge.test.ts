@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Effect, FileSystem, Layer, Path } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 
 import type { ConfigFile } from "#adapters/config.ts"
 import { write } from "#adapters/config.ts"

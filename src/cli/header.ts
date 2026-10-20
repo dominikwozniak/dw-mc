@@ -1,7 +1,7 @@
 import type { Path, Stdio } from "effect"
 import { Config, Effect, Layer, Option } from "effect"
-import type { HelpDoc } from "effect/unstable/cli"
-import { CliConfig, CliOutput, GlobalFlag } from "effect/unstable/cli"
+import type { HelpDoc } from "effect/cli"
+import { CliConfig, CliOutput, GlobalFlag } from "effect/cli"
 
 import { ConfigStore, read, registeredIn } from "#adapters/config.ts"
 import type { Paint } from "#adapters/paint.ts"
